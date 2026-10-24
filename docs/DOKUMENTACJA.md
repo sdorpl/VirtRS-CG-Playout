@@ -263,6 +263,23 @@ npm test
 Testy jednostkowe, test integracyjny z udawanym VizRS i klientem ErsatzTV
 oraz prawdziwe przechwytywanie Chromium (pomijane bez przeglądarki).
 
+### Sprzątanie po testach w Dockerze
+
+Po testach na stosie Dockera zawsze posprzątaj: usuń kontenery, obrazy,
+wolumeny, sieci i pliki (zrzuty PNG, logi), które powstały tylko na
+potrzeby testu. **Nie ruszaj danych działających instancji tego projektu**
+– wolumenów podpiętych do jego obecnie działających kontenerów – żeby nie
+trzeba było ich bez powodu kopiować i konfigurować od nowa.
+
+Przed usunięciem wolumenu sprawdź, czy nie używa go działający kontener:
+
+```sh
+docker ps --filter volume=<wolumen>    # pusto = wolumen niczyj, można usunąć
+```
+
+Nie używaj `docker compose down -v`, `docker volume prune` ani `docker
+system prune --volumes` – usuwają dane bez takiego sprawdzenia.
+
 CI (`.github/workflows/ci.yml`) uruchamia testy przy każdym wypchnięciu na
 `main` i w PR, a po znaczniku `v*` (albo ręcznie) buduje obraz sidecara
 na amd64 i arm64 i publikuje go jako `ghcr.io/<właściciel>/virtrs-cg`.

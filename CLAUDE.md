@@ -43,6 +43,8 @@ npm test                                   # node --test test/*.test.mjs
 
 `units` (szablony, pakiety, konfiguracja), `integration` (udawany VizRS i klient ErsatzTV), `chromium` (prawdziwe przechwytywanie; pomijane bez przeglądarki).
 
+Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu (kontenery, obrazy, wolumeny, pliki), ale **dane działających instancji tego projektu zostawiaj** – bez `down -v` i `volume prune`. Szczegóły: DOKUMENTACJA §7.
+
 ## Struktura
 
 | Ścieżka | Rola |
