@@ -10,7 +10,8 @@ obok niezmienionego ErsatzTV:
 - **Reklamy bez grafiki** – na reklamie wszystkie warstwy na antenie schodzą;
   strony wracają jednym `TAKE` na pierwszym zwykłym klipie.
 - **Wtapianie (burn-in)** – strona `/output` VizRS renderowana bezgłowym
-  Chromium (bez GPU) i nakładana na obraz przez samo ErsatzTV.
+  Chromium (bez GPU) i nakładana na obraz w ffmpeg ErsatzTV (nakładka
+  ffmpeg) albo przez element grafiki ErsatzTV.
 
 ## Rodzina VizRS
 

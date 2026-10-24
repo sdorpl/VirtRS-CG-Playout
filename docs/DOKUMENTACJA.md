@@ -55,7 +55,9 @@ Sidecar (Node.js, w obrazie i CI najnowszy – `node:current`; minimum 22):
 | Adres | Co |
 |---|---|
 | `POST /etv?channel=1[&render=720p]` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV; `render` – rozmiar renderowania grafiki (§1) |
-| `GET /health` | liczba sesji i stan przechwytywania (`size` kanału, `render`, `status`: `capturing`, `paused`, `restarting`…, `seq`) |
+| `GET /ffmpeg?channel=1[&wait=2000]` | nakładka ffmpeg przejmuje wolną sesję elementu kanału; odpowiedź: `session`, `width`, `height`, `fps` (404 = brak sesji) |
+| `GET /ffmpeg/frames?session=N[&fps=25/1]` | surowe klatki `yuva420p` przejętej sesji dla ffmpeg (Nakładka ffmpeg, niżej) |
+| `GET /health` | liczba sesji, stan przechwytywania (`size` kanału, `render`, `status`: `capturing`, `paused`, `restarting`…, `seq`) i kanały z nakładką ffmpeg (`overlay`) |
 
 Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje najnowszą
 klatkę, przycina ją do widocznych obszarów i wysyła jako jeden pakiet
@@ -90,6 +92,102 @@ Strumień wyprzedza zegar najwyżej o `lead_seconds`
 i zarazem opóźnienie zmiany z VizRS na obrazie. Mniej = szybsza grafika,
 więcej = gdy odtwarzanie się zacina.
 
+### Nakładka ffmpeg
+
+Element „script” ma w ErsatzTV stały koszt, niezależny od grafiki: dla
+każdej klatki silnik grafiki ErsatzTV (.NET) rysuje płótno w rozmiarze kanału,
+koduje je do FFV1 w osobnym ffmpeg, a główny ffmpeg je dekoduje
+i konwertuje. Pomiar na Xeon E3-1270 v3 z NVENC, kanał 1080p25: przez ten
+łańcuch przechodzi ok. 14 kl./s, transkodowanie idzie 0,5–0,57× czasu
+rzeczywistego (segment 4 s co ok. 7 s), a widz stale czeka na bufor. Ani
+sidecar (równe 25 kl./s), ani główny ffmpeg (ok. 5× z grafiką z pliku) tego
+nie ograniczają, a `render_size` nie pomaga, bo płótno ErsatzTV zawsze ma
+rozmiar kanału.
+
+Nakładka [vizrs-ffmpeg.py](../client/vizrs-ffmpeg.py) omija ten łańcuch, tak
+jak VizRS ffPlayout System mieszał grafikę we własnym ffmpeg. W ErsatzTV
+ustawia się ją jako ścieżkę FFmpeg (**Settings → FFmpeg → FFmpeg Path** =
+`/vizrs/vizrs-ffmpeg.py`); kod ErsatzTV zostaje bez zmian.
+
+```
+ErsatzTV ── ffmpeg ──► vizrs-ffmpeg.py ── -i pipe:N (yuva420p) ◄── GET /ffmpeg/frames ── sidecar
+              │            └─ GET /internal/graphics/… (płótno: start elementu „script”, dane pozycji)
+              └─ każde inne wywołanie: prawdziwy ffmpeg bez zmian
+```
+
+1. Wywołanie bez wejścia płótna grafiki (`-i http://…/internal/graphics/<kanał>/<pozycja>`)
+   idzie do prawdziwego ffmpeg bez zmian (`exec`). Płótno z parametrem
+   `region` (same watermarki, bez elementu VizRS) też.
+2. Nakładka sama otwiera płótno z nagłówkami ErsatzTV i odczytuje je do
+   końca. ErsatzTV uruchamia więc element „script” jak zwykle: klient
+   przekazuje dane pozycji, a komendy, reklamy i `{next_*}` działają bez zmian.
+3. `GET /ffmpeg?channel=<kanał>` przejmuje sesję tego elementu (czeka na nią
+   do 2 s). Sidecar przestaje wysyłać do niej pakiety, a silnik grafiki
+   ErsatzTV czeka na następny pakiet, nie zużywając CPU.
+4. ffmpeg czyta wejście grafiki z gniazda `GET /ffmpeg/frames` przekazanego
+   jako `pipe:N`. Są to surowe klatki `yuva420p` w rozmiarze kanału,
+   w tempie kanału z `lead_seconds` zapasu (§1). Opcje płótna (`-headers`,
+   `-protocol_whitelist`, kodek, format) znikają, a `-t` i reszta komendy
+   zostają, łącznie z filtrem nakładania ErsatzTV (`overlay_cuda` itd.).
+5. Gdy ffmpeg kończy kawałek, sidecar kończy sesję elementu, a nakładka po
+   0,5 s zamyka płótno. ErsatzTV kończy wtedy element „script” jak bez
+   nakładki.
+
+Kanał, którego sesję przejęła nakładka, sidecar zapamiętuje. Kolejne sesje
+tego kanału od razu nic nie wysyłają do ErsatzTV. Jeśli nakładka nie
+przejmie sesji w 3 s, sidecar zapomina kanał i pakiety idą do ErsatzTV jak
+dawniej.
+
+Ten sam pomiar z nakładką: transkodowanie 1× (na początku kawałka szybciej,
+o zapas `lead_seconds`), CPU kontenera ErsatzTV ok. 20–30% zamiast ok. 360%,
+sidecar ok. 15%.
+
+Warunki i różnice:
+
+- Numer w `channel=` adresu elementu musi być numerem kanału ErsatzTV.
+  Nakładka zna kanał tylko z adresu płótna.
+- Z nakładką ErsatzTV nie rysuje własnych elementów grafiki tej pozycji
+  (tekst, obraz, watermarki z płótna). Logo i napisy daj do VizRS.
+- Kolory: klatki są w BT.709 (od 720 linii) albo BT.601, w zakresie
+  ograniczonym, z alfą prostą (nie premultiplikowaną). Ścieżka ErsatzTV
+  konwertowała zawsze w BT.601, więc w HD kolory grafiki są teraz wierniejsze.
+- Pozycja z innymi elementami grafiki, ale bez elementu VizRS, startuje
+  o 2 s później (nakładka czeka na sesję) i leci ścieżką ErsatzTV.
+- Na wejściu surowe klatki kosztują pasmo, ale nie CPU: 1080p to ok. 5 MB
+  na klatkę, ok. 130 MB/s przy 25 kl./s. Idą lokalnie przez sieć Dockera.
+
+Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
+
+| Zmienna | Domyślnie | Znaczenie |
+|---|---|---|
+| `VIZRS_CG_URL` | – (compose: `http://cg:7700`) | adres sidecara; puste = nakładka tylko przekazuje wywołania do ffmpeg |
+| `VIZRS_FFMPEG` | `/usr/local/bin/ffmpeg` | prawdziwy ffmpeg |
+| `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
+
+#### Klatkaż kanału (`VIZRS_FFMPEG_FPS`)
+
+ErsatzTV nie ma ustawienia klatkażu kanału. Bierze klatkaż materiałów, a przy
+**Normalize Framerate** w profilu FFmpeg najniższy z nich. Kanał z materiałami
+25 kl./s ma więc 25 kl./s. Z `VIZRS_FFMPEG_FPS=50` nakładka zmienia każde
+transkodowanie do HLS:
+
+- do wideo przed pierwszym filtrem nakładania wstawia `fps=50`
+  (`[v_m0][v_s0]overlay…` → `[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay…`),
+  więc grafika jest nakładana i porusza się w 50 kl./s, a nie tylko dublowana
+  na wyjściu;
+- przed `-f hls` dodaje `-r 50`, także w pozycjach bez grafiki VizRS (reklamy,
+  komenda oryginalna), żeby cały kanał miał jeden klatkaż;
+- surowe klatki grafiki idą w 50 kl./s, a sidecar przestawia przechwytywanie
+  Chromium na każdą klatkę (`/health`: `fps` przechwytywania).
+
+Inne wywołania (koder płótna ErsatzTV, kopiowanie strumienia `-c copy`,
+remuks do MPEG-TS) zostają bez zmian. Obraz materiału 25 kl./s nie robi się
+płynniejszy, bo każda jego klatka jest powtórzona; płynniejsza jest grafika.
+Koszt: animacja grafiki to dwa razy więcej PNG w Chromium i sidecarze (pomiar
+na Xeon E3-1270 v3, 1080p50: ok. 170% CPU sidecara w trakcie animacji, kilka
+procent przy grafice stojącej), surowe klatki 1080p to ok. 260 MB/s, a koder
+dostaje dwa razy więcej klatek (`-g 50` z profilu oznacza wtedy GOP 1 s).
+
 Gdy przez 30 s nie ma żadnej sesji danego rozmiaru (ErsatzTV transkoduje
 kanał tylko przy widzach), przechwytywanie przechodzi w `paused`: Chromium
 zostaje uruchomiony ze stroną `/output`, ale nie renderuje klatek (przy
@@ -109,7 +207,7 @@ szablony komend; nowe funkcje VirtRS CG nie mają już odpowiednika tam.
 | komendy klipu / reklamy | `on_clip` / `on_ad` |
 | URL wtapiania | `output_url` |
 | reklama = `"category": "advertisement"` | `ad_match.path` / `ad_match.title` (wyrażenia regularne na ścieżce i tytule) |
-| wtapianie w łańcuchu filtrów ffmpeg | element grafiki „script” ErsatzTV, `z_index: 100` |
+| wtapianie w łańcuchu filtrów ffmpeg | nakładka ffmpeg (§1), bez niej element grafiki „script” ErsatzTV, `z_index: 100` |
 | reklama zaznaczona na pozycji | pozycja harmonogramu bez elementu **VizRS** (`ad_without_element`) |
 | lista `vizrs` na pozycji playlisty | brak (ErsatzTV nie ma pól na pozycję) |
 | `{next_*}` z playlisty | z wpisów EPG ErsatzTV (`epg_entries: 3`) |
@@ -166,6 +264,12 @@ W ErsatzTV dodaj element **VizRS** do pozycji harmonogramu
 do playoutu i zresetuj playout – bez tego ErsatzTV nie uruchamia skryptu.
 Przy kilku kanałach skopiuj element z `channel=2`, … w URL.
 
+Compose montuje też [nakładkę ffmpeg](../client/vizrs-ffmpeg.py) (§1) do
+`/vizrs` i ustawia ErsatzTV `VIZRS_CG_URL=http://cg:7700`. Baza startowa
+(`seed/`) ma już ścieżkę FFmpeg `/vizrs/vizrs-ffmpeg.py`. W istniejącej
+instancji ustaw ją w **Settings → FFmpeg → FFmpeg Path**. Powrót do ścieżki
+grafiki ErsatzTV: `/usr/local/bin/ffmpeg` albo `VIZRS_CG_URL=` (puste).
+
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 Ustawienia stałe dla danej maszyny (nazwa projektu, nakładki, porty, tokeny)
 trzymaj w pliku `.env` obok compose (poza gitem), np.
@@ -185,7 +289,7 @@ z danymi zostaje nietknięty (w logu `seed: … present, left alone`), więc
 | Katalog | Zawartość | Trafia do |
 |---|---|---|
 | `seed/vizrs-data/` | show „Newsroom INFO24” (`shows/newsroom-info24.json`, aktywny), `show.json`, tła z `assets/` | wolumen `vizrs-data` (`/data` VizRS) |
-| `seed/ersatztv-config/ersatztv.sqlite3` | baza ErsatzTV: kanał 1 z elementem **VizRS**, harmonogram, biblioteka `/media`, profil FFmpeg 1080p x264 | wolumen `ersatztv-config` (`/config`) |
+| `seed/ersatztv-config/ersatztv.sqlite3` | baza ErsatzTV: kanał 1 z elementem **VizRS**, harmonogram, biblioteka `/media`, profil FFmpeg 1080p x264, ścieżka FFmpeg = nakładka (§1) | wolumen `ersatztv-config` (`/config`) |
 | `seed/media/` | odcinki testowe i reklama (`reklamy/` – bez grafiki) | montowany jako `/media` (domyślne `MEDIA_DIR`) |
 
 Bez sekretów: nie ma tu plików `*-secrets.json`, kluczy `data-protection`,
@@ -198,7 +302,8 @@ normalne). Profil FFmpeg koduje programowo (Hardware Acceleration: None),
 Odświeżenie danych startowych z działającej instancji: zatrzymaj ErsatzTV
 (`docker compose stop ersatztv`, baza bez otwartego WAL), skopiuj z wolumenów
 `show.json`, `shows/`, `assets/` i `ersatztv.sqlite3` do `seed/`, w kopii
-bazy ustaw `FFmpegProfile.HardwareAcceleration = 0` i usuń wpis
+bazy ustaw `FFmpegProfile.HardwareAcceleration = 0` i `ffmpeg.ffmpeg_path =
+/vizrs/vizrs-ffmpeg.py` w `ConfigElement`, usuń wpis
 `search_index.version` z `ConfigElement`, potem `docker compose start ersatztv`.
 Własne media trzymaj w `media/` (poza gitem) i wskaż je przez
 `MEDIA_DIR=./media`; ścieżki w ErsatzTV zaczynają się od `/media`.
@@ -277,7 +382,7 @@ Sprawdzenie: `docker compose exec ersatztv nvidia-smi` i
 `docker compose exec ersatztv ffmpeg -hide_banner -f lavfi -i testsrc2 -t 3 -c:v h264_nvenc -f null -`.
 Komunikat `could not select device driver "nvidia"` oznacza starą wersję nakładki
 albo brak specyfikacji CDI. Grafika się nie
-zmienia – trafia do ErsatzTV jako surowe klatki RGBA, więc sidecar i jego
+zmienia – trafia do ffmpeg ErsatzTV jako surowe klatki (§1), więc sidecar i jego
 Chromium nie potrzebują GPU. Karty konsumenckie ograniczają liczbę
 równoległych sesji NVENC, czyli kanałów transkodowanych naraz.
 
@@ -326,6 +431,16 @@ Po awarii przeglądarki grafika jest czyszczona, a Chromium wraca po 3 s.
 Przeglądarka ma 30 s na start i otwarcie `/output` (pierwszy start na zimnej
 maszynie, np. małej VM ARM, potrafi trwać 15–20 s); potem jest restartowana.
 Gdy sidecar jest nieosiągalny, klient kończy pracę i pozycja leci bez grafiki.
+
+Nakładka ffmpeg uruchamia oryginalną komendę ErsatzTV (z płótnem grafiki
+ErsatzTV), gdy sidecar nie odpowiada, nie ma sesji elementu VizRS albo
+strumień klatek się nie otwiera. Do logu ErsatzTV trafia wtedy linia
+`vizrs-ffmpeg: …; ErsatzTV graphics instead`. Przerwany strumień klatek
+w trakcie kawałka zostawia ostatni obraz grafiki do końca kawałka (najwyżej
+kilkadziesiąt sekund), bo ffmpeg ErsatzTV przy końcu wejścia nakładki
+powtarza jego ostatnią klatkę; obraz programu leci dalej. Gdy ErsatzTV zabija
+nakładkę, ffmpeg dostaje `SIGTERM` (`PR_SET_PDEATHSIG`); sygnały zamknięcia
+(`SIGTERM`, `SIGINT`, …) nakładka przekazuje ffmpeg.
 
 ## 7. Testy
 

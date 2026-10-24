@@ -76,6 +76,11 @@ services:
         condition: service_started
     environment:
       TZ: ${TZ:-Europe/Warsaw}
+      # ffmpeg overlay (FFmpeg path /vizrs/vizrs-ffmpeg.py in ErsatzTV): ffmpeg takes
+      # the graphics straight from the sidecar. Empty = plain ffmpeg.
+      VIZRS_CG_URL: ${VIZRS_CG_URL-http://cg:7700}
+      # Channel frame rate forced by the overlay, e.g. 50; empty = the media's rate.
+      VIZRS_FFMPEG_FPS: ${VIZRS_FFMPEG_FPS:-}
     volumes:
       - ersatztv-config:/config
       - ./etv/templates/graphics-elements/script/vizrs.yml:/config/templates/graphics-elements/script/vizrs.yml:ro

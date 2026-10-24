@@ -1,7 +1,7 @@
 # VirtRS CG Playout
 
 Sidecar (Node.js – najnowszy, minimum 22 – + bezgłowy Chromium) łączący **ErsatzTV** z silnikiem grafiki **VizRS**: komendy TCP na start klipu,
-reklamy bez grafiki i wtapianie `/output` przez element grafiki „script” ErsatzTV. ErsatzTV zostaje niezmienione.
+reklamy bez grafiki i wtapianie `/output` – przez nakładkę ffmpeg (grafika wprost do ffmpeg ErsatzTV) albo element grafiki „script” ErsatzTV. Kod ErsatzTV zostaje niezmieniony.
 
 Rodzina VizRS (repozytoria obok, `../`):
 - **VizRS CG System** (`../VizRS CG System`) – silnik grafiki (Rust): Artist, Trio, `/output`, API TCP 6100 / HTTP / SSE. Plan kanału: `docs/plany/PLAN-kanal.md`.
@@ -20,7 +20,7 @@ Język pracy z użytkownikiem i dokumentacji: **polski**. Kod, komentarze i komu
 
 - **Z VizRS tylko przez protokół**: TCP 6100 (`AUTH`, `STATE`, `TAKE`, `OUT`, …) i strona `/output`. Nie kopiuj kodu między repozytoriami rodziny (różne licencje; ffPlayout jest GPL-3.0).
 - **Wzorzec VizRS ffPlayout System (archiwum)**: opcje (`on_clip`, `on_ad`, `output_url`, adres/token), symbole zastępcze i zachowanie reklam pochodzą z ffPlayout i zostają zgodne, żeby szablony komend dało się przenieść. ffPlayout nie jest już rozwijany: nowe funkcje projektuj tutaj, niczego tam nie dopasowuj (tabela w DOKUMENTACJA §2 to mapa pojęć).
-- **ErsatzTV bez zmian**: integracja tylko przez element „script” (`etv/templates/graphics-elements/script/vizrs.yml`) i klienta `client/vizrs-etv-client.py` (sama biblioteka standardowa Pythona – obraz ErsatzTV nie ma nic więcej).
+- **ErsatzTV bez zmian w kodzie**: integracja tylko przez element „script” (`etv/templates/graphics-elements/script/vizrs.yml`), klienta `client/vizrs-etv-client.py` i nakładkę ffmpeg `client/vizrs-ffmpeg.py` ustawioną jako ścieżka FFmpeg (sama biblioteka standardowa Pythona – obraz ErsatzTV nie ma nic więcej). Nakładka zmienia wyłącznie wejście płótna grafiki; każde inne wywołanie i każdy błąd = oryginalna komenda.
 - **Grafika nigdy nie zatrzymuje emisji**: komendy w tle z limitami czasu, błędy tylko do logu, awaria Chromium = czyste klatki i restart, brak sidecara = klip bez grafiki.
 - **Bez GPU na ścieżce grafiki**: Chromium renderuje programowo; docelowo także Oracle Cloud Ampere A1 (arm64) – pamiętaj o budżecie CPU. Obraz buduje się na amd64 i arm64.
 - **Mało zależności**: jedyna zależność runtime to `sharp` (wersja przypięta). Nowej nie dodawaj bez potrzeby.
@@ -51,12 +51,14 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 |---|---|
 | `bin/virtrs-cg.js` | start: konfiguracja, serwer, zamykanie |
 | `src/config.js` | domyślne opcje, plik JSON, zmienne środowiskowe |
-| `src/server.js` | HTTP: `POST /etv?channel=N` (strumień pakietów), `GET /health`; przechwytywanie na rozmiar, zdarzenia na kanał |
+| `src/server.js` | HTTP: `POST /etv?channel=N` (strumień pakietów), `GET /ffmpeg`, `GET /ffmpeg/frames` (nakładka ffmpeg), `GET /health`; przechwytywanie na rozmiar, zdarzenia na kanał |
 | `src/template.js` | kontekst klipu z danych szablonu ErsatzTV, symbole `{title}`, `{next_*}`…, wykrywanie reklam |
 | `src/vizrs.js` | klient TCP VizRS (`AUTH`, `STATE`, komendy), kolejka zdarzeń kanału, zdejmowanie/przywracanie stron przy reklamach |
 | `src/capture.js` | bezgłowy Chromium (DevTools screencast) renderujący `/output`, restart po awarii |
 | `src/png.js`, `src/packets.js`, `src/stream.js` | dekodowanie PNG (sharp), pakiety ETV (`Rectangles`/`Repeat`), tempo strumienia i `lead_seconds` |
 | `client/vizrs-etv-client.py` | klient w kontenerze ErsatzTV: stdin → sidecar → stdout |
+| `client/vizrs-ffmpeg.py` | nakładka ffmpeg ErsatzTV: płótno grafiki zastąpione klatkami `yuva420p` z sidecara (DOKUMENTACJA §1) |
+| `src/yuva.js` | klatki `yuva420p` dla nakładki ffmpeg |
 | `etv/templates/…/vizrs.yml` | definicja elementu grafiki „VizRS” dla ErsatzTV |
 | `Dockerfile` | obraz sidecara (używany przez compose) |
 | `docker/sidecar.Dockerfile` | starsza wersja obrazu, nieużywana przez compose |

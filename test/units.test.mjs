@@ -8,9 +8,11 @@ import { loadConfig } from "../src/config.js";
 import { clearPacket, crop, framePacket, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
 import { decodePng } from "../src/png.js";
 import { renderSize, scaleRects } from "../src/scale.js";
-import { SAMPLE_DELAY_MS, streamFrames } from "../src/stream.js";
+import { parseRate } from "../src/server.js";
+import { SAMPLE_DELAY_MS, streamFrames, yuvaFormat } from "../src/stream.js";
 import { clipContext, isAd, renderCommands, timeSpanSeconds } from "../src/template.js";
 import { onAir } from "../src/vizrs.js";
+import { framePicture, yuvaFrame, yuvaSize } from "../src/yuva.js";
 
 import { encodePng, readFrames } from "./helpers.mjs";
 
@@ -277,4 +279,61 @@ test("config overrides", () => {
   assert.equal(loadConfig(null, { VIZRS_AD_WITHOUT_ELEMENT: "0" }).ad_without_element, false);
   assert.equal(config.render_size, "");
   assert.equal(loadConfig(null, { VIZRS_RENDER_SIZE: "720p" }).render_size, "720p");
+});
+
+test("yuva420p frames: limited range, straight alpha, chroma weighted by alpha", () => {
+  const empty = yuvaFrame([], 4, 2);
+  assert.equal(empty.length, yuvaSize(4, 2));
+  assert.deepEqual([...empty], [16, 16, 16, 16, 16, 16, 16, 16, 128, 128, 128, 128, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+  // White opaque at (0,0), half-transparent red at (1,0); the rest of the block is empty.
+  const pixels = Buffer.from([255, 255, 255, 255, 255, 0, 0, 128]);
+  const frame = yuvaFrame([{ x: 0, y: 0, w: 2, h: 1, pixels }], 4, 2);
+  assert.deepEqual([...frame.subarray(0, 8)], [235, 81, 16, 16, 16, 16, 16, 16], "Y (BT.601 below 720 lines)");
+  assert.deepEqual([...frame.subarray(12)], [255, 128, 0, 0, 0, 0, 0, 0], "A");
+  // U/V of the block: alpha-weighted mix of white and red, not pulled to grey by the empty pixels.
+  const red = (k) => Math.round(128 + ((128 * 255 * k) / 383));
+  assert.equal(frame[8], red(-0.1482));
+  assert.equal(frame[10], red(0.4392));
+  assert.deepEqual([frame[9], frame[11]], [128, 128], "untouched block");
+
+  // HD frames use BT.709: red is darker in luma than in BT.601.
+  const hd = yuvaFrame([{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.from([255, 0, 0, 255]) }], 1280, 720);
+  assert.equal(hd[0], 63);
+  assert.equal(yuvaFrame([{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.from([255, 0, 0, 255]) }], 4, 2)[0], 81);
+});
+
+test("raw stream writes the whole picture on every output frame", () => {
+  const response = new EventEmitter();
+  const written = [];
+  response.write = (buffer) => written.push(buffer);
+  const capture = { frame: { seq: 1, rects: [{ x: 1, y: 0, w: 1, h: 1, pixels: Buffer.from([0, 0, 255, 255]) }] } };
+  const stream = streamFrames(capture, response, { fps: 25, leadSeconds: 0.2, format: yuvaFormat(4, 2) });
+  stream.stop();
+
+  assert.equal(written.length, 6);
+  assert.ok(written.every((buffer) => buffer === framePicture(capture.frame, 4, 2)), "one buffer, built once");
+  assert.equal(written[0][12 + 1], 255);
+});
+
+test("a paused stream writes nothing until resumed, then starts its lead again", async () => {
+  const response = new EventEmitter();
+  const written = [];
+  response.write = (buffer) => written.push(buffer);
+  const stream = streamFrames({ frame: { seq: 1, rects: [] } }, response, { fps: 25, leadSeconds: 0.2, paused: true });
+  await sleep(100);
+  assert.equal(written.length, 0);
+  stream.resume();
+  stream.stop();
+  // One picture packet and one Repeat for the 6 lead frames, not the 100 ms held.
+  assert.equal(written.length, 2);
+  assert.equal(stream.sent, 6);
+});
+
+test("frame rates from ErsatzTV", () => {
+  assert.equal(parseRate("25/1"), 25);
+  assert.equal(parseRate("30000/1001"), 30000 / 1001);
+  assert.equal(parseRate("50"), 50);
+  assert.equal(parseRate(""), 0);
+  assert.equal(parseRate("x/0"), 0);
 });

@@ -187,6 +187,21 @@ export class Capture {
     this.idleTimer.unref();
   }
 
+  /** A session needs more frames (the ffmpeg overlay at 50 fps): capture every n-th frame for it. */
+  raiseFps(fps) {
+    if (!(fps > this.fps)) return;
+    const before = everyNthFrame(this.fps);
+    this.fps = fps;
+    if (everyNthFrame(fps) === before) return;
+    this.log.info(`burn-in ${this.key}: capturing for ${fps} fps`);
+    if (this.screencast && this.active) {
+      // A new step needs a new screencast.
+      this.screencast(false)
+        .then(() => this.screencast(true))
+        .catch((error) => this.log.warn(`burn-in ${this.key}: ${error.message}`));
+    }
+  }
+
   setActive(active) {
     this.active = active;
     this.log.info(`burn-in ${this.key}: ${active ? "resumed" : "paused, no sessions"}`);
@@ -319,11 +334,10 @@ export class Capture {
     const { sessionId } = await devtools.call("Target.attachToTarget", { targetId, flatten: true });
     const call = (method, params) => devtools.call(method, params, sessionId);
 
-    const step = everyNthFrame(this.fps);
     let settleTimer = null;
     const settle = () => {
       clearTimeout(settleTimer);
-      if (step === 1 || !this.active) return;
+      if (everyNthFrame(this.fps) === 1 || !this.active) return;
       settleTimer = setTimeout(() => {
         call("Page.captureScreenshot", { format: "png" })
           .then(({ data }) => this.active && this.pushPng(data, performance.now()))
@@ -353,10 +367,10 @@ export class Capture {
     await call("Page.enable");
 
     // Not faster than the channel needs, as in VizRS ffPlayout System: half the PNG work at 24–30 fps.
-    const screencast = { format: "png", maxWidth: this.width, maxHeight: this.height, everyNthFrame: step };
+    const screencast = () => ({ format: "png", maxWidth: this.width, maxHeight: this.height, everyNthFrame: everyNthFrame(this.fps) });
     this.screencast = async (active) => {
       if (active) {
-        await call("Page.startScreencast", screencast);
+        await call("Page.startScreencast", screencast());
         settle();
       } else {
         await call("Page.stopScreencast");
