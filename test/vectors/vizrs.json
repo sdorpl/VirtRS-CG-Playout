@@ -1,0 +1,52 @@
+{
+ "on_air": [
+  {
+   "reply": "OK {\"layers\":[{\"layer\":\"main\",\"page\":\"1001\"},{\"layer\":\"logo\",\"page\":\"\"}]}",
+   "result": {
+    "out": "OUT main,logo",
+    "pages": [
+     "1001"
+    ]
+   }
+  },
+  {
+   "reply": "OK {\"layers\":[{\"layer\":\"main\",\"page\":{\"id\":\"p1\",\"number\":1001,\"name\":\"Belka\"}}]}",
+   "result": {
+    "out": "OUT main",
+    "pages": [
+     "1001"
+    ]
+   }
+  },
+  {
+   "reply": "OK {\"layers\":[{\"layer\":\"a\",\"page\":7},{\"layer\":\"b\"},{\"page\":\"9\"},{\"layer\":\"c\",\"page\":null}]}",
+   "result": {
+    "out": "OUT a,b,c",
+    "pages": [
+     "7",
+     "9"
+    ]
+   }
+  },
+  {
+   "reply": "OK {\"layers\":[]}",
+   "result": null
+  },
+  {
+   "reply": "OK {}",
+   "result": null
+  },
+  {
+   "reply": "OK not json",
+   "result": null
+  },
+  {
+   "reply": "ERR unauthorized",
+   "result": null
+  },
+  {
+   "reply": "",
+   "result": null
+  }
+ ]
+}

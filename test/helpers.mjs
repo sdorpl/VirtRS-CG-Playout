@@ -1,9 +1,24 @@
-// Test helpers: a PNG encoder and a packet reader that follows ErsatzTV's
-// ScriptElement.PrepareFromPacket (one frame per call).
+// Test helpers: a PNG encoder, a packet reader that follows ErsatzTV's
+// ScriptElement.PrepareFromPacket (one frame per call) and the yuva420p frame
+// layout. Independent of src/, so the black-box tests run against any build.
 
 import { deflateSync } from "node:zlib";
 
-import { MAGIC, Type } from "../src/packets.js";
+const MAGIC = 0x47565445;
+const Type = { Full: 0, Repeat: 1, Clear: 2, Rectangles: 3 };
+
+/** Bytes of one yuva420p frame: planes Y, U, V, A. */
+export function yuvaSize(width, height) {
+  return width * height * 2 + Math.ceil(width / 2) * Math.ceil(height / 2) * 2;
+}
+
+/** A fully transparent yuva420p frame: Y 16, U/V 128, A 0. */
+export function blankYuva(width, height) {
+  const frame = Buffer.alloc(yuvaSize(width, height));
+  frame.fill(16, 0, width * height);
+  frame.fill(128, width * height, frame.length - width * height);
+  return frame;
+}
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n;

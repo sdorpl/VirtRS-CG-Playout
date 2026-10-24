@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etap 0 zrobiony** – praca nad nakładką ffmpeg zacommitowana na `main` (44a693a), gałąź `rust-edit`, szkielet crate'a w `rust/`. Następny: etap 1 (testy kontraktu).
+> Status (2026-10-25): **etapy 0–1 zrobione** – gałąź `rust-edit`, szkielet crate'a w `rust/`, testy kontraktu (czarna skrzynka z `VIRTRS_CG_BIN`, wektory `test/vectors/`). Następny: etap 2 (szkielet sidecara w Ruście).
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -46,8 +46,8 @@ Model wątków:
 
 ## 3. Testy: najpierw kontrakt
 
-1. **Czarna skrzynka.** `test/integration.test.mjs` uruchamia binarkę z `VIRTRS_CG_BIN` (domyślnie `node bin/virtrs-cg.js`) zamiast wołać `createServer()` w procesie. Rozmiary renderowania sprawdza przez `/health` zamiast `captureFactory`. Testy z klatkami idą na prawdziwym Chromium ze stroną serwowaną przez test (pomijane bez przeglądarki).
-2. **Wektory referencyjne.** Skrypt Node zapisuje `test/vectors/*.json` z obecnej implementacji: `clipContext`, `renderCommands`, `timeSpanSeconds`, `renderSize`, `parseRate`, `onAir`, `visibleRects`, bajty pakietów i `yuva`. `cargo test` porównuje bajt w bajt. Skalowanie porównuje z tolerancją ±2 na kanał.
+1. **Czarna skrzynka.** `test/integration.test.mjs` uruchamia binarkę z `VIRTRS_CG_BIN` (domyślnie `node bin/virtrs-cg.js`) zamiast wołać `createServer()` w procesie. Rozmiary renderowania i klatkaż sprawdza przez `/health` zamiast atrapy przechwytywania. Przeglądarką jest `/bin/false`, więc klatki są przezroczyste. Treść grafiki sprawdza `chromium.test.mjs` na prawdziwym Chromium: pakiety ETV i `yuva420p` przez proces sidecara. Wymagania wobec budowy Rusta: `/health` z polami `sessions`, `captures[].size`, `render`, `fps`, `status`, `seq`; ukryta opcja `gap_grace_ms` w pliku konfiguracji; nieudany start przeglądarki = przezroczyste klatki i ponowna próba.
+2. **Wektory referencyjne.** `test/vectors/generate.mjs` zapisuje `test/vectors/*.json` z obecnej implementacji: `template` (kontekst klipu, komendy, TimeSpan, zegar, reklamy), `vizrs` (`onAir`), `config` (domyślne, plik, zmienne), `server` (`parseRate`, `renderSize`, `everyNthFrame`), `frames` (prostokąty, pakiety, `yuva`), `png`, `scale`. Obrazy są opisane wypełnieniami (`paint`), więc Rust buduje to samo RGBA. `cargo test` porównuje bajt w bajt, a skalowanie z tolerancją ±2 na kanał.
 3. **CI:** `cargo test`, potem `npm test` z `VIRTRS_CG_BIN=rust/target/release/virtrs-cg`.
 
 ## 4. Etapy
@@ -57,7 +57,7 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | # | Etap | Zakres | Stan |
 |---|---|---|---|
 | 0 | Przygotowanie | praca na `main` zacommitowana, gałąź `rust-edit`, crate w `rust/` (bo `src/` zajmuje JS), job `rust` w CI | ✅ |
-| 1 | Kontrakt | testy czarnej skrzynki i generator wektorów, nadal na JS | |
+| 1 | Kontrakt | testy czarnej skrzynki (`test/sidecar.mjs`, przeglądarka `/bin/false` = przezroczyste klatki; treść grafiki w `chromium.test.mjs`) i wektory `test/vectors/*.json` z generatorem, nadal na JS | ✅ |
 | 2 | Szkielet | `config.rs` (JSON + zmienne), log, `/health`, argument `config.json`/`CONFIG` | |
 | 3 | Logika bez grafiki | `template.rs` (daty ISO z offsetem i 7 cyframi ułamka z .NET), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`, reklamy, `GAP_GRACE`), `/etv` z pustymi klatkami | |
 | 4 | Klatki | `packets.rs`, `png.rs`, `rects.rs`, `yuva.rs`, `scale.rs`, `stream.rs` (wyprzedzenie, `SAMPLE_DELAY_MS`, `Repeat`); cecha `Source` z atrapą do testów | |

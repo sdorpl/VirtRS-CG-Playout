@@ -448,8 +448,30 @@ nakładkę, ffmpeg dostaje `SIGTERM` (`PR_SET_PDEATHSIG`); sygnały zamknięcia
 npm test
 ```
 
-Testy jednostkowe, test integracyjny z udawanym VizRS i klientem ErsatzTV
-oraz prawdziwe przechwytywanie Chromium (pomijane bez przeglądarki).
+- `units` – testy jednostkowe modułów `src/`.
+- `integration` – sidecar jako **czarna skrzynka**: osobny proces
+  (`test/sidecar.mjs`) z plikiem konfiguracji, udawany VizRS (TCP), prawdziwe
+  klienty w Pythonie (`client/*.py`). Przeglądarką jest `/bin/false`, więc
+  przechwytywanie istnieje, ale klatki są przezroczyste, jak po awarii
+  Chromium. Testy sprawdzają tylko protokół (`/etv`, `/ffmpeg`,
+  `/ffmpeg/frames`, `/health`) i komendy VizRS.
+- `chromium` – prawdziwe przechwytywanie, także przez proces sidecara
+  (pakiety ETV i klatki `yuva420p`). Bez przeglądarki te testy są pomijane.
+- `vectors` – wektory referencyjne `test/vectors/*.json`: wejścia i dokładne
+  wyniki czystych funkcji (kontekst klipu, komendy, konfiguracja, prostokąty,
+  pakiety, `yuva420p`, PNG, skalowanie z tolerancją ±2). Test pilnuje, żeby
+  zgadzały się z wersją Node.js. Po zamierzonej zmianie zachowania wektory
+  regeneruje `node test/vectors/generate.mjs`.
+
+Testy czarnej skrzynki uruchamiają domyślnie `node bin/virtrs-cg.js`. Inną
+budowę tego samego kontraktu, np. binarkę Rusta w trakcie migracji
+(`docs/plany/PLAN-rust.md`), wskazuje się zmienną `VIRTRS_CG_BIN`:
+
+```sh
+VIRTRS_CG_BIN=rust/target/release/virtrs-cg node --test test/integration.test.mjs test/chromium.test.mjs
+```
+
+Przy `TRACE=1` log sidecara każdego testu trafia na stderr.
 
 ### Sprzątanie po testach w Dockerze
 

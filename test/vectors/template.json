@@ -1,0 +1,577 @@
+{
+ "contexts": [
+  {
+   "data": {
+    "Resolution": {
+     "Width": 1280,
+     "Height": 720,
+     "Name": "720p"
+    },
+    "FrameRate": 25,
+    "MediaItem_Path": "/media/news/Wiadomosci.mp4",
+    "MediaItem_Title": "",
+    "MediaItem_ShowTitle": "Wiadomości",
+    "MediaItem_Start": "2026-10-24T20:00:00+02:00",
+    "MediaItem_Stop": "2026-10-24T20:30:00+02:00",
+    "MediaItem_StreamSeek": "00:01:30.5000000",
+    "Epg": [
+     {
+      "Title": "Wiadomości",
+      "Start": "2026-10-24T20:00:00+02:00",
+      "Stop": "2026-10-24T20:30:00+02:00"
+     },
+     {
+      "Title": "Film | premiera",
+      "Start": "2026-10-24T20:30:00+02:00",
+      "Stop": "2026-10-24T22:10:00+02:00"
+     }
+    ]
+   },
+   "ctx": {
+    "title": "Wiadomości",
+    "show_title": "Wiadomości",
+    "source": "/media/news/Wiadomosci.mp4",
+    "start": "2026-10-24T20:00:00+02:00",
+    "stop": "2026-10-24T20:30:00+02:00",
+    "duration": 1800,
+    "seek": 90.5,
+    "next_title": "Film | premiera",
+    "next_start_full": "20:30:00",
+    "next_duration": 6000,
+    "width": 1280,
+    "height": 720,
+    "fps": 25
+   }
+  },
+  {
+   "data": {
+    "Resolution": {
+     "Width": 1920,
+     "Height": 1080
+    },
+    "FrameRate": "50",
+    "MediaItem_Path": "/media/filmy/Noc w muzeum (2006).mkv",
+    "MediaItem_Title": "Noc w muzeum\nreżyserska",
+    "MediaItem_ShowTitle": "Kino",
+    "MediaItem_Start": "2026-10-24T21:59:59.5000000+02:00",
+    "MediaItem_Stop": "2026-10-24T23:47:12.2500000+02:00",
+    "MediaItem_StreamSeek": "01:02:03.0040000",
+    "Epg": [
+     {
+      "Title": "Teraz",
+      "Start": "2026-10-24T22:00:00.0000000+02:00",
+      "Stop": "2026-10-24T23:47:12.0000000+02:00"
+     },
+     {
+      "Title": "Potem",
+      "Start": "2026-10-24T23:47:12.0000000+02:00",
+      "Stop": "2026-10-25T00:17:12.0000000+02:00"
+     }
+    ]
+   },
+   "ctx": {
+    "title": "Noc w muzeum\nreżyserska",
+    "show_title": "Kino",
+    "source": "/media/filmy/Noc w muzeum (2006).mkv",
+    "start": "2026-10-24T21:59:59.5000000+02:00",
+    "stop": "2026-10-24T23:47:12.2500000+02:00",
+    "duration": 6432.75,
+    "seek": 3723.004,
+    "next_title": "Potem",
+    "next_start_full": "23:47:12",
+    "next_duration": 1800,
+    "width": 1920,
+    "height": 1080,
+    "fps": 50
+   }
+  },
+  {
+   "data": {
+    "Resolution": {
+     "Width": 720,
+     "Height": 576
+    },
+    "FrameRate": 25,
+    "MediaItem_Path": "/m/a.mp4",
+    "MediaItem_Title": "A",
+    "MediaItem_Start": "2026-10-24T18:00:00Z",
+    "MediaItem_Stop": "2026-10-24T18:00:30Z",
+    "Epg": [
+     {
+      "Title": "Ten sam",
+      "Start": "2026-10-24T18:00:01Z",
+      "Stop": "2026-10-24T18:00:30Z"
+     },
+     {
+      "Title": "Następny",
+      "Start": "2026-10-24T18:00:30Z",
+      "Stop": "2026-10-24T18:30:00Z"
+     }
+    ]
+   },
+   "ctx": {
+    "title": "A",
+    "show_title": "",
+    "source": "/m/a.mp4",
+    "start": "2026-10-24T18:00:00Z",
+    "stop": "2026-10-24T18:00:30Z",
+    "duration": 30,
+    "seek": 0,
+    "next_title": "Następny",
+    "next_start_full": "18:00:30",
+    "next_duration": 1770,
+    "width": 720,
+    "height": 576,
+    "fps": 25
+   }
+  },
+  {
+   "data": {
+    "MediaItem_Path": "/m/plansza.mp4",
+    "MediaItem_Duration": "1.02:00:00"
+   },
+   "ctx": {
+    "title": "plansza",
+    "show_title": "",
+    "source": "/m/plansza.mp4",
+    "start": "",
+    "stop": "",
+    "duration": 93600,
+    "seek": 0,
+    "next_title": "",
+    "next_start_full": "",
+    "next_duration": 0,
+    "width": 0,
+    "height": 0,
+    "fps": 0
+   }
+  },
+  {
+   "data": {
+    "MediaItem_Path": "/m/x.mp4",
+    "MediaItem_Title": "  ",
+    "MediaItem_ShowTitle": "Seria",
+    "MediaItem_Duration": 12.5,
+    "FrameRate": "x"
+   },
+   "ctx": {
+    "title": "Seria",
+    "show_title": "Seria",
+    "source": "/m/x.mp4",
+    "start": "",
+    "stop": "",
+    "duration": 12.5,
+    "seek": 0,
+    "next_title": "",
+    "next_start_full": "",
+    "next_duration": 0,
+    "width": 0,
+    "height": 0,
+    "fps": 0
+   }
+  },
+  {
+   "data": {},
+   "ctx": {
+    "title": "",
+    "show_title": "",
+    "source": "",
+    "start": "",
+    "stop": "",
+    "duration": 0,
+    "seek": 0,
+    "next_title": "",
+    "next_start_full": "",
+    "next_duration": 0,
+    "width": 0,
+    "height": 0,
+    "fps": 0
+   }
+  }
+ ],
+ "commands": [
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "Wiadomości",
+    "show_title": "Wiadomości",
+    "source": "/media/news/Wiadomosci.mp4",
+    "start": "2026-10-24T20:00:00+02:00",
+    "stop": "2026-10-24T20:30:00+02:00",
+    "duration": 1800,
+    "seek": 90.5,
+    "next_title": "Film | premiera",
+    "next_start_full": "20:30:00",
+    "next_duration": 6000,
+    "width": 1280,
+    "height": 720,
+    "fps": 25
+   },
+   "commands": [
+    "TAKE 4001 headline=Wiadomości|sub=Potem: Film / premiera o 20:30",
+    "UPDATE 2001 d=00:30:00"
+   ]
+  },
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "Noc w muzeum\nreżyserska",
+    "show_title": "Kino",
+    "source": "/media/filmy/Noc w muzeum (2006).mkv",
+    "start": "2026-10-24T21:59:59.5000000+02:00",
+    "stop": "2026-10-24T23:47:12.2500000+02:00",
+    "duration": 6432.75,
+    "seek": 3723.004,
+    "next_title": "Potem",
+    "next_start_full": "23:47:12",
+    "next_duration": 1800,
+    "width": 1920,
+    "height": 1080,
+    "fps": 50
+   },
+   "commands": [
+    "TAKE 4001 headline=Noc w muzeumreżyserska|sub=Potem: Potem o 23:47",
+    "UPDATE 2001 d=01:47:13"
+   ]
+  },
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "A",
+    "show_title": "",
+    "source": "/m/a.mp4",
+    "start": "2026-10-24T18:00:00Z",
+    "stop": "2026-10-24T18:00:30Z",
+    "duration": 30,
+    "seek": 0,
+    "next_title": "Następny",
+    "next_start_full": "18:00:30",
+    "next_duration": 1770,
+    "width": 720,
+    "height": 576,
+    "fps": 25
+   },
+   "commands": [
+    "TAKE 4001 headline=A|sub=Potem: Następny o 18:00",
+    "UPDATE 2001 d=00:00:30"
+   ]
+  },
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "plansza",
+    "show_title": "",
+    "source": "/m/plansza.mp4",
+    "start": "",
+    "stop": "",
+    "duration": 93600,
+    "seek": 0,
+    "next_title": "",
+    "next_start_full": "",
+    "next_duration": 0,
+    "width": 0,
+    "height": 0,
+    "fps": 0
+   },
+   "commands": [
+    "TAKE 4001 headline=plansza|sub=Potem:  o ",
+    "UPDATE 2001 d=02:00:00"
+   ]
+  },
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "Seria",
+    "show_title": "Seria",
+    "source": "/m/x.mp4",
+    "start": "",
+    "stop": "",
+    "duration": 12.5,
+    "seek": 0,
+    "next_title": "",
+    "next_start_full": "",
+    "next_duration": 0,
+    "width": 0,
+    "height": 0,
+    "fps": 0
+   },
+   "commands": [
+    "TAKE 4001 headline=Seria|sub=Potem:  o ",
+    "UPDATE 2001 d=00:00:13"
+   ]
+  },
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "",
+    "show_title": "",
+    "source": "",
+    "start": "",
+    "stop": "",
+    "duration": 0,
+    "seek": 0,
+    "next_title": "",
+    "next_start_full": "",
+    "next_duration": 0,
+    "width": 0,
+    "height": 0,
+    "fps": 0
+   },
+   "commands": [
+    "TAKE 4001 headline=|sub=Potem:  o ",
+    "UPDATE 2001 d=00:00:00"
+   ]
+  },
+  {
+   "template": "# strap\nTAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}\n\nUPDATE 2001 d={duration}",
+   "ctx": {
+    "title": "Wiadomości",
+    "show_title": "Wiadomości",
+    "source": "/media/news/Wiadomosci.mp4",
+    "start": "2026-10-24T20:00:00+02:00",
+    "stop": "2026-10-24T20:30:00+02:00",
+    "duration": 1800,
+    "seek": 90.5,
+    "next_title": "Film | premiera",
+    "next_start_full": "20:30:00",
+    "next_duration": 6000,
+    "width": 1280,
+    "height": 720,
+    "fps": 25
+   },
+   "commands": [
+    "TAKE 4001 headline=Wiadomości|sub=Potem: Film / premiera o 20:30",
+    "UPDATE 2001 d=00:30:00"
+   ]
+  },
+  {
+   "template": "  TAKE 1 {show_title} {source}  \n#x\nUPDATE 2 n={next_start_full} nd={next_duration} {title}{title}",
+   "ctx": {
+    "title": "Wiadomości",
+    "show_title": "Wiadomości",
+    "source": "/media/news/Wiadomosci.mp4",
+    "start": "2026-10-24T20:00:00+02:00",
+    "stop": "2026-10-24T20:30:00+02:00",
+    "duration": 1800,
+    "seek": 90.5,
+    "next_title": "Film | premiera",
+    "next_start_full": "20:30:00",
+    "next_duration": 6000,
+    "width": 1280,
+    "height": 720,
+    "fps": 25
+   },
+   "commands": [
+    "TAKE 1 Wiadomości /media/news/Wiadomosci.mp4",
+    "UPDATE 2 n=20:30:00 nd=01:40:00 WiadomościWiadomości"
+   ]
+  },
+  {
+   "template": "TAKE 5 {unknown} {TITLE}",
+   "ctx": {
+    "title": "Wiadomości",
+    "show_title": "Wiadomości",
+    "source": "/media/news/Wiadomosci.mp4",
+    "start": "2026-10-24T20:00:00+02:00",
+    "stop": "2026-10-24T20:30:00+02:00",
+    "duration": 1800,
+    "seek": 90.5,
+    "next_title": "Film | premiera",
+    "next_start_full": "20:30:00",
+    "next_duration": 6000,
+    "width": 1280,
+    "height": 720,
+    "fps": 25
+   },
+   "commands": [
+    "TAKE 5 {unknown} {TITLE}"
+   ]
+  },
+  {
+   "template": "",
+   "ctx": {
+    "title": "Wiadomości",
+    "show_title": "Wiadomości",
+    "source": "/media/news/Wiadomosci.mp4",
+    "start": "2026-10-24T20:00:00+02:00",
+    "stop": "2026-10-24T20:30:00+02:00",
+    "duration": 1800,
+    "seek": 90.5,
+    "next_title": "Film | premiera",
+    "next_start_full": "20:30:00",
+    "next_duration": 6000,
+    "width": 1280,
+    "height": 720,
+    "fps": 25
+   },
+   "commands": []
+  }
+ ],
+ "time_spans": [
+  {
+   "input": "00:01:30.5000000",
+   "seconds": 90.5
+  },
+  {
+   "input": "1.02:00:00",
+   "seconds": 93600
+  },
+  {
+   "input": "-00:00:05",
+   "seconds": -5
+  },
+  {
+   "input": " 01:00:00 ",
+   "seconds": 3600
+  },
+  {
+   "input": "10:00",
+   "seconds": 0
+  },
+  {
+   "input": "garbage",
+   "seconds": 0
+  },
+  {
+   "input": "",
+   "seconds": 0
+  },
+  {
+   "input": 12.5,
+   "seconds": 12.5
+  },
+  {
+   "input": null,
+   "seconds": 0
+  },
+  {
+   "input": "00:00:00.1",
+   "seconds": 0.1
+  }
+ ],
+ "clocks": [
+  {
+   "seconds": 0,
+   "clock": "00:00:00"
+  },
+  {
+   "seconds": 59.4,
+   "clock": "00:00:59"
+  },
+  {
+   "seconds": 59.5,
+   "clock": "00:01:00"
+  },
+  {
+   "seconds": 3600,
+   "clock": "01:00:00"
+  },
+  {
+   "seconds": 90061,
+   "clock": "01:01:01"
+  },
+  {
+   "seconds": -5,
+   "clock": "00:00:00"
+  },
+  {
+   "seconds": 86461,
+   "clock": "00:01:01"
+  },
+  {
+   "seconds": 1.49,
+   "clock": "00:00:01"
+  }
+ ],
+ "clean": [
+  {
+   "input": "a|b",
+   "value": "a/b"
+  },
+  {
+   "input": "line\r\nbreak",
+   "value": "linebreak"
+  },
+  {
+   "input": "",
+   "value": ""
+  },
+  {
+   "input": null,
+   "value": ""
+  },
+  {
+   "input": 42,
+   "value": "42"
+  },
+  {
+   "input": "Zażółć | gęślą",
+   "value": "Zażółć / gęślą"
+  }
+ ],
+ "ads": [
+  {
+   "ctx": {
+    "source": "/media/Reklamy/a.mp4",
+    "title": "x"
+   },
+   "ad_match": {
+    "path": "/reklamy/",
+    "title": "^REKLAMA"
+   },
+   "ad": true
+  },
+  {
+   "ctx": {
+    "source": "/m/a.mp4",
+    "title": "Reklama – bank"
+   },
+   "ad_match": {
+    "path": "/reklamy/",
+    "title": "^REKLAMA"
+   },
+   "ad": true
+  },
+  {
+   "ctx": {
+    "source": "/m/a.mp4",
+    "title": "Film"
+   },
+   "ad_match": {
+    "path": "/reklamy/",
+    "title": "^REKLAMA"
+   },
+   "ad": false
+  },
+  {
+   "ctx": {
+    "source": "/reklamy/a.mp4",
+    "title": "x"
+   },
+   "ad_match": {},
+   "ad": false
+  },
+  {
+   "ctx": {
+    "source": "/m/spot_01.mp4",
+    "title": "x"
+   },
+   "ad_match": {
+    "path": "spot_\\d+\\.mp4$",
+    "title": ""
+   },
+   "ad": true
+  },
+  {
+   "ctx": {
+    "source": "/m/a.mp4",
+    "title": "BLOK REKLAMOWY"
+   },
+   "ad_match": {
+    "path": "",
+    "title": "blok (reklamowy|sponsorski)"
+   },
+   "ad": true
+  }
+ ]
+}

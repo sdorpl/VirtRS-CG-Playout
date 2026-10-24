@@ -42,7 +42,7 @@ npm test                                   # node --test test/*.test.mjs
 (cd rust && cargo test)                    # crate Rusta (gałąź rust-edit)
 ```
 
-`units` (szablony, pakiety, konfiguracja), `integration` (udawany VizRS i klient ErsatzTV), `chromium` (prawdziwe przechwytywanie; pomijane bez przeglądarki).
+`units` (szablony, pakiety, konfiguracja), `integration` (sidecar jako proces – czarna skrzynka, `VIRTRS_CG_BIN` wskazuje inną budowę; udawany VizRS i klienty Pythona), `chromium` (prawdziwe przechwytywanie; pomijane bez przeglądarki), `vectors` (wektory referencyjne `test/vectors/*.json` dla Rusta; po zamierzonej zmianie zachowania `node test/vectors/generate.mjs`).
 
 Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu (kontenery, obrazy, wolumeny, pliki), ale **dane działających instancji tego projektu zostawiaj** – bez `down -v` i `volume prune`. Szczegóły: DOKUMENTACJA §7.
 

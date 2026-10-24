@@ -1,0 +1,200 @@
+{
+ "rates": [
+  {
+   "input": "25",
+   "fps": 25
+  },
+  {
+   "input": "25/1",
+   "fps": 25
+  },
+  {
+   "input": "30000/1001",
+   "fps": 29.97002997002997
+  },
+  {
+   "input": "50",
+   "fps": 50
+  },
+  {
+   "input": "",
+   "fps": 0
+  },
+  {
+   "input": "x/0",
+   "fps": 0
+  },
+  {
+   "input": "0",
+   "fps": 0
+  },
+  {
+   "input": "-25",
+   "fps": 0
+  },
+  {
+   "input": "25/0",
+   "fps": 0
+  },
+  {
+   "input": null,
+   "fps": 0
+  },
+  {
+   "input": "24000/1001",
+   "fps": 23.976023976023978
+  }
+ ],
+ "render_sizes": [
+  {
+   "spec": "",
+   "width": 1920,
+   "height": 1080,
+   "size": {
+    "width": 1920,
+    "height": 1080
+   }
+  },
+  {
+   "spec": "auto",
+   "width": 1280,
+   "height": 720,
+   "size": {
+    "width": 1280,
+    "height": 720
+   }
+  },
+  {
+   "spec": " AUTO ",
+   "width": 1280,
+   "height": 720,
+   "size": {
+    "width": 1280,
+    "height": 720
+   }
+  },
+  {
+   "spec": "720p",
+   "width": 1920,
+   "height": 1080,
+   "size": {
+    "width": 1280,
+    "height": 720
+   }
+  },
+  {
+   "spec": "540",
+   "width": 1920,
+   "height": 1080,
+   "size": {
+    "width": 960,
+    "height": 540
+   }
+  },
+  {
+   "spec": "1080P",
+   "width": 1280,
+   "height": 720,
+   "size": {
+    "width": 1920,
+    "height": 1080
+   }
+  },
+  {
+   "spec": "1024x576",
+   "width": 1920,
+   "height": 1080,
+   "size": {
+    "width": 1024,
+    "height": 576
+   }
+  },
+  {
+   "spec": "720p",
+   "width": 720,
+   "height": 576,
+   "size": {
+    "width": 900,
+    "height": 720
+   }
+  },
+  {
+   "spec": "hd",
+   "width": 1920,
+   "height": 1080,
+   "error": "bad render size \"hd\" (auto, 720p or 1280x720)"
+  },
+  {
+   "spec": "8p",
+   "width": 1920,
+   "height": 1080,
+   "error": "render size 14x8 out of range"
+  },
+  {
+   "spec": "10000x10",
+   "width": 1920,
+   "height": 1080,
+   "error": "render size 10000x10 out of range"
+  },
+  {
+   "spec": "1280X720",
+   "width": 1920,
+   "height": 1080,
+   "size": {
+    "width": 1280,
+    "height": 720
+   }
+  },
+  {
+   "spec": null,
+   "width": 640,
+   "height": 360,
+   "size": {
+    "width": 640,
+    "height": 360
+   }
+  }
+ ],
+ "every_nth_frame": [
+  {
+   "fps": 0,
+   "n": 60
+  },
+  {
+   "fps": 1,
+   "n": 60
+  },
+  {
+   "fps": 24,
+   "n": 2
+  },
+  {
+   "fps": 25,
+   "n": 2
+  },
+  {
+   "fps": 29.97,
+   "n": 2
+  },
+  {
+   "fps": 30,
+   "n": 2
+  },
+  {
+   "fps": 50,
+   "n": 1
+  },
+  {
+   "fps": 59.94,
+   "n": 1
+  },
+  {
+   "fps": 60,
+   "n": 1
+  },
+  {
+   "fps": 100,
+   "n": 1
+  }
+ ]
+}
