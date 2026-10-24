@@ -7,7 +7,7 @@
 5. [Uruchamianie bez Dockera, konfiguracja](#5-uruchamianie-bez-dockera-konfiguracja)
 6. [Awarie](#6-awarie)
 7. [Testy](#7-testy)
-8. [Benchmark silników: Chromium a WPE WebKit](#8-benchmark-silników-chromium-a-wpe-webkit)
+8. [Benchmark przechwytywania grafiki](#8-benchmark-przechwytywania-grafiki)
 
 ## 1. Jak to działa
 
@@ -328,54 +328,68 @@ CI (`.github/workflows/ci.yml`) uruchamia testy przy każdym wypchnięciu na
 `main` i w PR, a po znaczniku `v*` (albo ręcznie) buduje obraz sidecara
 na amd64 i arm64 i publikuje go jako `ghcr.io/<właściciel>/virtrs-cg`.
 
-## 8. Benchmark silników: Chromium a WPE WebKit
+## 8. Benchmark przechwytywania grafiki
 
-`bench/` porównuje na tej samej maszynie dwa silniki renderujące grafikę
-bez GPU:
+`bench/` mierzy na maszynie docelowej, ile kosztuje i jak płynna jest
+grafika renderowana bez GPU. Warianty (`BENCH_ENGINES`):
 
-- **Chromium** (`chromium-headless-shell`) przechwytywany dokładnie jak
-  w sidecarze – klasa `Capture` z `src/capture.js` (screencast PNG co n-tą
-  klatkę, dekodowanie przez `sharp`, przycinanie),
-- **WPE WebKit** – silnik WebKit dla urządzeń wbudowanych, przez element
-  GStreamera `wpevideosrc` (surowe klatki RGBA z przezroczystością, bez PNG),
-  z tym samym przycinaniem.
+- **`chromium`** – dokładnie to, co sidecar: klasa `Capture` z
+  `src/capture.js` (screencast PNG co n-tą klatkę, dekodowanie przez
+  `sharp`, przycinanie) i strumień pakietów z `src/stream.js`,
+- **`chromium-frames`** – prototyp rysowania zsynchronizowanego z klatkami
+  wyjścia (`bench/frames-worker.mjs`): Chromium rysuje tylko na żądanie
+  (`HeadlessExperimental.beginFrame`), raz na slot siatki 25 kl./s, z czasem
+  slotu jako czasem klatki, więc animacje idą dokładnie o jedną klatkę na
+  slot; bez zmiany na stronie nie ma PNG. Kodowanie PNG w Chromium blokuje
+  następną klatkę, dlatego `BENCH_FRAME_PAGES` (domyślnie 2) przeglądarek
+  rysuje sloty na zmianę (karty jednej przeglądarki nie mogą – jej
+  kompozytor pada na nakładających się klatkach). DevTools, dekodowanie
+  i przycinanie działają w wątku roboczym (`worker_threads`),
+- **`wpe`** – WPE WebKit przez element GStreamera `wpevideosrc` (surowe
+  klatki RGBA, bez PNG); odpada (wyniki niżej), zostaje do porównań.
 
-Oba renderują stronę `bench/scene.html`, podobną do grafiki VizRS:
+Wszystkie renderują stronę `bench/scene.html`, podobną do grafiki VizRS:
 przezroczyste tło, zegar, logo obracane w 3D (`perspective`), lower third
 z gradientem, `drop-shadow` i `blur`, wysuwany co 5 s, tekst przez
 `EventSource`, ticker na `requestAnimationFrame` ograniczony do klatkażu.
-Scena `static` ma tylko zegar i zmieniany tekst, `animated` – wszystko.
-Zamiast sceny można zmierzyć prawdziwe `/output` VizRS (`BENCH_URL`, scena
-`url`; grafika musi być na antenie).
+Scena `static` ma tylko zegar i zmieniany tekst, `animated` – wszystko oraz
+znacznik 4×4 px w lewym górnym rogu, którego kolor koduje krok animacji
+(czas `requestAnimationFrame` / długość klatki). Zamiast sceny można
+zmierzyć prawdziwe `/output` VizRS (`BENCH_URL`, scena `url`; grafika musi
+być na antenie).
 
-Każdy przebieg (silnik × scena) to rozgrzewka i pomiar. Raport pod
-`http://<serwer>:7790/` pokazuje:
+Każdy przebieg (rozmiar × scena × wariant) to rozgrzewka i pomiar. Raport
+pod `http://<serwer>:7790/` pokazuje:
 
 | Kolumna | Znaczenie |
 |---|---|
 | nowe klatki/s | zmienione obrazy z widoczną grafiką (animacja przy 25 fps: ok. 25) |
-| przerwa p95 / max | odstępy między nowymi klatkami – równomierność animacji |
+| ruch na wyjściu | scena `animated`: odsetek klatek wyjścia 25 kl./s, w których animacja poszła dokładnie o jeden krok (ideał 100%), stała albo przeskoczyła – to widać na antenie jako płynność |
+| przerwa p95 / max | odstępy między nowymi klatkami |
 | CPU silnik | procesy przeglądarki albo GStreamera, % jednego rdzenia |
-| CPU node | dekodowanie PNG (Chromium) albo odbiór surowych klatek (WPE) i przycinanie – praca sidecara |
+| CPU node | dekodowanie PNG albo odbiór surowych klatek i przycinanie – praca sidecara |
 | PSS silnika | pamięć procesów silnika (część współdzielona liczona proporcjonalnie) |
 
-oraz po jednej klatce z każdego silnika na szachownicy, żeby porównać
+oraz po jednej klatce z każdego wariantu na szachownicy, żeby porównać
 wierność obrazu (czcionki, cienie, rozmycie, przezroczystość).
+W `results.json` wariant `chromium-frames` ma też liczniki wątku
+(`frames_worker`: sloty, zrzuty, spóźnione sloty, czas `beginFrame`).
 
 Zmienne środowiskowe (wszystkie opcjonalne):
 
 | Zmienna | Domyślnie | Znaczenie |
 |---|---|---|
-| `BENCH_ENGINES` | `chromium,wpe` | silniki |
+| `BENCH_ENGINES` | `chromium,chromium-frames` | warianty (`chromium`, `chromium-frames`, `wpe`) |
 | `BENCH_SCENES` | `static,animated` (+`url` przy `BENCH_URL`) | sceny |
 | `BENCH_URL` | – | adres do zmierzenia, np. `http://vizrs:8088/output?token=…&fps=25` |
-| `BENCH_SIZE` | `1920x1080` | rozmiar renderowania |
+| `BENCH_SIZES` | `1920x1080,1280x720` | rozmiary renderowania, po przecinku (poza compose: `1920x1080`) |
+| `BENCH_FRAME_PAGES` | `2` | przeglądarki `chromium-frames` rysujące sloty na zmianę |
 | `BENCH_FPS` | `25` | klatkaż kanału |
 | `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
 | `BENCH_DURATION` | `60` | pomiar [s] |
 | `BENCH_PORT` | `7790` | port raportu na hoście |
 
-Z domyślnymi wartościami całość trwa ok. 5 min. Mierz na maszynie
+Z domyślnymi wartościami całość trwa ok. 10 min. Mierz na maszynie
 docelowej i bez innego obciążenia (zatrzymaj na ten czas sidecar, jeśli
 działa na tym samym hoście) – wyniki z różnych maszyn nie są porównywalne.
 
@@ -412,16 +426,23 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
 docker volume rm virtrs-bench_bench-results
 ```
 
-### Uwagi
+### Uwagi i wyniki
 
+- **Ampere A1** (Neoverse-N1, 4 rdzenie, 1080p, 25 fps, 60 s): WPE przy
+  animacji robi tylko 12,2 kl./s przy 243% CPU i 366 MB, Chromium 23,4
+  kl./s przy 209% CPU i 223 MB; przy scenie statycznej oba ok. 36% CPU.
+  WPE odpada.
+- **`chromium-frames`** (Xeon E3-1270 v3 w Dockerze, Chromium 156, 12 s):
+  ruch na wyjściu przy 720p 99% równych kroków wobec 65% w `chromium`, przy
+  130% CPU wobec 149%; przy 1080p 71–92% wobec 65% przy podobnym CPU – tam
+  ten procesor nie nadąża z PNG w każdym slocie. Scena statyczna kosztuje
+  tyle co w `chromium`.
+- Pułapki `beginFrame` w Chromium 156: z flagą
+  `--disable-new-content-rendering-timeout` każda klatka zgłasza zmianę;
+  żądanie zrzutu zawsze ją zgłasza, a klatka po zrzucie też – pochłania ją
+  pusta klatka zaraz po zrzucie, a na stojącej stronie co sekundę idzie
+  zrzut kontrolny.
 - WebKit, podobnie jak Chromium, nie uruchomi w kontenerze własnej
   piaskownicy; benchmark ją wyłącza
   (`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`) – to odpowiednik
-  `--no-sandbox`.
-- WPE oddaje surowe klatki w stałym tempie (8 MB na klatkę przy 1080p); ten
-  sam obraz jest odrzucany porównaniem bufora, zanim trafi do przycinania.
-- Pierwsze krótkie pomiary (Xeon E3-1270 v3, amd64, 1080p, 25 fps, scena
-  `animated`) dały WPE więcej CPU (260–310% wobec 205–230% dla Chromium)
-  i więcej pamięci (375–390 MB wobec 230–260 MB PSS) przy tej samej
-  liczbie klatek, a `FontFace` z `local()` w WPE się nie załadował.
-  Rozstrzyga pomiar na Ampere A1.
+  `--no-sandbox`. WPE nie załadował `FontFace` z `local()`.

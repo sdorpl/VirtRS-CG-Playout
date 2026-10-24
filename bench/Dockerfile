@@ -1,4 +1,4 @@
-# Engine benchmark: Chromium (as the sidecar) vs WPE WebKit (GStreamer wpevideosrc).
+# Capture benchmark: Chromium as the sidecar, frame-locked Chromium, WPE WebKit (GStreamer wpevideosrc).
 # Build from the repository root: docker build -f bench/Dockerfile .
 # Debian trixie: WPE WebKit 2.48 with the WPE GStreamer plugin; amd64 and arm64.
 FROM node:current-trixie-slim

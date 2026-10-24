@@ -61,7 +61,7 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 | `Dockerfile` | obraz sidecara (używany przez compose) |
 | `docker/sidecar.Dockerfile` | starsza wersja obrazu, nieużywana przez compose |
 | `test/` | testy `node --test` |
-| `bench/` | benchmark Chromium a WPE WebKit (osobny obraz i compose, DOKUMENTACJA §8) |
+| `bench/` | benchmark przechwytywania: sidecar, Chromium zsynchronizowany z klatkami, WPE (osobny obraz i compose, DOKUMENTACJA §8) |
 | `.github/workflows/ci.yml` | testy; obraz amd64 + arm64 do ghcr po znaczniku `v*` |
 
 ## Commity

@@ -40,5 +40,5 @@ portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 
 | Dokument | Treść |
 |---|---|
-| [docs/DOKUMENTACJA.md](docs/DOKUMENTACJA.md) | działanie, konfiguracja, symbole zastępcze, Docker (Ampere A1, NVENC), awarie, testy, benchmark silników (Portainer) |
+| [docs/DOKUMENTACJA.md](docs/DOKUMENTACJA.md) | działanie, konfiguracja, symbole zastępcze, Docker (Ampere A1, NVENC), awarie, testy, benchmark przechwytywania grafiki (Portainer) |
 | [CLAUDE.md](CLAUDE.md) | dla programistów i agentów: zasady, struktura, testy, commity |

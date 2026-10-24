@@ -1,9 +1,10 @@
-# Engine benchmark: Chromium vs WPE WebKit on the same page (docs/DOKUMENTACJA.md §8).
+# Engine benchmark: the sidecar's Chromium capture vs frame-locked Chromium
+# (and optionally WPE WebKit) on the same page (docs/DOKUMENTACJA.md §8).
 #
 #   docker compose -f bench/docker-compose.yml up --build
 #   Portainer: Stacks → Add stack → Repository, compose path bench/docker-compose.yml
 #
-#   Report  http://<server>:7790/   (about 5 min with the defaults)
+#   Report  http://<server>:7790/   (about 10 min with the defaults)
 #
 # Restart the container to measure again; remove the stack when done.
 
@@ -17,11 +18,14 @@ services:
     restart: "no"
     init: true
     environment:
-      BENCH_ENGINES: ${BENCH_ENGINES:-chromium,wpe}
+      # chromium (as the sidecar), chromium-frames (frame-locked), wpe.
+      BENCH_ENGINES: ${BENCH_ENGINES:-chromium,chromium-frames}
       # static, animated; "url" adds BENCH_URL (e.g. VizRS /output with graphics on air).
       BENCH_SCENES: ${BENCH_SCENES:-}
       BENCH_URL: ${BENCH_URL:-}
-      BENCH_SIZE: ${BENCH_SIZE:-1920x1080}
+      BENCH_SIZES: ${BENCH_SIZES:-1920x1080,1280x720}
+      # Browsers of chromium-frames drawing alternate slots (1 = no parallel PNG encoding).
+      BENCH_FRAME_PAGES: ${BENCH_FRAME_PAGES:-2}
       BENCH_FPS: ${BENCH_FPS:-25}
       BENCH_WARMUP: ${BENCH_WARMUP:-10}
       BENCH_DURATION: ${BENCH_DURATION:-60}
