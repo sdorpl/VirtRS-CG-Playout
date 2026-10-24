@@ -1,5 +1,5 @@
-// Frame stream of one session: ETV packets for an ErsatzTV script element (and
-// raw yuva420p frames for ffmpeg, etap 6). The reader takes one frame per
+// Frame stream of one session: ETV packets for an ErsatzTV script element, or
+// raw yuva420p frames for ffmpeg (the ffmpeg overlay). The reader takes one frame per
 // output frame; the stream is paced by the clock with a lead, so it follows
 // `-readrate 1.0` with its initial burst but never runs far ahead of the live
 // VizRS graphics. Every output frame takes the picture that was current at
@@ -7,60 +7,16 @@
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::packets::{Rect, picture_packet, repeat_packet};
+use crate::frames::Source;
+use crate::packets::repeat_packet;
 
 const TICK: Duration = Duration::from_millis(20);
 /// Pictures are dated when Chromium drew them and arrive decoded up to ~100 ms
 /// later; output frames look this far back so each finds the picture of its moment.
 pub const SAMPLE_DELAY: Duration = Duration::from_millis(100);
-
-/// One picture of the graphics; `seq` grows with every new picture.
-#[derive(Debug, Default)]
-pub struct Frame {
-    pub seq: u64,
-    pub rects: Vec<Rect>,
-    /// Built once, shared by the sessions of the same size.
-    packet: OnceLock<Vec<u8>>,
-}
-
-impl Frame {
-    pub fn new(seq: u64, rects: Vec<Rect>) -> Frame {
-        Frame { seq, rects, packet: OnceLock::new() }
-    }
-
-    pub fn packet(&self) -> &[u8] {
-        self.packet.get_or_init(|| picture_packet(&self.rects))
-    }
-}
-
-/// Pictures for the sessions: the one shown at a moment.
-pub trait Source: Send + Sync {
-    fn frame_at(&self, time: Instant) -> Arc<Frame>;
-}
-
-/// Transparent frames: burn-in off, or the channel size unknown.
-pub struct Empty(Arc<Frame>);
-
-impl Empty {
-    pub fn new() -> Empty {
-        Empty(Arc::new(Frame::new(0, Vec::new())))
-    }
-}
-
-impl Default for Empty {
-    fn default() -> Self {
-        Empty::new()
-    }
-}
-
-impl Source for Empty {
-    fn frame_at(&self, _: Instant) -> Arc<Frame> {
-        Arc::clone(&self.0)
-    }
-}
 
 /// Pause, resume and end of a stream from other threads.
 pub struct Control {
@@ -109,9 +65,19 @@ impl Control {
     }
 }
 
+/// What a session reads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Format {
+    /// ETV packets: a picture once, then one `Repeat` for any run of the same picture.
+    Packets,
+    /// Raw yuva420p of `width`x`height`: every output frame carries the whole picture.
+    Yuva { width: u32, height: u32 },
+}
+
 pub struct Options {
     pub fps: f64,
     pub lead_seconds: f64,
+    pub format: Format,
 }
 
 /// Writes the stream until the writer fails or `control` closes; returns the
@@ -139,7 +105,10 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         let due = (started.elapsed().as_secs_f64() / frame_s).floor() as u64 + 1 + lead;
         while sent < due {
             let frame = frame_at(started, sent);
-            let written = if sent_seq != Some(frame.seq) {
+            let written = if let Format::Yuva { width, height } = options.format {
+                sent += 1;
+                out.write_all(&frame.yuva(width, height))
+            } else if sent_seq != Some(frame.seq) {
                 sent_seq = Some(frame.seq);
                 sent += 1;
                 out.write_all(frame.packet())
@@ -164,6 +133,10 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frames::{Empty, Frame, History};
+    use crate::packets::Rect;
+
+    const PACKETS: Format = Format::Packets;
 
     #[test]
     fn lead_frames_at_once_then_paced() {
@@ -174,7 +147,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(210));
             closer.close();
         });
-        let sent = stream_frames(&Empty::new(), &mut out, &Options { fps: 25.0, lead_seconds: 0.2 }, &control);
+        let sent = stream_frames(&Empty::new(), &mut out, &Options { fps: 25.0, lead_seconds: 0.2, format: PACKETS }, &control);
         timer.join().unwrap();
         // 5 lead frames, then one per 40 ms for ~210 ms.
         assert!((10..=13).contains(&sent), "sent {sent}");
@@ -194,9 +167,97 @@ mod tests {
             resumer.close();
         });
         let mut out = Vec::new();
-        let sent = stream_frames(&Empty::new(), &mut out, &Options { fps: 25.0, lead_seconds: 0.2 }, &control);
+        let sent = stream_frames(&Empty::new(), &mut out, &Options { fps: 25.0, lead_seconds: 0.2, format: PACKETS }, &control);
         timer.join().unwrap();
         // The lead again from the resume, not the 100 ms held.
         assert_eq!(sent, 6);
+    }
+
+    #[test]
+    fn raw_stream_writes_the_whole_picture_on_every_output_frame() {
+        struct Fixed(Arc<Frame>);
+        impl Source for Fixed {
+            fn frame_at(&self, _: Instant) -> Arc<Frame> {
+                Arc::clone(&self.0)
+            }
+        }
+        let history = Fixed(Arc::new(Frame::new(1, vec![Rect { x: 1, y: 0, w: 1, h: 1, pixels: vec![0, 0, 255, 255] }], Instant::now())));
+        let control = Control::new(false);
+        let closer = Arc::clone(&control);
+        let timer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(10));
+            closer.close();
+        });
+        let mut out = Vec::new();
+        let sent = stream_frames(
+            &history,
+            &mut out,
+            &Options { fps: 25.0, lead_seconds: 0.2, format: Format::Yuva { width: 4, height: 2 } },
+            &control,
+        );
+        timer.join().unwrap();
+        assert_eq!(sent, 6);
+        assert_eq!(out.len(), 6 * 20);
+        assert!(out.chunks(20).all(|frame| frame[12 + 1] == 255));
+    }
+
+    /// Chromium draws every 40 ms; each picture arrives decoded 0–85 ms later.
+    /// Every output frame still shows its own picture: steps of exactly one.
+    #[test]
+    fn pictures_decoded_with_varying_delay_each_land_in_their_own_output_frame() {
+        let history = Arc::new(History::new());
+        let control = Control::new(false);
+        let (feeder, closer) = (Arc::clone(&history), Arc::clone(&control));
+        let started = Instant::now();
+        let deliver = std::thread::spawn(move || {
+            let mut pending: Vec<(Instant, u8, Instant)> = Vec::new();
+            let mut drawn = 0u64;
+            let mut seed = 0x2545_f491_4f6c_dd1du64;
+            while started.elapsed() < Duration::from_millis(1500) {
+                let now = Instant::now();
+                while started + Duration::from_millis(10 + drawn * 40) <= now {
+                    let at = started + Duration::from_millis(10 + drawn * 40);
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    pending.push((at, (drawn % 250) as u8 + 1, at + Duration::from_millis(seed % 85)));
+                    drawn += 1;
+                }
+                while pending.first().is_some_and(|p| p.2 <= now) {
+                    let (at, value, _) = pending.remove(0);
+                    feeder.set(vec![Rect { x: 0, y: 0, w: 1, h: 1, pixels: vec![value; 4] }], at);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            closer.close();
+        });
+        let mut out = Vec::new();
+        stream_frames(&*history, &mut out, &Options { fps: 25.0, lead_seconds: 0.0, format: PACKETS }, &control);
+        deliver.join().unwrap();
+
+        // Pixel value of every output frame, as ErsatzTV draws them.
+        let mut values = Vec::new();
+        let (mut offset, mut value) = (0, 0u8);
+        while offset + 11 <= out.len() {
+            let length = u32::from_be_bytes(out[offset + 7..offset + 11].try_into().unwrap()) as usize;
+            let payload = &out[offset + 11..offset + 11 + length];
+            let repeat = match out[offset + 6] {
+                1 => u32::from_be_bytes(payload.try_into().unwrap()) as usize,
+                2 => {
+                    value = 0;
+                    0
+                }
+                _ => {
+                    value = payload[10];
+                    0
+                }
+            };
+            values.extend(std::iter::repeat_n(value, repeat + 1));
+            offset += 11 + length;
+        }
+        let values: Vec<u8> = values.into_iter().filter(|&v| v > 0).collect();
+        let steps: Vec<i32> = values.windows(2).map(|w| i32::from(w[1]) - i32::from(w[0])).collect();
+        let exact = steps.iter().filter(|&&s| s == 1).count();
+        assert!(exact + 1 >= steps.len(), "steps: {steps:?}");
     }
 }

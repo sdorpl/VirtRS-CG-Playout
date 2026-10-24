@@ -19,9 +19,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::config::Config;
+use crate::frames::Empty;
 use crate::http::{self, Request};
 use crate::json::{self, Value};
-use crate::stream::{self, Control, Empty, Options};
+use crate::stream::{self, Control, Format, Options};
 use crate::template::{AdMatcher, ClipContext, js_string};
 use crate::vizrs::ChannelEvents;
 
@@ -113,7 +114,12 @@ impl Server {
         watch_close(&stream, &control);
         if let Ok(mut out) = http::Stream::start(stream, request) {
             self.sessions.fetch_add(1, Ordering::Relaxed);
-            stream::stream_frames(&self.empty, &mut out, &Options { fps, lead_seconds: self.config.lead_seconds }, &control);
+            stream::stream_frames(
+                &self.empty,
+                &mut out,
+                &Options { fps, lead_seconds: self.config.lead_seconds, format: Format::Packets },
+                &control,
+            );
             self.sessions.fetch_sub(1, Ordering::Relaxed);
             let _ = out.finish();
         }

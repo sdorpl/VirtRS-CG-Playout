@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etapy 0–3 zrobione** – testy kontraktu, szkielet sidecara, komendy VizRS i `/etv` z przezroczystymi klatkami. Binarka Rusta przechodzi testy czarnej skrzynki etapu 3 (tempo i komendy, reklamy, reklama bez elementu, brak sidecara), w CI także. Następny: etap 4 (klatki: prostokąty, PNG, `yuva420p`, skalowanie).
+> Status (2026-10-25): **etapy 0–4 zrobione** – testy kontraktu, szkielet sidecara, komendy VizRS, `/etv`, przetwarzanie klatek (prostokąty, PNG, `yuva420p` bajt w bajt, skalowanie w ±1 od libvips). Następny: etap 5 (Chromium).
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -60,7 +60,7 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | 1 | Kontrakt | testy czarnej skrzynki (`test/sidecar.mjs`, przeglądarka `/bin/false` = przezroczyste klatki; treść grafiki w `chromium.test.mjs`) i wektory `test/vectors/*.json` z generatorem, nadal na JS | ✅ |
 | 2 | Szkielet | `json.rs` (parsowanie i zapis jak `JSON.stringify`), `config.rs` (plik + zmienne, zgodny z `test/vectors/config.json`), `log.rs`, `http.rs` (jedno żądanie na połączenie, wątek na połączenie, `Content-Length` lub chunked, limit 4 MB), `server.rs` z `/health`, `main.rs` (argument `config.json`/`CONFIG`); pozostałe trasy na razie 404 | ✅ |
 | 3 | Logika bez grafiki | `time.rs` (formy ISO `Date.parse`, wektor `dates`), `template.rs` (kontekst klipu, symbole, `AdMatcher`), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`; stan kanału pod mutexem, wysyłki po kolei w wątku kanału, zegar przerwy jako wątek z licznikiem pokoleń), `packets.rs` (budowa pakietów), `stream.rs` (tempo, wyprzedzenie, `Repeat`, wstrzymanie/wznowienie), `/etv` z przezroczystymi klatkami | ✅ |
-| 4 | Klatki | `rects.rs` (`visibleRects`), `png.rs`, `yuva.rs` (i format surowy w `stream.rs`), `scale.rs`; historia klatek (`frameAt`) za cechą `Source` | |
+| 4 | Klatki | `frames.rs` (klatka z czasem, pakiet i `yuva` liczone raz; historia `setFrame`/`frameAt`), `rects.rs`, `png.rs` (crate `png`), `yuva.rs` (te same działania na `f64` co JS, więc bajt w bajt), `scale.rs` (jak libvips: zmniejszanie Lanczos3 jak `vips_reduce` – najpierw pion, każde przejście w 8 bitach; powiększanie bicubic z próbkowaniem w `x/skala − 0,5`; kolor zerowany, gdy alfa = 0), format `Yuva` w `stream.rs` | ✅ |
 | 5 | Chromium | `capture.rs`: te same flagi, CDP przez rurę, screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami | |
 | 6 | Nakładka ffmpeg | `/ffmpeg`, `/ffmpeg/frames`, `HOLD_MS`, `FRAMES_WAIT_MS`, kanały z nakładką | |
 | 7 | Obraz i CI | wieloetapowy `Dockerfile`, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`) zamiast QEMU, `ci.yml`, compose | |
@@ -79,9 +79,9 @@ Na scaleniu trafią do DOKUMENTACJI §5.
 - Dane szablonu `null` dają pusty kontekst (Node odpowiadał 400).
 - Nieprawidłowy wzorzec `ad_match` ma dawać ostrzeżenie i „nie reklama”. W Node wyjątek wywraca proces.
 
-## 6. Wzorce z VizRS ffPlayout System (archiwum, GPL-3.0)
+## 6. Wzorce z VizRS ffPlayout System
 
-Wolno brać tylko pomysły i zachowanie, kodu nie (CLAUDE.md, „Niepodważalne zasady”). ffPlayout używa tokio i tungstenite, więc architektura i tak jest inna.
+Autor pozwolił przenosić kod ze swoich modułów VizRS (zasada w CLAUDE.md). Kod upstream ffplayout jest wyłączony.
 
 - `crates/app/src/utils/vizrs.rs` – kontekst klipu, symbole, `onAir`, wysyłanie komend: wzorzec dla etapu 3.
 - `crates/app/src/utils/vizrs_capture.rs` – Chromium przez DevTools (WebSocket), dekodowanie w osobnym wątku, `every_nth_frame`: wzorzec dla etapu 5. W razie problemów z trybem rury to także zapasowa ścieżka WebSocket.
