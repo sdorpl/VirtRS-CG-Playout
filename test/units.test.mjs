@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { loadConfig } from "../src/config.js";
 import { clearPacket, crop, framePacket, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
 import { decodePng } from "../src/png.js";
+import { renderSize, scaleRects } from "../src/scale.js";
 import { clipContext, isAd, renderCommands, timeSpanSeconds } from "../src/template.js";
 import { onAir } from "../src/vizrs.js";
 
@@ -84,6 +85,34 @@ test("a frame's packet is built once for all sessions", () => {
   assert.deepEqual(framePacket({ seq: 0, rects: [] }), clearPacket());
 });
 
+test("render size from the option", () => {
+  assert.deepEqual(renderSize("", 1920, 1080), { width: 1920, height: 1080 });
+  assert.deepEqual(renderSize("auto", 1280, 720), { width: 1280, height: 720 });
+  assert.deepEqual(renderSize("720p", 1920, 1080), { width: 1280, height: 720 });
+  assert.deepEqual(renderSize("540", 1920, 1080), { width: 960, height: 540 });
+  assert.deepEqual(renderSize("1080P", 1280, 720), { width: 1920, height: 1080 });
+  assert.deepEqual(renderSize("1024x576", 1920, 1080), { width: 1024, height: 576 });
+  assert.throws(() => renderSize("hd", 1920, 1080), /bad render size/);
+  assert.throws(() => renderSize("8p", 1920, 1080), /out of range/);
+});
+
+test("rectangles scale to the channel with soft, unshifted edges", async () => {
+  const [width, height] = [40, 20];
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let y = 5; y < 15; y++) for (let x = 10; x < 30; x++) rgba.set([255, 0, 0, 255], (y * width + x) * 4);
+
+  const [r] = await scaleRects(rgba, width, height, [{ x: 10, y: 5, w: 20, h: 10 }], 60, 30);
+  // 4 px of transparent margin, scaled 1.5×: inside the 60x30 canvas.
+  assert.deepEqual([r.x, r.y, r.w, r.h], [9, 1, 42, 28]);
+  assert.equal(r.pixels.length, r.w * r.h * 4);
+
+  const at = (x, y) => [...r.pixels.subarray(((y - r.y) * r.w + (x - r.x)) * 4, ((y - r.y) * r.w + (x - r.x)) * 4 + 4)];
+  assert.deepEqual(at(30, 15), [255, 0, 0, 255], "inside stays solid");
+  assert.equal(at(9, 1)[3], 0, "margin stays transparent");
+  const edge = at(15, 15);
+  assert.ok(edge[3] > 0 && edge[0] === 255, `edge keeps its colour (premultiplied): ${edge}`);
+});
+
 test("ErsatzTV template data becomes the clip context", () => {
   const ctx = clipContext({
     Resolution: { Width: 1280, Height: 720, Name: "720p" },
@@ -144,4 +173,6 @@ test("config overrides", () => {
   assert.equal(config.lead_seconds, 1);
   assert.equal(config.ad_without_element, true);
   assert.equal(loadConfig(null, { VIZRS_AD_WITHOUT_ELEMENT: "0" }).ad_without_element, false);
+  assert.equal(config.render_size, "");
+  assert.equal(loadConfig(null, { VIZRS_RENDER_SIZE: "720p" }).render_size, "720p");
 });

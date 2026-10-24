@@ -6,5 +6,6 @@
   "on_ad": "",
   "ad_match": { "path": "/reklamy/", "title": "" },
   "ad_without_element": true,
-  "lead_seconds": 6
+  "lead_seconds": 6,
+  "render_size": ""
 }

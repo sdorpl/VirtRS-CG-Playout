@@ -13,6 +13,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import { crop, visibleRects } from "./packets.js";
 import { decodePng } from "./png.js";
+import { scaleRects } from "./scale.js";
 
 const START_TIMEOUT = 15000;
 const RESTART_DELAY = 3000;
@@ -96,10 +97,13 @@ class DevTools {
 }
 
 export class Capture {
-  constructor({ url, width, height, fps, browser, noSandbox, extraArgs = [], idleMs = IDLE_MS, log = console }) {
+  /** Renders at `width`x`height`; frames come out at `outWidth`x`outHeight` (the channel). */
+  constructor({ url, width, height, outWidth = width, outHeight = height, fps, browser, noSandbox, extraArgs = [], idleMs = IDLE_MS, log = console }) {
     this.url = url;
     this.width = width;
     this.height = height;
+    this.outWidth = outWidth;
+    this.outHeight = outHeight;
     this.fps = fps;
     this.browser = browser;
     this.noSandbox = noSandbox;
@@ -118,8 +122,20 @@ export class Capture {
     this.screencast = null;
   }
 
-  get key() {
+  get size() {
+    return `${this.outWidth}x${this.outHeight}`;
+  }
+
+  get render() {
     return `${this.width}x${this.height}`;
+  }
+
+  get key() {
+    return this.size === this.render ? this.size : `${this.size} (render ${this.render})`;
+  }
+
+  get scaled() {
+    return this.size !== this.render;
   }
 
   start() {
@@ -328,7 +344,10 @@ export class Capture {
         return;
       }
 
-      this.setFrame(visibleRects(rgba, width, height).map((rect) => ({ ...rect, pixels: crop(rgba, width, rect) })));
+      const rects = visibleRects(rgba, width, height);
+      this.setFrame(this.scaled
+        ? await scaleRects(rgba, width, height, rects, this.outWidth, this.outHeight)
+        : rects.map((rect) => ({ ...rect, pixels: crop(rgba, width, rect) })));
     } catch (error) {
       this.log.warn(`burn-in ${this.key}: ${error.message}`);
     }

@@ -1,12 +1,14 @@
 // HTTP side of the sidecar.
 //
-//   POST /etv?channel=1   body: ErsatzTV template data (JSON from the script
+//   POST /etv?channel=1[&render=720p]
+//                         body: ErsatzTV template data (JSON from the script
 //                         element's stdin); reply: endless ETV packet stream
 //   GET  /health          captures and sessions
 
 import http from "node:http";
 
 import { Capture, findBrowser } from "./capture.js";
+import { canScale, renderSize } from "./scale.js";
 import { clipContext } from "./template.js";
 import { streamFrames } from "./stream.js";
 import { ChannelEvents } from "./vizrs.js";
@@ -24,10 +26,25 @@ export function createServer(config, { log = console, captureFactory } = {}) {
   const channels = new Map();
   let sessions = 0;
 
-  const captureFor = (width, height, fps) => {
+  /** One capture per channel size and render size, shared by the channels that have both. */
+  const captureFor = (width, height, fps, spec) => {
     if (!config.output_url || !width || !height) return EMPTY;
-    const key = `${width}x${height}`;
-    if (!captures.has(key)) captures.set(key, makeCapture({ width, height, fps }));
+
+    let render = { width, height };
+    try {
+      render = renderSize(spec, width, height);
+    } catch (error) {
+      log.warn(`render size: ${error.message}; using ${width}x${height}`);
+    }
+    if ((render.width !== width || render.height !== height) && !canScale) {
+      log.warn(`render size ${render.width}x${render.height} needs sharp; using ${width}x${height}`);
+      render = { width, height };
+    }
+
+    const key = `${width}x${height}/${render.width}x${render.height}`;
+    if (!captures.has(key)) {
+      captures.set(key, makeCapture({ width: render.width, height: render.height, outWidth: width, outHeight: height, fps }));
+    }
     return captures.get(key);
   };
 
@@ -43,7 +60,7 @@ export function createServer(config, { log = console, captureFactory } = {}) {
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify({
         sessions,
-        captures: [...captures.values()].map((c) => ({ size: c.key, status: c.status, seq: c.frame.seq })),
+        captures: [...captures.values()].map((c) => ({ size: c.size ?? c.key, render: c.render ?? c.key, status: c.status, seq: c.frame.seq })),
       }));
       return;
     }
@@ -78,7 +95,7 @@ export function createServer(config, { log = console, captureFactory } = {}) {
       // Commands go out in the background; frames start at once.
       const ended = eventsFor(channel).session(ctx);
 
-      const capture = captureFor(ctx.width, ctx.height, fps);
+      const capture = captureFor(ctx.width, ctx.height, fps, url.searchParams.get("render") ?? config.render_size);
       capture.acquire?.();
       response.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-store" });
       sessions += 1;

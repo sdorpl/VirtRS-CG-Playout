@@ -104,6 +104,38 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   vizrs.close();
 });
 
+test("render size: config default, per-channel override, one capture per size pair", async () => {
+  const vizrs = await fakeVizrs();
+  const made = [];
+  const config = {
+    ...loadConfig(null, { VIZRS_RENDER_SIZE: "720p" }),
+    vizrs: { address: vizrs.address, token: "" },
+    output_url: "http://fake/output",
+    lead_seconds: 0,
+  };
+  const server = createServer(config, {
+    log: quiet,
+    captureFactory: (size) => {
+      made.push(size);
+      return { frame: { seq: 0, rects: [] }, key: "fake", status: "fake" };
+    },
+  });
+  const port = await listen(server);
+  const hd = { ...item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), Resolution: { Width: 1920, Height: 1080 } };
+
+  await runClient(`http://127.0.0.1:${port}/etv?channel=1`, hd, 400);
+  await runClient(`http://127.0.0.1:${port}/etv?channel=2`, hd, 400);
+  await runClient(`http://127.0.0.1:${port}/etv?channel=3&render=auto`, hd, 400);
+  await runClient(`http://127.0.0.1:${port}/etv?channel=4&render=bogus`, hd, 400);
+
+  assert.deepEqual(made.map(({ width, height, outWidth, outHeight }) => [width, height, outWidth, outHeight]), [
+    [1280, 720, 1920, 1080],
+    [1920, 1080, 1920, 1080],
+  ]);
+  server.close();
+  vizrs.close();
+});
+
 test("client exits quietly when the sidecar is down", async () => {
   const stream = await runClient("http://127.0.0.1:9/etv", {}, 3000);
   assert.equal(stream.length, 0);

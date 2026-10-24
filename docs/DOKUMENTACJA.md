@@ -20,15 +20,41 @@ ErsatzTV uruchamia element „script” dla każdej pozycji playoutu, podaje na
 stdin dane szablonu (ścieżka, tytuł, start/stop, wpisy EPG, rozdzielczość,
 klatkaż) i nakłada surowe klatki czytane ze stdout (`format: packet`).
 Klient w Pythonie (sama biblioteka standardowa) tylko przekazuje dane w obie
-strony, więc w sidecarze działa jedna przeglądarka na rozmiar kanału, także
-między pozycjami.
+strony, więc w sidecarze działa jedna przeglądarka na rozmiar kanału (i rozmiar
+renderowania, niżej), także między pozycjami.
+
+### Rozdzielczość warstwy grafiki
+
+ErsatzTV zawsze nakłada grafikę na płótno w rozmiarze kanału. Domyślnie
+Chromium renderuje `/output` w tym samym rozmiarze. Opcja `render_size`
+(`VIZRS_RENDER_SIZE`) albo parametr `render` w adresie elementu
+(`http://cg:7700/etv?channel=1&render=720p`, ma pierwszeństwo) każe
+renderować w innym rozmiarze, a sidecar skaluje widoczne prostokąty do
+rozmiaru kanału (libvips przez `sharp`, filtr Lanczos, z premultiplikacją
+alfy). Skalowane są tylko widoczne prostokąty, nie cała klatka.
+
+| Wartość | Rozmiar renderowania |
+|---|---|
+| puste, `auto` | rozmiar kanału (bez skalowania) |
+| `720p`, `720`, `540p`… | ta wysokość w proporcjach kanału (1080p → 1280×720) |
+| `1280x720` | dokładnie ten rozmiar (zachowaj proporcje kanału, inaczej obraz się rozciągnie) |
+
+Mniejszy rozmiar renderowania oznacza mniej pracy Chromium przy każdej
+zmienionej klatce kosztem ostrości tekstu, a większy niż kanał daje
+supersampling. Na grafikę statyczną nie ma wpływu, bo nie generuje klatek.
+Pomiar na x86 dla kanału 1080p i animacji ciągłej (przewijany ticker,
+mrugające „Na żywo”), CPU Chromium i sidecara na jedną klatkę na sekundę:
+1080p ok. 7,8%, `720p` ok. 5,6% (−30%), `540p` ok. 4,3% (−45%).
+Błędna wartość trafia do logu, a grafika renderuje się w rozmiarze kanału.
+Bez `sharp` (instalacja bez zależności) opcja jest pomijana.
+Kanały o tym samym rozmiarze i rozmiarze renderowania dzielą jedną przeglądarkę.
 
 Sidecar (Node 22):
 
 | Adres | Co |
 |---|---|
-| `POST /etv?channel=1` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV |
-| `GET /health` | liczba sesji i stan przechwytywania (`size`, `status`: `capturing`, `paused`, `restarting`…, `seq`) |
+| `POST /etv?channel=1[&render=720p]` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV; `render` – rozmiar renderowania grafiki (§1) |
+| `GET /health` | liczba sesji i stan przechwytywania (`size` kanału, `render`, `status`: `capturing`, `paused`, `restarting`…, `seq`) |
 
 Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje najnowszą
 klatkę, przycina ją do widocznych obszarów i wysyła jako jeden pakiet
@@ -60,6 +86,7 @@ harmonogramu jest dużo krótsza, więc w trakcie emisji pauza nie występuje.
 | reklama zaznaczona na pozycji | pozycja harmonogramu bez elementu **VizRS** (`ad_without_element`) |
 | lista `vizrs` na pozycji playlisty | brak (ErsatzTV nie ma pól na pozycję) |
 | `{next_*}` z playlisty | z wpisów EPG ErsatzTV (`epg_entries: 3`) |
+| brak – grafika zawsze w rozmiarze kanału | `render_size` / `&render=` (rozmiar renderowania grafiki, §1) |
 
 ## 3. Komendy i symbole zastępcze
 
@@ -199,7 +226,8 @@ node bin/virtrs-cg.js config.json
   "on_ad": "",
   "ad_match": { "path": "/reklamy/", "title": "" },
   "ad_without_element": true,
-  "lead_seconds": 4
+  "lead_seconds": 4,
+  "render_size": ""
 }
 ```
 
@@ -208,7 +236,8 @@ Pusty `output_url` = tylko komendy, bez wtapiania. Wzór: `config.example.json`.
 Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 `VIZRS_TOKEN`, `VIZRS_OUTPUT_URL`, `VIZRS_ON_CLIP`, `VIZRS_ON_AD`
 (`\n` rozdziela linie), `VIZRS_AD_PATH`, `VIZRS_AD_TITLE`, `VIZRS_AD_WITHOUT_ELEMENT=0`
-(wyłącza reklamę po braku elementu), `LEAD_SECONDS`,
+(wyłącza reklamę po braku elementu), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
+(`720p`, `1280x720`, puste = rozmiar kanału; §1),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.

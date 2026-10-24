@@ -42,6 +42,9 @@ services:
       VIZRS_AD_WITHOUT_ELEMENT: ${VIZRS_AD_WITHOUT_ELEMENT:-1}
       # Player buffer vs. graphics delay: ErsatzTV may run this far ahead of the clock.
       LEAD_SECONDS: ${LEAD_SECONDS:-4}
+      # Graphics render size, scaled to the channel: "" = channel size, 720p, 1280x720.
+      # Per channel: &render=720p in the element URL (vizrs.yml).
+      VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb
     ports:

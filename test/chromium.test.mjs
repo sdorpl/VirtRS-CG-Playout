@@ -79,3 +79,38 @@ test("Chromium capture pauses without sessions and resumes with a fresh frame", 
     server.close();
   }
 });
+
+test("Chromium capture renders smaller and scales to the channel", { skip: !browser && "no Chromium", timeout: 30000 }, async () => {
+  // Proportional layout, like VizRS scaling its 1920x1080 stage to the viewport.
+  const page = `<!doctype html><html><body style="margin:0;background:transparent">
+<div style="position:absolute;left:10%;top:80%;width:50%;height:10%;background:rgb(255,0,0)"></div></body></html>`;
+  const server = http.createServer((_, res) => res.end(page));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  const capture = new Capture({
+    url: `http://127.0.0.1:${server.address().port}/`,
+    width: 320,
+    height: 180,
+    outWidth: 640,
+    outHeight: 360,
+    fps: 25,
+    browser,
+    noSandbox: process.getuid?.() === 0,
+    log: quiet,
+  }).start();
+
+  try {
+    const deadline = Date.now() + 20000;
+    while (!capture.frame.rects.length && Date.now() < deadline) await sleep(100);
+
+    // Red box 32,144 160x18 at 320x180, plus 4 px margin, doubled.
+    const [{ pixels, ...rect }] = capture.frame.rects;
+    assert.deepEqual(rect, { x: 56, y: 280, w: 336, h: 52 });
+    const middle = ((rect.h >> 1) * rect.w + (rect.w >> 1)) * 4;
+    assert.deepEqual([...pixels.subarray(middle, middle + 4)], [255, 0, 0, 255]);
+    assert.equal(capture.key, "640x360 (render 320x180)");
+  } finally {
+    capture.stop();
+    server.close();
+  }
+});

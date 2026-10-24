@@ -17,6 +17,10 @@ export const DEFAULTS = {
   // How far the packet stream may run ahead of real time (ErsatzTV burst).
   // Graphics reach the picture this much later than they change in VizRS.
   lead_seconds: 4,
+  // Size Chromium renders /output at, scaled to the channel: "" = channel
+  // size, "720p" = that height in channel proportions, "1280x720" = exact.
+  // The element URL may override it per channel (`&render=720p`).
+  render_size: "",
   browser: "",
   no_sandbox: false,
   // Extra Chromium flags, e.g. fewer raster threads on small ARM hosts.
@@ -46,6 +50,7 @@ export function loadConfig(file, env = process.env) {
   if (env.VIZRS_AD_TITLE !== undefined) config.ad_match.title = env.VIZRS_AD_TITLE;
   if (env.VIZRS_AD_WITHOUT_ELEMENT !== undefined) config.ad_without_element = env.VIZRS_AD_WITHOUT_ELEMENT !== "0";
   if (env.LEAD_SECONDS) config.lead_seconds = Number(env.LEAD_SECONDS);
+  if (env.VIZRS_RENDER_SIZE !== undefined) config.render_size = env.VIZRS_RENDER_SIZE;
   if (env.VIZRS_BROWSER) config.browser = env.VIZRS_BROWSER;
   if (env.VIZRS_BROWSER_NO_SANDBOX === "1") config.no_sandbox = true;
   if (env.VIZRS_BROWSER_ARGS) config.browser_args = env.VIZRS_BROWSER_ARGS.split(/\s+/).filter(Boolean);

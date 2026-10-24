@@ -2,6 +2,8 @@
 # Copy to <ErsatzTV config>/templates/graphics-elements/script/ and add the
 # element "VizRS" to the channel's Deco (Graphics Elements).
 # Change "channel=1" per channel when several channels share one sidecar.
+# "&render=720p" renders the graphics at 720p and scales them to the channel
+# (less CPU for animations, softer text); default: the channel size.
 name: VizRS
 command: python3
 args:
