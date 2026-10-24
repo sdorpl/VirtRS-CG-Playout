@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etapy 0–1 zrobione** – gałąź `rust-edit`, szkielet crate'a w `rust/`, testy kontraktu (czarna skrzynka z `VIRTRS_CG_BIN`, wektory `test/vectors/`). Następny: etap 2 (szkielet sidecara w Ruście).
+> Status (2026-10-25): **etapy 0–2 zrobione** – gałąź `rust-edit`, testy kontraktu (czarna skrzynka z `VIRTRS_CG_BIN`, wektory `test/vectors/`), szkielet sidecara w Ruście: konfiguracja zgodna z wektorami, log, HTTP, `/health`. Następny: etap 3 (komendy VizRS i `/etv` bez grafiki).
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -58,7 +58,7 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 |---|---|---|---|
 | 0 | Przygotowanie | praca na `main` zacommitowana, gałąź `rust-edit`, crate w `rust/` (bo `src/` zajmuje JS), job `rust` w CI | ✅ |
 | 1 | Kontrakt | testy czarnej skrzynki (`test/sidecar.mjs`, przeglądarka `/bin/false` = przezroczyste klatki; treść grafiki w `chromium.test.mjs`) i wektory `test/vectors/*.json` z generatorem, nadal na JS | ✅ |
-| 2 | Szkielet | `config.rs` (JSON + zmienne), log, `/health`, argument `config.json`/`CONFIG` | |
+| 2 | Szkielet | `json.rs` (parsowanie i zapis jak `JSON.stringify`), `config.rs` (plik + zmienne, zgodny z `test/vectors/config.json`), `log.rs`, `http.rs` (jedno żądanie na połączenie, wątek na połączenie, `Content-Length` lub chunked, limit 4 MB), `server.rs` z `/health`, `main.rs` (argument `config.json`/`CONFIG`); pozostałe trasy na razie 404 | ✅ |
 | 3 | Logika bez grafiki | `template.rs` (daty ISO z offsetem i 7 cyframi ułamka z .NET), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`, reklamy, `GAP_GRACE`), `/etv` z pustymi klatkami | |
 | 4 | Klatki | `packets.rs`, `png.rs`, `rects.rs`, `yuva.rs`, `scale.rs`, `stream.rs` (wyprzedzenie, `SAMPLE_DELAY_MS`, `Repeat`); cecha `Source` z atrapą do testów | |
 | 5 | Chromium | `capture.rs`: te same flagi, CDP przez rurę, screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami | |
@@ -67,7 +67,23 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | 8 | Odbiór | pełny stos (oba tory grafiki, reklamy, restart Chromium, brak sidecara); benchmark §8 JS vs Rust na amd64 i Ampere A1 – nie gorzej niż JS | |
 | 9 | Sprzątanie | usunięcie `bin/`, `src/*.js`, `docker/sidecar.Dockerfile`; `rust/` do korzenia; DOKUMENTACJA, README, CLAUDE.md; scalenie do `main`, wersja zgodna z VizRS | |
 
-## 5. Ryzyka
+## 5. Zamierzone różnice względem Node.js
+
+Na scaleniu trafią do DOKUMENTACJI §5.
+
+- Nieznana opcja w pliku konfiguracji daje ostrzeżenie w logu (Node pomijał ją po cichu).
+- Zły typ opcji w pliku (np. `"no_sandbox": "yes"`) zatrzymuje start z komunikatem, która opcja jest zła. Node uruchamiał się i działał dalej z dziwną wartością. Liczba zapisana jako tekst (`"lead_seconds": "6"`) jest przyjmowana.
+- `LEAD_SECONDS`, który nie jest liczbą, daje ostrzeżenie i zostawia poprzednią wartość (Node przyjmował `NaN`).
+- Nieprawidłowy wzorzec `ad_match` ma dawać ostrzeżenie i „nie reklama”. W Node wyjątek wywraca proces.
+
+## 6. Wzorce z VizRS ffPlayout System (archiwum, GPL-3.0)
+
+Wolno brać tylko pomysły i zachowanie, kodu nie (CLAUDE.md, „Niepodważalne zasady”). ffPlayout używa tokio i tungstenite, więc architektura i tak jest inna.
+
+- `crates/app/src/utils/vizrs.rs` – kontekst klipu, symbole, `onAir`, wysyłanie komend: wzorzec dla etapu 3.
+- `crates/app/src/utils/vizrs_capture.rs` – Chromium przez DevTools (WebSocket), dekodowanie w osobnym wątku, `every_nth_frame`: wzorzec dla etapu 5. W razie problemów z trybem rury to także zapasowa ścieżka WebSocket.
+
+## 7. Ryzyka
 
 - **`ad_match`.** `regex-lite` nie ma lookahead ani odwołań wstecznych. Nieprawidłowy wzorzec ma dawać ostrzeżenie w logu i „nie reklama”, nigdy błąd. Trzeba to opisać w DOKUMENTACJI §5.
 - **Daty.** Własny parser zastępuje `Date.parse`. Wektory zbieram z prawdziwych danych szablonu z `seed/`.

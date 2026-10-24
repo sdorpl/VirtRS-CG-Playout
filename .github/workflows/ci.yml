@@ -37,7 +37,9 @@ jobs:
         working-directory: rust
     steps:
       - uses: actions/checkout@v4
+      - run: cargo fmt --check
       - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
 
   docker:
     needs: test

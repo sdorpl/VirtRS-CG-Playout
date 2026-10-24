@@ -1,8 +1,43 @@
-// VirtRS CG Playout sidecar in Rust: `virtrs-cg [config.json]`.
-// Migration from the Node.js sidecar in progress (docs/plany/PLAN-rust.md);
-// the Node.js version in bin/ and src/ is the one in use until then.
+// VirtRS CG Playout sidecar: `virtrs-cg [config.json]` (or CONFIG=config.json).
 
-fn main() {
-    eprintln!("virtrs-cg (Rust): not implemented yet; use `node bin/virtrs-cg.js`");
-    std::process::exit(1);
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::process::ExitCode;
+use std::sync::Arc;
+
+use virtrs_cg::config::Config;
+use virtrs_cg::server::{MAX_BODY, Server};
+use virtrs_cg::{error, http, info, log, warn};
+
+fn main() -> ExitCode {
+    log::set_debug(std::env::var("DEBUG").as_deref() == Ok("1"));
+
+    let file = std::env::args_os().nth(1).or_else(|| std::env::var_os("CONFIG")).map(PathBuf::from);
+    let config = match Config::load(file.as_deref()) {
+        Ok((config, warnings)) => {
+            for warning in warnings {
+                warn!("{warning}");
+            }
+            config
+        }
+        Err(message) => {
+            error!("{message}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let listener = match TcpListener::bind(config.listen_addr()) {
+        Ok(listener) => listener,
+        Err(e) => {
+            error!("listen on {}: {e}", config.listen);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let burn_in = if config.output_url.is_empty() { "off" } else { config.output_url.as_str() };
+    info!("listening on {}; VizRS {}; burn-in {burn_in}", config.listen, config.vizrs.address);
+
+    let server = Server::new(config);
+    http::serve(listener, MAX_BODY, Arc::new(move |request, stream| server.handle(request, stream)));
+    ExitCode::FAILURE
 }

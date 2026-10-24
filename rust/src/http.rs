@@ -1,0 +1,279 @@
+// Minimal HTTP/1.1 server: one request per connection, a thread per
+// connection. Replies are either complete (with Content-Length) or an endless
+// stream ended by closing the connection, which HTTP/1.0 clients (the ffmpeg
+// overlay) and HTTP/1.1 clients read alike.
+
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+// Request line plus headers; ErsatzTV and the clients send a few hundred bytes.
+const MAX_HEAD: usize = 64 * 1024;
+// A client that does not finish its request by then is dropped.
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Debug)]
+pub struct Request {
+    pub method: String,
+    pub path: String,
+    pub query: Vec<(String, String)>,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl Request {
+    /// First query parameter `name`, decoded.
+    pub fn param(&self, name: &str) -> Option<&str> {
+        self.query.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    }
+
+    /// Header `name` (case-insensitive).
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+    /// Malformed request: reply 400.
+    Bad(&'static str),
+    /// Body over the limit: reply 413.
+    TooLarge,
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Error::Io(error)
+    }
+}
+
+/// `%XX` and `+` of a query component; invalid escapes stay as they are.
+pub fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' => {
+                // Two hex digits; `from_str_radix` alone would also take a sign.
+                let hex = bytes.get(i + 1..i + 3).filter(|h| h.iter().all(u8::is_ascii_hexdigit)).and_then(|h| std::str::from_utf8(h).ok());
+                match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                    Some(b) => {
+                        out.push(b);
+                        i += 2;
+                    }
+                    None => out.push(b'%'),
+                }
+            }
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn parse_query(query: &str) -> Vec<(String, String)> {
+    query
+        .split('&')
+        .filter(|part| !part.is_empty())
+        .map(|part| match part.split_once('=') {
+            Some((k, v)) => (percent_decode(k), percent_decode(v)),
+            None => (percent_decode(part), String::new()),
+        })
+        .collect()
+}
+
+fn read_line(reader: &mut impl BufRead, budget: &mut usize) -> Result<String, Error> {
+    let mut line = Vec::new();
+    let read = reader.by_ref().take(*budget as u64 + 1).read_until(b'\n', &mut line)?;
+    if read == 0 {
+        return Err(Error::Bad("connection closed before the request"));
+    }
+    if read > *budget {
+        return Err(Error::Bad("request head too large"));
+    }
+    *budget -= read;
+    while matches!(line.last(), Some(b'\n' | b'\r')) {
+        line.pop();
+    }
+    String::from_utf8(line).map_err(|_| Error::Bad("request head is not UTF-8"))
+}
+
+/// Reads one request; the body up to `max_body` bytes (Content-Length or chunked).
+pub fn read_request(reader: &mut impl BufRead, max_body: usize) -> Result<Request, Error> {
+    let mut budget = MAX_HEAD;
+    let line = read_line(reader, &mut budget)?;
+    let mut parts = line.split(' ');
+    let (Some(method), Some(target), Some(version)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(Error::Bad("bad request line"));
+    };
+    if !version.starts_with("HTTP/1.") {
+        return Err(Error::Bad("unsupported HTTP version"));
+    }
+
+    let mut headers = Vec::new();
+    loop {
+        let line = read_line(reader, &mut budget)?;
+        if line.is_empty() {
+            break;
+        }
+        let (name, value) = line.split_once(':').ok_or(Error::Bad("bad header"))?;
+        headers.push((name.trim().to_owned(), value.trim().to_owned()));
+    }
+
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let mut request =
+        Request { method: method.to_owned(), path: percent_decode(path), query: parse_query(query), headers, body: Vec::new() };
+
+    if request.header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
+        request.body = read_chunked(reader, max_body)?;
+    } else if let Some(length) = request.header("content-length") {
+        let length: usize = length.parse().map_err(|_| Error::Bad("bad Content-Length"))?;
+        if length > max_body {
+            return Err(Error::TooLarge);
+        }
+        request.body = vec![0; length];
+        reader.read_exact(&mut request.body)?;
+    }
+    Ok(request)
+}
+
+fn read_chunked(reader: &mut impl BufRead, max_body: usize) -> Result<Vec<u8>, Error> {
+    let mut body = Vec::new();
+    loop {
+        let mut budget = MAX_HEAD;
+        let line = read_line(reader, &mut budget)?;
+        let size = line.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size, 16).map_err(|_| Error::Bad("bad chunk size"))?;
+        if size == 0 {
+            // Trailers up to the empty line.
+            while !read_line(reader, &mut budget)?.is_empty() {}
+            return Ok(body);
+        }
+        if body.len() + size > max_body {
+            return Err(Error::TooLarge);
+        }
+        let start = body.len();
+        body.resize(start + size, 0);
+        reader.read_exact(&mut body[start..])?;
+        read_line(reader, &mut budget)?;
+    }
+}
+
+fn reason(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        413 => "Payload Too Large",
+        500 => "Internal Server Error",
+        _ => "",
+    }
+}
+
+/// A complete reply; the connection closes after it.
+pub fn respond(stream: &mut impl Write, status: u16, content_type: Option<&str>, body: &[u8]) -> io::Result<()> {
+    let mut head = format!("HTTP/1.1 {status} {}\r\n", reason(status));
+    if let Some(content_type) = content_type {
+        head.push_str(&format!("Content-Type: {content_type}\r\n"));
+    }
+    head.push_str(&format!("Content-Length: {}\r\nConnection: close\r\n\r\n", body.len()));
+    let mut reply = head.into_bytes();
+    reply.extend_from_slice(body);
+    stream.write_all(&reply)?;
+    stream.flush()
+}
+
+/// Head of an endless binary stream, sent at once (a held session writes
+/// nothing at first, the client must see the reply anyway).
+pub fn start_stream(stream: &mut impl Write) -> io::Result<()> {
+    stream
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n")?;
+    stream.flush()
+}
+
+pub type Handler = dyn Fn(Request, TcpStream) + Send + Sync;
+
+/// Accepts connections until the listener fails; every request goes to
+/// `handler` on its own thread, with the connection to reply on.
+pub fn serve(listener: TcpListener, max_body: usize, handler: Arc<Handler>) {
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        let handler = Arc::clone(&handler);
+        let spawned = thread::Builder::new().name("http".into()).spawn(move || connection(stream, max_body, &*handler));
+        if let Err(error) = spawned {
+            crate::error!("http: no thread for a connection: {error}");
+        }
+    }
+}
+
+fn connection(stream: TcpStream, max_body: usize, handler: &Handler) {
+    let _ = stream.set_nodelay(true);
+    let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
+    let Ok(read_half) = stream.try_clone() else { return };
+    let mut reader = BufReader::new(read_half);
+    let mut stream = stream;
+
+    match read_request(&mut reader, max_body) {
+        Ok(request) => {
+            // Replies may stream for hours: no timeout from here on.
+            let _ = stream.set_read_timeout(None);
+            handler(request, stream);
+        }
+        Err(Error::Bad(message)) => {
+            let _ = respond(&mut stream, 400, Some("text/plain"), message.as_bytes());
+        }
+        Err(Error::TooLarge) => {
+            let _ = respond(&mut stream, 413, None, b"");
+        }
+        Err(Error::Io(_)) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(raw: &str) -> Result<Request, Error> {
+        read_request(&mut raw.as_bytes(), 16)
+    }
+
+    #[test]
+    fn request_with_query_and_body() {
+        let request = parse("POST /etv?channel=2&render=720p&x=a%20b+c HTTP/1.1\r\nHost: h\r\ncontent-length: 4\r\n\r\n{}{}").unwrap();
+        assert_eq!((request.method.as_str(), request.path.as_str()), ("POST", "/etv"));
+        assert_eq!(request.param("channel"), Some("2"));
+        assert_eq!(request.param("x"), Some("a b c"));
+        assert_eq!(request.param("missing"), None);
+        assert_eq!(request.header("Content-Length"), Some("4"));
+        assert_eq!(request.body, b"{}{}");
+
+        let request = parse("GET /ffmpeg/frames?session=3 HTTP/1.0\nHost: h\n\n").unwrap();
+        assert_eq!(request.param("session"), Some("3"));
+        assert!(request.body.is_empty());
+    }
+
+    #[test]
+    fn chunked_body_and_limits() {
+        let request = parse("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2;x=y\r\nde\r\n0\r\n\r\n").unwrap();
+        assert_eq!(request.body, b"abcde");
+        assert!(matches!(parse("POST / HTTP/1.1\r\nContent-Length: 17\r\n\r\n"), Err(Error::TooLarge)));
+        assert!(matches!(parse("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n11\r\n"), Err(Error::TooLarge)));
+        assert!(matches!(parse("GARBAGE\r\n\r\n"), Err(Error::Bad(_))));
+        assert!(matches!(parse("GET / SPDY/3\r\n\r\n"), Err(Error::Bad(_))));
+        assert!(matches!(parse(""), Err(Error::Bad(_))));
+        let long = format!("GET /{} HTTP/1.1\r\n\r\n", "a".repeat(MAX_HEAD));
+        assert!(matches!(parse(&long), Err(Error::Bad("request head too large"))));
+    }
+
+    #[test]
+    fn percent_decoding() {
+        assert_eq!(percent_decode("a%2Fb%zz%4"), "a/b%zz%4");
+        assert_eq!(percent_decode("%C5%BC"), "ż");
+        assert_eq!(percent_decode("%"), "%");
+    }
+}

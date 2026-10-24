@@ -1,0 +1,3 @@
+# Lines as long as in the Node.js sources (src/*.js).
+max_width = 140
+use_small_heuristics = "Max"
