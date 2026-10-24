@@ -1,7 +1,9 @@
 // Packet stream of one ErsatzTV script session. ErsatzTV reads one frame per
 // output frame; the stream is paced by the wall clock with a lead, so it
 // follows `-readrate 1.0` with its initial burst but never runs far ahead of
-// the live VizRS graphics.
+// the live VizRS graphics. Every output frame takes the picture that was
+// current at its own moment (as a playout blending the current graphics into
+// each frame), so late writes do not turn motion into repeats and jumps.
 
 import { framePacket, repeatPacket } from "./packets.js";
 
@@ -11,6 +13,11 @@ export function streamFrames(capture, response, { fps, leadSeconds }) {
   const frameMs = 1000 / fps;
   const leadFrames = Math.round(leadSeconds * fps);
   const started = performance.now();
+  // Moment of output frame `n`: the first `leadFrames` go out at once.
+  const frameAt = (n) => {
+    const time = started + Math.max(0, n - leadFrames) * frameMs;
+    return capture.frameAt?.(time) ?? capture.frame;
+  };
   let sent = 0;
   let sentSeq = -1;
   let closed = false;
@@ -32,14 +39,15 @@ export function streamFrames(capture, response, { fps, leadSeconds }) {
     const due = Math.floor((performance.now() - started) / frameMs) + 1 + leadFrames;
 
     while (sent < due && !waiting) {
-      const frame = capture.frame;
+      const frame = frameAt(sent);
 
       if (frame.seq !== sentSeq) {
         sentSeq = frame.seq;
         sent += 1;
         write(framePacket(frame));
       } else {
-        const frames = due - sent;
+        let frames = 1;
+        while (sent + frames < due && frameAt(sent + frames).seq === sentSeq) frames += 1;
         sent += frames;
         write(repeatPacket(frames));
       }

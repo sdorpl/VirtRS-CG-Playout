@@ -2,7 +2,8 @@
 // `/output` page with a transparent background. Chromium sends a PNG
 // (DevTools `Page.startScreencast`) only when the page changes; the newest
 // one is decoded (libvips through `sharp` off the main thread, else the JS
-// decoder) and kept as the current frame for all sessions.
+// decoder) and kept as the current frame for all sessions, with a short
+// history so each output frame can take the picture of its own moment.
 
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -21,6 +22,13 @@ const RESTART_DELAY = 3000;
 // Without sessions (ErsatzTV transcodes on demand) the page stops being
 // captured after this long; the gap between two items is much shorter.
 const IDLE_MS = 30000;
+// Chromium composites at 60 Hz; the screencast takes every n-th frame.
+const BROWSER_FPS = 60;
+// With n > 1 a lone change (static page, last frame of an animation) may be
+// skipped: after this long without frames a screenshot fetches the final state.
+const SETTLE_MS = 150;
+// Frames kept for sessions that write late (backpressure, busy event loop).
+const HISTORY_MS = 500;
 const BROWSERS = ["chromium-headless-shell", "chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
 
 export function findBrowser(env = process.env) {
@@ -39,6 +47,11 @@ export function findBrowser(env = process.env) {
   }
 
   return null;
+}
+
+/** Screencast step that keeps frames at or above the channel rate: 25 fps takes every second frame. */
+export function everyNthFrame(fps) {
+  return Math.max(1, Math.floor(BROWSER_FPS / Math.max(1, fps || 0)));
 }
 
 /** Native PNG decoder when `sharp` is installed: ~20 ms instead of ~150 ms at 1080p. */
@@ -111,7 +124,8 @@ export class Capture {
     this.extraArgs = extraArgs;
     this.log = log;
     // seq grows with every new picture; sessions compare it to what they sent.
-    this.frame = { seq: 0, rects: [] };
+    this.frame = { seq: 0, rects: [], at: performance.now() };
+    this.history = [this.frame];
     this.stopped = false;
     this.status = "starting";
     this.pendingPng = null;
@@ -189,7 +203,19 @@ export class Capture {
 
   setFrame(rects) {
     if (!rects.length && !this.frame.rects.length) return;
-    this.frame = { seq: this.frame.seq + 1, rects };
+    const at = performance.now();
+    this.frame = { seq: this.frame.seq + 1, rects, at };
+    this.history.push(this.frame);
+    // Keep the frame that was current when the window starts.
+    while (this.history.length > 1 && this.history[1].at <= at - HISTORY_MS) this.history.shift();
+  }
+
+  /** The picture shown at `time` (`performance.now()`), like a playout taking the current frame. */
+  frameAt(time) {
+    for (let i = this.history.length - 1; i > 0; i--) {
+      if (this.history[i].at <= time) return this.history[i];
+    }
+    return this.history[0];
   }
 
   async runBrowser() {
@@ -282,6 +308,18 @@ export class Capture {
     const { sessionId } = await devtools.call("Target.attachToTarget", { targetId, flatten: true });
     const call = (method, params) => devtools.call(method, params, sessionId);
 
+    const step = everyNthFrame(this.fps);
+    let settleTimer = null;
+    const settle = () => {
+      clearTimeout(settleTimer);
+      if (step === 1 || !this.active) return;
+      settleTimer = setTimeout(() => {
+        call("Page.captureScreenshot", { format: "png" })
+          .then(({ data }) => this.active && this.pushPng(data))
+          .catch((error) => this.log.warn(`burn-in ${this.key}: ${error.message}`));
+      }, SETTLE_MS);
+    };
+
     const ended = new Promise((resolve, reject) => {
       exited.then(() => reject(new Error("browser exited")));
       devtools.onEvent = (message) => {
@@ -289,6 +327,7 @@ export class Capture {
           // Ack at once so Chromium renders the next frame while this one is decoded.
           call("Page.screencastFrameAck", { sessionId: message.params.sessionId }).catch(() => {});
           this.pushPng(message.params.data);
+          settle();
         } else if (["Inspector.targetCrashed", "Target.targetCrashed", "Target.detachedFromTarget", "DevTools.closed"].includes(message.method)) {
           reject(new Error(`page closed (${message.method})`));
         }
@@ -302,18 +341,24 @@ export class Capture {
     await call("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
     await call("Page.enable");
 
-    const screencast = { format: "png", maxWidth: this.width, maxHeight: this.height, everyNthFrame: 1 };
+    // Not faster than the channel needs, as in VizRS ffPlayout System: half the PNG work at 24–30 fps.
+    const screencast = { format: "png", maxWidth: this.width, maxHeight: this.height, everyNthFrame: step };
     this.screencast = async (active) => {
-      if (active) await call("Page.startScreencast", screencast);
-      else await call("Page.stopScreencast");
+      if (active) {
+        await call("Page.startScreencast", screencast);
+        settle();
+      } else {
+        await call("Page.stopScreencast");
+      }
     };
-    if (this.active) await call("Page.startScreencast", screencast);
+    if (this.active) await this.screencast(true);
 
     this.status = this.active ? "capturing" : "paused";
     this.log.info(`burn-in ${this.key}: capturing ${this.url}`);
     try {
       await ended;
     } finally {
+      clearTimeout(settleTimer);
       this.screencast = null;
     }
   }

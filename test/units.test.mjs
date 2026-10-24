@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 
+import { Capture, everyNthFrame } from "../src/capture.js";
 import { loadConfig } from "../src/config.js";
 import { clearPacket, crop, framePacket, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
 import { decodePng } from "../src/png.js";
 import { renderSize, scaleRects } from "../src/scale.js";
+import { streamFrames } from "../src/stream.js";
 import { clipContext, isAd, renderCommands, timeSpanSeconds } from "../src/template.js";
 import { onAir } from "../src/vizrs.js";
 
@@ -83,6 +87,51 @@ test("a frame's packet is built once for all sessions", () => {
   const frame = { seq: 1, rects: [{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, 7) }] };
   assert.equal(framePacket(frame), framePacket(frame));
   assert.deepEqual(framePacket({ seq: 0, rects: [] }), clearPacket());
+});
+
+test("screencast step keeps the channel rate", () => {
+  assert.equal(everyNthFrame(25), 2);
+  assert.equal(everyNthFrame(30), 2);
+  assert.equal(everyNthFrame(50), 1);
+  assert.equal(everyNthFrame(60), 1);
+  assert.equal(everyNthFrame(0), 60);
+});
+
+test("capture history gives the picture of a past moment", () => {
+  const capture = new Capture({ url: "", width: 2, height: 1, fps: 25 });
+  const first = capture.frame;
+  capture.setFrame([{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, 1) }]);
+  const second = capture.frame;
+  assert.equal(capture.frameAt(first.at - 1), first, "older than the history: the oldest frame");
+  assert.equal(capture.frameAt(second.at), second);
+  assert.equal(capture.frameAt(second.at + 1000), second);
+});
+
+test("frames written late still show motion, not one picture repeated", async () => {
+  const capture = new Capture({ url: "", width: 1, height: 1, fps: 25 });
+  const animate = setInterval(() => {
+    capture.setFrame([{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, (capture.frame.seq % 250) + 1) }]);
+  }, 20);
+  // ErsatzTV stops reading for 400 ms after the first packet, then catches up.
+  const response = new EventEmitter();
+  const chunks = [];
+  let blocked = true;
+  response.write = (chunk) => {
+    chunks.push(chunk);
+    if (!blocked) return true;
+    blocked = false;
+    setTimeout(() => response.emit("drain"), 400);
+    return false;
+  };
+
+  const stream = streamFrames(capture, response, { fps: 25, leadSeconds: 0 });
+  await sleep(600);
+  stream.stop();
+  clearInterval(animate);
+
+  const values = readFrames(Buffer.concat(chunks), 1, 1).map((frame) => frame[0]);
+  const late = values.slice(1, 10);
+  assert.ok(new Set(late).size >= 8, `frames after the stall: ${late}`);
 });
 
 test("render size from the option", () => {

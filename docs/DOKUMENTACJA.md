@@ -62,7 +62,25 @@ klatkę, przycina ją do widocznych obszarów i wysyła jako jeden pakiet
 i pasek na dole to dwa małe prostokąty, a nie jeden na cały ekran;
 przerwy węższe niż 32 px zostają w jednym prostokącie). Niezmienione klatki idą jako `Repeat`, więc statyczna grafika
 prawie nic nie kosztuje. Animacje pod obciążeniem gubią klatki, ale nie
-zostają w tyle. Strumień wyprzedza zegar najwyżej o `lead_seconds`
+zostają w tyle.
+
+Płynność animacji (rozwiązania z VizRS ffPlayout System):
+
+- **Przechwytywanie nie szybsze niż klatkaż kanału.** Chromium składa
+  stronę 60 razy na sekundę; przy 24–30 fps screencast bierze co drugą
+  klatkę (30 PNG/s zamiast 60), przy 50–60 fps każdą. To połowa pracy
+  z PNG w Chromium i sidecarze, więc pod obciążeniem klatki przychodzą
+  równo. Pojedyncza zmiana (strona statyczna, ostatnia klatka animacji)
+  mogłaby wypaść między branymi klatkami, dlatego po 150 ms bez klatek
+  sidecar robi jeden zrzut strony (`Page.captureScreenshot`) i obraz zawsze
+  dochodzi do stanu końcowego.
+- **Każda klatka wyjścia pokazuje grafikę ze swojej chwili.** Sidecar trzyma
+  klatki z ostatnich 0,5 s z czasem przyjścia, a strumień bierze dla klatki
+  wyjścia tę, która była aktualna w jej chwili, nie w chwili zapisu. Gdy
+  ErsatzTV na moment przestaje czytać (zator, obciążony CPU), zaległe klatki
+  idą jako kolejne obrazy animacji, a nie jeden obraz powtórzony i skok.
+
+Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,
 i zarazem opóźnienie zmiany z VizRS na obrazie. Mniej = szybsza grafika,
 więcej = gdy odtwarzanie się zacina.
@@ -90,6 +108,7 @@ szablony komend; nowe funkcje VirtRS CG nie mają już odpowiednika tam.
 | reklama zaznaczona na pozycji | pozycja harmonogramu bez elementu **VizRS** (`ad_without_element`) |
 | lista `vizrs` na pozycji playlisty | brak (ErsatzTV nie ma pól na pozycję) |
 | `{next_*}` z playlisty | z wpisów EPG ErsatzTV (`epg_entries: 3`) |
+| przechwytywanie co n-tą klatkę Chromium, wtapianie aktualnej grafiki w każdą klatkę | to samo (§1, płynność animacji), plus zrzut stanu końcowego |
 | brak – grafika zawsze w rozmiarze kanału | `render_size` / `&render=` (rozmiar renderowania grafiki, §1) |
 
 ## 3. Komendy i symbole zastępcze
