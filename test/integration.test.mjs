@@ -19,7 +19,10 @@ const quiet = { debug() {}, info() {}, warn() {}, error() {} };
 /** VizRS stand-in: records commands, `STATE` returns `layers`. */
 async function fakeVizrs(layers = []) {
   const received = [];
+  const sockets = new Set();
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
     let buffer = "";
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
@@ -34,7 +37,11 @@ async function fakeVizrs(layers = []) {
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { received, address: `127.0.0.1:${server.address().port}`, close: () => server.close() };
+  const close = () => {
+    for (const socket of sockets) socket.destroy();
+    server.close();
+  };
+  return { received, address: `127.0.0.1:${server.address().port}`, close };
 }
 
 function listen(server) {
@@ -64,8 +71,9 @@ const item = (path, start, extra = {}) => ({
   ...extra,
 });
 
-test("client streams frames paced by the clock, commands reach VizRS once per item", async () => {
+test("client streams frames paced by the clock, commands reach VizRS once per item", async (t) => {
   const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
   const capture = {
     frame: { seq: 0, rects: [] }, key: "8x4", status: "fake", users: 0,
     acquire() { this.users += 1; },
@@ -80,6 +88,7 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   };
   const server = createServer(config, { log: quiet, captureFactory: () => capture });
   const port = await listen(server);
+  t.after(() => server.close());
   const url = `http://127.0.0.1:${port}/etv?channel=1`;
 
   // Graphics appear 300 ms into the item.
@@ -100,12 +109,11 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   assert.deepEqual(vizrs.received, ["AUTH secret", "TAKE 4001 headline=News"]);
   assert.equal(capture.users, 0, "every session released the capture");
 
-  server.close();
-  vizrs.close();
 });
 
-test("render size: config default, per-channel override, one capture per size pair", async () => {
+test("render size: config default, per-channel override, one capture per size pair", async (t) => {
   const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
   const made = [];
   const config = {
     ...loadConfig(null, { VIZRS_RENDER_SIZE: "720p" }),
@@ -121,6 +129,7 @@ test("render size: config default, per-channel override, one capture per size pa
     },
   });
   const port = await listen(server);
+  t.after(() => server.close());
   const hd = { ...item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), Resolution: { Width: 1920, Height: 1080 } };
 
   await runClient(`http://127.0.0.1:${port}/etv?channel=1`, hd, 400);
@@ -132,8 +141,6 @@ test("render size: config default, per-channel override, one capture per size pa
     [1280, 720, 1920, 1080],
     [1920, 1080, 1920, 1080],
   ]);
-  server.close();
-  vizrs.close();
 });
 
 test("client exits quietly when the sidecar is down", async () => {
@@ -141,8 +148,9 @@ test("client exits quietly when the sidecar is down", async () => {
   assert.equal(stream.length, 0);
 });
 
-test("ads take graphics out; the first clip after the break takes them back", async () => {
+test("ads take graphics out; the first clip after the break takes them back", async (t) => {
   const vizrs = await fakeVizrs([{ layer: "main", page: "1001" }, { layer: "logo", page: "3001" }]);
+  t.after(vizrs.close);
   const events = new ChannelEvents(
     {
       vizrs: { address: vizrs.address, token: "" },
@@ -163,11 +171,11 @@ test("ads take graphics out; the first clip after the break takes them back", as
     "STATE", "OUT main,logo",
     "TAKE 1001,3001", "UPDATE 2001 t=T",
   ]);
-  vizrs.close();
 });
 
-test("an item without the VizRS element is an ad; the next item with it restores", async () => {
+test("an item without the VizRS element is an ad; the next item with it restores", async (t) => {
   const vizrs = await fakeVizrs([{ layer: "main", page: "1001" }]);
+  t.after(vizrs.close);
   const events = new ChannelEvents(
     {
       vizrs: { address: vizrs.address, token: "" },
@@ -194,5 +202,4 @@ test("an item without the VizRS element is an ad; the next item with it restores
   events.session(ctx("/m/c.mp4", "3", new Date(now + 10000).toISOString()));
   await events.queue;
   assert.deepEqual(vizrs.received.slice(4), ["TAKE 1001", "UPDATE 2001 t=T"]);
-  vizrs.close();
 });
