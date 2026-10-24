@@ -1,6 +1,6 @@
 {
   "name": "virtrs-cg-playout",
-  "version": "0.1.0",
+  "version": "2.0.5",
   "private": true,
   "description": "VizRS graphics for ErsatzTV channels: commands on clip start and burn-in of /output through the ErsatzTV script graphics element",
   "type": "module",
