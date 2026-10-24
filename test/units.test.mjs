@@ -3,12 +3,12 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { Capture, everyNthFrame } from "../src/capture.js";
+import { Capture, drawnAt, everyNthFrame } from "../src/capture.js";
 import { loadConfig } from "../src/config.js";
 import { clearPacket, crop, framePacket, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
 import { decodePng } from "../src/png.js";
 import { renderSize, scaleRects } from "../src/scale.js";
-import { streamFrames } from "../src/stream.js";
+import { SAMPLE_DELAY_MS, streamFrames } from "../src/stream.js";
 import { clipContext, isAd, renderCommands, timeSpanSeconds } from "../src/template.js";
 import { onAir } from "../src/vizrs.js";
 
@@ -107,11 +107,64 @@ test("capture history gives the picture of a past moment", () => {
   assert.equal(capture.frameAt(second.at + 1000), second);
 });
 
+test("screencast timestamp on the performance clock", () => {
+  const now = performance.now();
+  const at = drawnAt((performance.timeOrigin + now - 30) / 1000, now);
+  assert.ok(Math.abs(at - (now - 30)) < 1, `${at} vs ${now - 30}`);
+  assert.equal(drawnAt(undefined, now), now, "missing: arrival time");
+  assert.equal(drawnAt((performance.timeOrigin + now + 500) / 1000, now), now, "in the future: arrival time");
+  assert.equal(drawnAt((performance.timeOrigin + now - 5000) / 1000, now), now, "too old: arrival time");
+});
+
+test("a picture dated in the past keeps the history in order", () => {
+  const capture = new Capture({ url: "", width: 1, height: 1, fps: 25 });
+  const rect = () => [{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, 1) }];
+  capture.setFrame(rect(), performance.now());
+  const first = capture.frame;
+  capture.setFrame(rect(), first.at - 50);
+  assert.equal(capture.frame.at, first.at);
+});
+
+test("pictures decoded with varying delay each land in their own output frame", async () => {
+  const capture = new Capture({ url: "", width: 1, height: 1, fps: 25 });
+  // Chromium draws mid-slot every 40 ms; each picture is decoded 0–85 ms later.
+  const started = performance.now();
+  const pending = [];
+  let drawn = 0;
+  const deliver = setInterval(() => {
+    const now = performance.now();
+    while (started + 10 + drawn * 40 <= now) {
+      const at = started + 10 + drawn * 40;
+      pending.push({ at, value: (drawn % 250) + 1, ready: at + Math.random() * 85 });
+      drawn += 1;
+    }
+    while (pending.length && pending[0].ready <= now) {
+      const { at, value } = pending.shift();
+      capture.setFrame([{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, value) }], at);
+    }
+  }, 5);
+  const response = new EventEmitter();
+  const chunks = [];
+  response.write = (chunk) => chunks.push(chunk) > 0;
+
+  const stream = streamFrames(capture, response, { fps: 25, leadSeconds: 0 });
+  await sleep(1500);
+  stream.stop();
+  clearInterval(deliver);
+
+  const values = readFrames(Buffer.concat(chunks), 1, 1).map((frame) => frame[0]).filter((v) => v > 0);
+  const steps = values.slice(1).map((v, i) => v - values[i]);
+  const exact = steps.filter((step) => step === 1).length;
+  assert.ok(exact >= steps.length - 1, `steps: ${steps}`);
+});
+
 test("frames written late still show motion, not one picture repeated", async () => {
   const capture = new Capture({ url: "", width: 1, height: 1, fps: 25 });
   const animate = setInterval(() => {
     capture.setFrame([{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, (capture.frame.seq % 250) + 1) }]);
   }, 20);
+  // Output frames look SAMPLE_DELAY_MS back: the animation runs that long first.
+  await sleep(SAMPLE_DELAY_MS + 40);
   // ErsatzTV stops reading for 400 ms after the first packet, then catches up.
   const response = new EventEmitter();
   const chunks = [];

@@ -3,7 +3,8 @@
 // (DevTools `Page.startScreencast`) only when the page changes; the newest
 // one is decoded (libvips through `sharp` off the main thread, else the JS
 // decoder) and kept as the current frame for all sessions, with a short
-// history so each output frame can take the picture of its own moment.
+// history so each output frame can take the picture of its own moment. A
+// picture is dated when Chromium drew it, not when its decoding finished.
 
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -52,6 +53,15 @@ export function findBrowser(env = process.env) {
 /** Screencast step that keeps frames at or above the channel rate: 25 fps takes every second frame. */
 export function everyNthFrame(fps) {
   return Math.max(1, Math.floor(BROWSER_FPS / Math.max(1, fps || 0)));
+}
+
+/**
+ * When Chromium drew a screencast frame (`metadata.timestamp`, seconds since
+ * the epoch) on the `performance.now()` clock; arrival time if missing or off.
+ */
+export function drawnAt(timestamp, now = performance.now()) {
+  const at = timestamp * 1000 - performance.timeOrigin;
+  return Number.isFinite(at) && at <= now && at > now - 1000 ? at : now;
 }
 
 /** Native PNG decoder when `sharp` is installed: ~20 ms instead of ~150 ms at 1080p. */
@@ -201,9 +211,10 @@ export class Capture {
     }
   }
 
-  setFrame(rects) {
+  /** `at`: when the picture was drawn (`performance.now()`); history stays in order. */
+  setFrame(rects, at = performance.now()) {
     if (!rects.length && !this.frame.rects.length) return;
-    const at = performance.now();
+    at = Math.max(at, this.frame.at);
     this.frame = { seq: this.frame.seq + 1, rects, at };
     this.history.push(this.frame);
     // Keep the frame that was current when the window starts.
@@ -315,7 +326,7 @@ export class Capture {
       if (step === 1 || !this.active) return;
       settleTimer = setTimeout(() => {
         call("Page.captureScreenshot", { format: "png" })
-          .then(({ data }) => this.active && this.pushPng(data))
+          .then(({ data }) => this.active && this.pushPng(data, performance.now()))
           .catch((error) => this.log.warn(`burn-in ${this.key}: ${error.message}`));
       }, SETTLE_MS);
     };
@@ -326,7 +337,7 @@ export class Capture {
         if (message.sessionId === sessionId && message.method === "Page.screencastFrame") {
           // Ack at once so Chromium renders the next frame while this one is decoded.
           call("Page.screencastFrameAck", { sessionId: message.params.sessionId }).catch(() => {});
-          this.pushPng(message.params.data);
+          this.pushPng(message.params.data, drawnAt(message.params.metadata?.timestamp));
           settle();
         } else if (["Inspector.targetCrashed", "Target.targetCrashed", "Target.detachedFromTarget", "DevTools.closed"].includes(message.method)) {
           reject(new Error(`page closed (${message.method})`));
@@ -364,17 +375,17 @@ export class Capture {
   }
 
   /** Keeps only the newest undecoded frame: animations drop frames, never lag. */
-  pushPng(data) {
-    this.pendingPng = data;
+  pushPng(data, at = performance.now()) {
+    this.pendingPng = { data, at };
     if (this.decoding) return;
     this.decoding = true;
 
     (async () => {
       try {
         while (this.pendingPng) {
-          const png = Buffer.from(this.pendingPng, "base64");
+          const { data, at } = this.pendingPng;
           this.pendingPng = null;
-          await this.applyPng(png);
+          await this.applyPng(Buffer.from(data, "base64"), at);
         }
       } finally {
         this.decoding = false;
@@ -382,7 +393,7 @@ export class Capture {
     })();
   }
 
-  async applyPng(png) {
+  async applyPng(png, at) {
     try {
       const { width, height, rgba } = await decodeFrame(png);
       if (width !== this.width || height !== this.height) {
@@ -393,7 +404,7 @@ export class Capture {
       const rects = visibleRects(rgba, width, height);
       this.setFrame(this.scaled
         ? await scaleRects(rgba, width, height, rects, this.outWidth, this.outHeight)
-        : rects.map((rect) => ({ ...rect, pixels: crop(rgba, width, rect) })));
+        : rects.map((rect) => ({ ...rect, pixels: crop(rgba, width, rect) })), at);
     } catch (error) {
       this.log.warn(`burn-in ${this.key}: ${error.message}`);
     }

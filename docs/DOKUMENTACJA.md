@@ -76,10 +76,14 @@ Płynność animacji (rozwiązania z VizRS ffPlayout System):
   sidecar robi jeden zrzut strony (`Page.captureScreenshot`) i obraz zawsze
   dochodzi do stanu końcowego.
 - **Każda klatka wyjścia pokazuje grafikę ze swojej chwili.** Sidecar trzyma
-  klatki z ostatnich 0,5 s z czasem przyjścia, a strumień bierze dla klatki
-  wyjścia tę, która była aktualna w jej chwili, nie w chwili zapisu. Gdy
-  ErsatzTV na moment przestaje czytać (zator, obciążony CPU), zaległe klatki
-  idą jako kolejne obrazy animacji, a nie jeden obraz powtórzony i skok.
+  klatki z ostatnich 0,5 s z czasem, w którym Chromium je narysował (znacznik
+  screencastu, nie chwila końca dekodowania), a strumień bierze dla klatki
+  wyjścia tę, która była aktualna w jej chwili, nie w chwili zapisu. Klatka
+  wyjścia patrzy 100 ms wstecz: tyle mieści się przesył i dekodowanie PNG,
+  więc każda zastaje już swój obraz, a rozrzut czasu dekodowania nie zamienia
+  ruchu w powtórzenia i podwójne kroki (opóźnienie grafiki rośnie o 0,1 s).
+  Gdy ErsatzTV na moment przestaje czytać (zator, obciążony CPU), zaległe
+  klatki idą jako kolejne obrazy animacji, a nie jeden obraz powtórzony i skok.
 
 Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,

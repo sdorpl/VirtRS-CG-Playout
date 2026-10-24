@@ -8,6 +8,9 @@
 import { framePacket, repeatPacket } from "./packets.js";
 
 const TICK_MS = 20;
+// Pictures are dated when Chromium drew them and arrive decoded up to ~100 ms
+// later; output frames look this far back so each finds the picture of its moment.
+export const SAMPLE_DELAY_MS = 100;
 
 export function streamFrames(capture, response, { fps, leadSeconds }) {
   const frameMs = 1000 / fps;
@@ -15,7 +18,7 @@ export function streamFrames(capture, response, { fps, leadSeconds }) {
   const started = performance.now();
   // Moment of output frame `n`: the first `leadFrames` go out at once.
   const frameAt = (n) => {
-    const time = started + Math.max(0, n - leadFrames) * frameMs;
+    const time = started + Math.max(0, n - leadFrames) * frameMs - SAMPLE_DELAY_MS;
     return capture.frameAt?.(time) ?? capture.frame;
   };
   let sent = 0;
