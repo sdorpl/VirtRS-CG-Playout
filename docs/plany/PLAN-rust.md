@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etapy 0–2 zrobione** – gałąź `rust-edit`, testy kontraktu (czarna skrzynka z `VIRTRS_CG_BIN`, wektory `test/vectors/`), szkielet sidecara w Ruście: konfiguracja zgodna z wektorami, log, HTTP, `/health`. Następny: etap 3 (komendy VizRS i `/etv` bez grafiki).
+> Status (2026-10-25): **etapy 0–3 zrobione** – testy kontraktu, szkielet sidecara, komendy VizRS i `/etv` z przezroczystymi klatkami. Binarka Rusta przechodzi testy czarnej skrzynki etapu 3 (tempo i komendy, reklamy, reklama bez elementu, brak sidecara), w CI także. Następny: etap 4 (klatki: prostokąty, PNG, `yuva420p`, skalowanie).
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -28,16 +28,16 @@ Sidecar (`bin/` + `src/*.js`, ok. 1700 linii, zależność `sharp`) staje się j
 | Obszar | Node.js | Rust | Uzasadnienie |
 |---|---|---|---|
 | współbieżność | pętla zdarzeń | `std::thread`, `mpsc`, `Condvar`; bez tokio | kilka kanałów i sesji; blokujący zapis daje backpressure |
-| HTTP | `node:http` | własny minimalny HTTP/1.1 na `TcpListener` | 4 trasy, strumienie bez końca: odpowiedź bez `Content-Length`, `Connection: close` (nakładka pyta HTTP/1.0), nagłówki wysyłane od razu |
+| HTTP | `node:http` | własny minimalny HTTP/1.1 na `TcpListener` | 4 trasy; strumienie jak w Node: na HTTP/1.1 chunked (`http.client` Pythona gubi gniazdo przy odpowiedzi kończonej rozłączeniem, co sprawdziłem w etapie 3), na HTTP/1.0 (nakładka) surowe bajty i `Connection: close`; nagłówki wysyłane od razu |
 | DevTools | WebSocket + `DevToolsActivePort` | `--remote-debugging-pipe` (fd 3/4, JSON zakończony `\0`) | bez klienta WebSocket i odpytywania pliku |
 | koniec Chromium | `SIGKILL` przy zamykaniu | `PR_SET_PDEATHSIG` w `pre_exec` | przeglądarka kończy się z sidecarem bez obsługi sygnałów |
 | PNG | `sharp` (libvips) | crate `png` | czysty Rust, szybki inflate (fdeflate) |
 | skalowanie `render_size` | `sharp`, Lanczos z premultiplikacją | własny rozdzielny Lanczos3 z premultiplikacją | znika ostatnia zależność natywna |
-| `ad_match` | `RegExp(…, "i")` | crate `regex-lite` | mały, bez zależności |
+| `ad_match` | `RegExp(…, "i")` | crate `regex` bez domyślnych funkcji (`std`, `unicode-case`, `unicode-perl`; zależy tylko od `regex-automata` i `regex-syntax`) | `regex-lite` zamienia wielkość liter tylko w ASCII, a `/ogłoszenia/i` w JS pasuje do „OGŁOSZENIA” (wektor w `template.json`) |
 | JSON | wbudowany | własny moduł (parsowanie + zapis) | jak w VizRS CG System, ale napisany od nowa – bez kopiowania kodu |
 | base64 | `Buffer` | własna funkcja | ok. 20 linii |
 
-Zależności runtime: **`png` + `regex-lite`** (wersje przypięte w `Cargo.lock`). Zasada „Mało zależności” w CLAUDE.md zmienia się przy scaleniu.
+Zależności runtime: **`png` + `regex`** (wersje przypięte w `Cargo.lock`, CI buduje z `--locked`). Zasada „Mało zależności” w CLAUDE.md zmienia się przy scaleniu.
 
 Model wątków:
 - **kanał** (`ChannelEvents`): wątek z kolejką `mpsc` w miejsce łańcucha `Promise` – ta sama kolejność komend; przerwa reklamowa (`GAP_GRACE`) przez `recv_timeout`;
@@ -59,8 +59,8 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | 0 | Przygotowanie | praca na `main` zacommitowana, gałąź `rust-edit`, crate w `rust/` (bo `src/` zajmuje JS), job `rust` w CI | ✅ |
 | 1 | Kontrakt | testy czarnej skrzynki (`test/sidecar.mjs`, przeglądarka `/bin/false` = przezroczyste klatki; treść grafiki w `chromium.test.mjs`) i wektory `test/vectors/*.json` z generatorem, nadal na JS | ✅ |
 | 2 | Szkielet | `json.rs` (parsowanie i zapis jak `JSON.stringify`), `config.rs` (plik + zmienne, zgodny z `test/vectors/config.json`), `log.rs`, `http.rs` (jedno żądanie na połączenie, wątek na połączenie, `Content-Length` lub chunked, limit 4 MB), `server.rs` z `/health`, `main.rs` (argument `config.json`/`CONFIG`); pozostałe trasy na razie 404 | ✅ |
-| 3 | Logika bez grafiki | `template.rs` (daty ISO z offsetem i 7 cyframi ułamka z .NET), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`, reklamy, `GAP_GRACE`), `/etv` z pustymi klatkami | |
-| 4 | Klatki | `packets.rs`, `png.rs`, `rects.rs`, `yuva.rs`, `scale.rs`, `stream.rs` (wyprzedzenie, `SAMPLE_DELAY_MS`, `Repeat`); cecha `Source` z atrapą do testów | |
+| 3 | Logika bez grafiki | `time.rs` (formy ISO `Date.parse`, wektor `dates`), `template.rs` (kontekst klipu, symbole, `AdMatcher`), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`; stan kanału pod mutexem, wysyłki po kolei w wątku kanału, zegar przerwy jako wątek z licznikiem pokoleń), `packets.rs` (budowa pakietów), `stream.rs` (tempo, wyprzedzenie, `Repeat`, wstrzymanie/wznowienie), `/etv` z przezroczystymi klatkami | ✅ |
+| 4 | Klatki | `rects.rs` (`visibleRects`), `png.rs`, `yuva.rs` (i format surowy w `stream.rs`), `scale.rs`; historia klatek (`frameAt`) za cechą `Source` | |
 | 5 | Chromium | `capture.rs`: te same flagi, CDP przez rurę, screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami | |
 | 6 | Nakładka ffmpeg | `/ffmpeg`, `/ffmpeg/frames`, `HOLD_MS`, `FRAMES_WAIT_MS`, kanały z nakładką | |
 | 7 | Obraz i CI | wieloetapowy `Dockerfile`, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`) zamiast QEMU, `ci.yml`, compose | |
@@ -74,6 +74,9 @@ Na scaleniu trafią do DOKUMENTACJI §5.
 - Nieznana opcja w pliku konfiguracji daje ostrzeżenie w logu (Node pomijał ją po cichu).
 - Zły typ opcji w pliku (np. `"no_sandbox": "yes"`) zatrzymuje start z komunikatem, która opcja jest zła. Node uruchamiał się i działał dalej z dziwną wartością. Liczba zapisana jako tekst (`"lead_seconds": "6"`) jest przyjmowana.
 - `LEAD_SECONDS`, który nie jest liczbą, daje ostrzeżenie i zostawia poprzednią wartość (Node przyjmował `NaN`).
+- Data i czas bez offsetu (`2026-10-24T20:00:00`) są czytane jako UTC. W JS to czas lokalny hosta, ale ErsatzTV zawsze wysyła offset. Inne formy dat mają wyniki identyczne z `Date.parse`, co pilnuje wektor `dates`.
+- `\d` i `\w` w `ad_match` obejmują też cyfry i litery spoza ASCII (np. `\w` pasuje do „ż”). W JS tylko ASCII.
+- Dane szablonu `null` dają pusty kontekst (Node odpowiadał 400).
 - Nieprawidłowy wzorzec `ad_match` ma dawać ostrzeżenie i „nie reklama”. W Node wyjątek wywraca proces.
 
 ## 6. Wzorce z VizRS ffPlayout System (archiwum, GPL-3.0)
@@ -85,8 +88,8 @@ Wolno brać tylko pomysły i zachowanie, kodu nie (CLAUDE.md, „Niepodważalne 
 
 ## 7. Ryzyka
 
-- **`ad_match`.** `regex-lite` nie ma lookahead ani odwołań wstecznych. Nieprawidłowy wzorzec ma dawać ostrzeżenie w logu i „nie reklama”, nigdy błąd. Trzeba to opisać w DOKUMENTACJI §5.
+- **`ad_match`.** `regex` nie ma lookahead ani odwołań wstecznych. Nieprawidłowy wzorzec daje ostrzeżenie przy starcie i „nie reklama”, nigdy błąd (zrobione w etapie 3). Trzeba to opisać w DOKUMENTACJI §5.
 - **Daty.** Własny parser zastępuje `Date.parse`. Wektory zbieram z prawdziwych danych szablonu z `seed/`.
-- **Sesja wstrzymana.** Nagłówki muszą wyjść od razu (dziś robi to `flushHeaders`), inaczej klient ETV czeka.
+- **Sesja wstrzymana.** Nagłówki muszą wyjść od razu (dziś robi to `flushHeaders`), inaczej klient ETV czeka. Zrobione: `http::Stream::start`. Koniec sesji wykrywa wątek czytający połączenie, więc działa też dla sesji, która nic nie pisze.
 - **Skalowanie.** Własny Lanczos odbiega od libvips o pojedyncze wartości. Test ma tolerancję.
 - **Tryb rury DevTools.** Do potwierdzenia na `chromium-headless-shell` z Debiana (amd64 i arm64) w etapie 5. Zapasowo własny klient WebSocket.

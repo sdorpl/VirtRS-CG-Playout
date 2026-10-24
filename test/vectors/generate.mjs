@@ -155,7 +155,20 @@ function templateVectors() {
     { ctx: { source: "/reklamy/a.mp4", title: "x" }, ad_match: {} },
     { ctx: { source: "/m/spot_01.mp4", title: "x" }, ad_match: { path: "spot_\\d+\\.mp4$", title: "" } },
     { ctx: { source: "/m/a.mp4", title: "BLOK REKLAMOWY" }, ad_match: { path: "", title: "blok (reklamowy|sponsorski)" } },
+    // Case-insensitive beyond ASCII, as JavaScript's `i` flag.
+    { ctx: { source: "/m/a.mp4", title: "OGŁOSZENIA PARAFIALNE" }, ad_match: { path: "", title: "^ogłoszenia" } },
+    { ctx: { source: "/media/Żółte/spot.mp4", title: "x" }, ad_match: { path: "/żółte/", title: "" } },
+    { ctx: { source: "/m/a.mp4", title: "Film" }, ad_match: { path: "", title: "" } },
   ].map((c) => ({ ...c, ad: isAd(c.ctx, c.ad_match) }));
+
+  // Date.parse on the forms ErsatzTV and EPGs use; no date-time without an
+  // offset (local time in JavaScript, depends on the host).
+  const dates = [
+    "2026-10-24T21:59:59.1239999+02:00", "2026-10-24T20:00:00+02:00", "2026-10-24T20:00:00Z", "2026-10-24T20:00:00.5Z",
+    "2026-10-24T20:00+02:00", "2026-10-24", "2026-10-24T20:00:00+0200", "2026-10-24 20:00:00Z", "2026-10-24t20:00:00z",
+    "2026-10-24T20:00:00-05:30", "2026-02-30T00:00:00Z", "2026-10-24T24:00:00Z", "1969-12-31T23:59:59.999Z",
+    "20:00:00", "garbage", "", "2026-13-01T00:00:00Z", "2026-10-24T20:00:60Z", "2026-10-24T20:60:00Z",
+  ].map((input) => ({ input, ms: Number.isNaN(Date.parse(input)) ? null : Date.parse(input) }));
 
   return {
     contexts,
@@ -164,6 +177,7 @@ function templateVectors() {
     clocks: clocks.map((seconds) => ({ seconds, clock: clock(seconds) })),
     clean: clean.map((input) => ({ input, value: cleanValue(input) })),
     ads,
+    dates,
   };
 }
 

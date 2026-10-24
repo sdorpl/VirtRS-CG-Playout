@@ -40,6 +40,20 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --release --locked
+      # Testy czarnej skrzynki na binarce Rusta: tylko te, które obejmuje już
+      # zrobiony etap (lista rośnie z etapami planu).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: current
+      - name: Testy kontraktu (Rust)
+        working-directory: .
+        env:
+          VIRTRS_CG_BIN: rust/target/release/virtrs-cg
+        run: >-
+          node --test
+          --test-name-pattern="client streams frames|client exits quietly|ads take graphics out|an item without the VizRS element"
+          test/integration.test.mjs
 
   docker:
     needs: test

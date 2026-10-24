@@ -1,7 +1,8 @@
 // Minimal HTTP/1.1 server: one request per connection, a thread per
-// connection. Replies are either complete (with Content-Length) or an endless
-// stream ended by closing the connection, which HTTP/1.0 clients (the ffmpeg
-// overlay) and HTTP/1.1 clients read alike.
+// connection. Replies are complete (with Content-Length) or an endless stream
+// framed as Node.js does it: chunked for HTTP/1.1 (Python's http.client drops
+// its socket for a reply that ends with the connection), raw bytes until the
+// connection closes for HTTP/1.0 (the ffmpeg overlay).
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -21,6 +22,8 @@ pub struct Request {
     pub query: Vec<(String, String)>,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    /// An HTTP/1.0 request: streams go out unframed.
+    pub http10: bool,
 }
 
 impl Request {
@@ -126,8 +129,14 @@ pub fn read_request(reader: &mut impl BufRead, max_body: usize) -> Result<Reques
     }
 
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    let mut request =
-        Request { method: method.to_owned(), path: percent_decode(path), query: parse_query(query), headers, body: Vec::new() };
+    let mut request = Request {
+        method: method.to_owned(),
+        path: percent_decode(path),
+        query: parse_query(query),
+        headers,
+        body: Vec::new(),
+        http10: version == "HTTP/1.0",
+    };
 
     if request.header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
         request.body = read_chunked(reader, max_body)?;
@@ -188,12 +197,62 @@ pub fn respond(stream: &mut impl Write, status: u16, content_type: Option<&str>,
     stream.flush()
 }
 
-/// Head of an endless binary stream, sent at once (a held session writes
-/// nothing at first, the client must see the reply anyway).
-pub fn start_stream(stream: &mut impl Write) -> io::Result<()> {
-    stream
-        .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n")?;
-    stream.flush()
+// Bytes collected before a chunk goes out (a flush sends one chunk earlier).
+const STREAM_BUFFER: usize = 64 * 1024;
+
+/// Body of an endless binary stream. Writes collect until `flush`; each
+/// flush is one chunk (HTTP/1.1) or plain bytes (HTTP/1.0).
+pub struct Stream<W: Write> {
+    inner: W,
+    chunked: bool,
+    buffer: Vec<u8>,
+}
+
+impl<W: Write> Stream<W> {
+    /// Sends the head at once (a held session writes nothing at first, the
+    /// client must see the reply anyway).
+    pub fn start(mut inner: W, request: &Request) -> io::Result<Stream<W>> {
+        let framing = if request.http10 { "Connection: close" } else { "Transfer-Encoding: chunked" };
+        let head = format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n{framing}\r\n\r\n");
+        inner.write_all(head.as_bytes())?;
+        inner.flush()?;
+        Ok(Stream { inner, chunked: !request.http10, buffer: Vec::with_capacity(STREAM_BUFFER) })
+    }
+
+    /// The end of the body: the last chunk, so the client reads to the end.
+    pub fn finish(mut self) -> io::Result<()> {
+        self.flush()?;
+        if self.chunked {
+            self.inner.write_all(b"0\r\n\r\n")?;
+        }
+        self.inner.flush()
+    }
+}
+
+impl<W: Write> Write for Stream<W> {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        if self.buffer.len() + data.len() > STREAM_BUFFER {
+            self.flush()?;
+        }
+        self.buffer.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if !self.buffer.is_empty() {
+            if self.chunked {
+                let mut chunk = Vec::with_capacity(self.buffer.len() + 16);
+                chunk.extend_from_slice(format!("{:x}\r\n", self.buffer.len()).as_bytes());
+                chunk.extend_from_slice(&self.buffer);
+                chunk.extend_from_slice(b"\r\n");
+                self.inner.write_all(&chunk)?;
+            } else {
+                self.inner.write_all(&self.buffer)?;
+            }
+            self.buffer.clear();
+        }
+        self.inner.flush()
+    }
 }
 
 pub type Handler = dyn Fn(Request, TcpStream) + Send + Sync;
@@ -268,6 +327,27 @@ mod tests {
         assert!(matches!(parse(""), Err(Error::Bad(_))));
         let long = format!("GET /{} HTTP/1.1\r\n\r\n", "a".repeat(MAX_HEAD));
         assert!(matches!(parse(&long), Err(Error::Bad("request head too large"))));
+    }
+
+    #[test]
+    fn streams_chunked_for_http11_and_plain_for_http10() {
+        let http11 = parse("POST /etv HTTP/1.1\r\n\r\n").unwrap();
+        let mut out = Vec::new();
+        let mut stream = Stream::start(&mut out, &http11).unwrap();
+        stream.write_all(b"ab").unwrap();
+        stream.flush().unwrap();
+        stream.flush().unwrap();
+        stream.write_all(b"cde").unwrap();
+        stream.finish().unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("Transfer-Encoding: chunked\r\n\r\n2\r\nab\r\n3\r\ncde\r\n0\r\n\r\n"), "{text:?}");
+
+        let http10 = parse("GET /ffmpeg/frames HTTP/1.0\r\n\r\n").unwrap();
+        let mut out = Vec::new();
+        let mut stream = Stream::start(&mut out, &http10).unwrap();
+        stream.write_all(b"ab").unwrap();
+        stream.finish().unwrap();
+        assert!(String::from_utf8(out).unwrap().ends_with("Connection: close\r\n\r\nab"));
     }
 
     #[test]
