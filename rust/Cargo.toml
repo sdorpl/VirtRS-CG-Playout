@@ -1,0 +1,18 @@
+[package]
+name = "virtrs-cg"
+version = "2.0.6"
+edition = "2024"
+rust-version = "1.85"
+description = "VizRS graphics for ErsatzTV channels: commands on clip start and burn-in of /output"
+publish = false
+
+[[bin]]
+name = "virtrs-cg"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

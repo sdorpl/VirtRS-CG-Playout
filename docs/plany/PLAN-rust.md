@@ -1,0 +1,76 @@
+# PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
+
+> Status (2026-10-25): **etap 0 zrobiony** – praca nad nakładką ffmpeg zacommitowana na `main` (44a693a), gałąź `rust-edit`, szkielet crate'a w `rust/`. Następny: etap 1 (testy kontraktu).
+> Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
+> Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
+
+## 0. Cel
+
+Sidecar (`bin/` + `src/*.js`, ok. 1700 linii, zależność `sharp`) staje się jednym plikiem binarnym w Ruście, tak jak silnik VizRS CG System. Zyski:
+
+- mniej CPU i pamięci obok Chromium, co ma znaczenie na Oracle Ampere A1 (dziś Node ma ok. 60–80 MB RSS, cel to ok. 10 MB);
+- znika natywna zależność libvips (`sharp`) i cały runtime Node w obrazie;
+- przetwarzanie klatek (`visibleRects`, `yuva420p`, skalowanie) w kodzie kompilowanym zamiast pętli JS. Dla nakładki ffmpeg przy 50 kl./s i 1080p to najdroższy fragment poza Chromium.
+
+## 1. Kontrakt – bez zmian
+
+| Element | Gdzie opisany |
+|---|---|
+| `POST /etv?channel=N[&render=…]`, `GET /ffmpeg?channel=N[&wait=ms]`, `GET /ffmpeg/frames?session=N[&fps=…]`, `GET /health` | DOKUMENTACJA §1, `src/server.js` |
+| pakiety ETVG (`Clear`, `Repeat`, `Rectangles`) i klatki `yuva420p` – bajt w bajt | `src/packets.js`, `src/yuva.js` |
+| opcje `config.json`, zmienne środowiskowe (`VIZRS_ON_*` z `\n`), domyślne wartości | DOKUMENTACJA §5, `src/config.js` |
+| symbole zastępcze, wykrywanie reklam, zdejmowanie i przywracanie stron | DOKUMENTACJA §3, `src/template.js`, `src/vizrs.js` |
+| format logu (`<ISO> INFO …`, `DEBUG=1`) | `bin/virtrs-cg.js` |
+| `client/*.py`, `etv/…/vizrs.yml`, `seed/`, compose (poza obrazem sidecara) | bez zmian – działają w kontenerze ErsatzTV |
+
+## 2. Decyzje techniczne
+
+| Obszar | Node.js | Rust | Uzasadnienie |
+|---|---|---|---|
+| współbieżność | pętla zdarzeń | `std::thread`, `mpsc`, `Condvar`; bez tokio | kilka kanałów i sesji; blokujący zapis daje backpressure |
+| HTTP | `node:http` | własny minimalny HTTP/1.1 na `TcpListener` | 4 trasy, strumienie bez końca: odpowiedź bez `Content-Length`, `Connection: close` (nakładka pyta HTTP/1.0), nagłówki wysyłane od razu |
+| DevTools | WebSocket + `DevToolsActivePort` | `--remote-debugging-pipe` (fd 3/4, JSON zakończony `\0`) | bez klienta WebSocket i odpytywania pliku |
+| koniec Chromium | `SIGKILL` przy zamykaniu | `PR_SET_PDEATHSIG` w `pre_exec` | przeglądarka kończy się z sidecarem bez obsługi sygnałów |
+| PNG | `sharp` (libvips) | crate `png` | czysty Rust, szybki inflate (fdeflate) |
+| skalowanie `render_size` | `sharp`, Lanczos z premultiplikacją | własny rozdzielny Lanczos3 z premultiplikacją | znika ostatnia zależność natywna |
+| `ad_match` | `RegExp(…, "i")` | crate `regex-lite` | mały, bez zależności |
+| JSON | wbudowany | własny moduł (parsowanie + zapis) | jak w VizRS CG System, ale napisany od nowa – bez kopiowania kodu |
+| base64 | `Buffer` | własna funkcja | ok. 20 linii |
+
+Zależności runtime: **`png` + `regex-lite`** (wersje przypięte w `Cargo.lock`). Zasada „Mało zależności” w CLAUDE.md zmienia się przy scaleniu.
+
+Model wątków:
+- **kanał** (`ChannelEvents`): wątek z kolejką `mpsc` w miejsce łańcucha `Promise` – ta sama kolejność komend; przerwa reklamowa (`GAP_GRACE`) przez `recv_timeout`;
+- **przechwytywanie**: wątek czytający rurę DevTools i wątek dekodujący. Skrzynka trzyma tylko najnowszy PNG (jak `pendingPng`). Historia to `Mutex<VecDeque<Arc<Frame>>>`, pakiet i `yuva` w `OnceLock` na klatce;
+- **sesja**: wątek na połączenie, tempo z `Instant`; wstrzymanie i wznowienie (przejęcie przez nakładkę) przez `Condvar`.
+
+## 3. Testy: najpierw kontrakt
+
+1. **Czarna skrzynka.** `test/integration.test.mjs` uruchamia binarkę z `VIRTRS_CG_BIN` (domyślnie `node bin/virtrs-cg.js`) zamiast wołać `createServer()` w procesie. Rozmiary renderowania sprawdza przez `/health` zamiast `captureFactory`. Testy z klatkami idą na prawdziwym Chromium ze stroną serwowaną przez test (pomijane bez przeglądarki).
+2. **Wektory referencyjne.** Skrypt Node zapisuje `test/vectors/*.json` z obecnej implementacji: `clipContext`, `renderCommands`, `timeSpanSeconds`, `renderSize`, `parseRate`, `onAir`, `visibleRects`, bajty pakietów i `yuva`. `cargo test` porównuje bajt w bajt. Skalowanie porównuje z tolerancją ±2 na kanał.
+3. **CI:** `cargo test`, potem `npm test` z `VIRTRS_CG_BIN=rust/target/release/virtrs-cg`.
+
+## 4. Etapy
+
+Każdy etap kończy się zielonym commitem na `rust-edit`.
+
+| # | Etap | Zakres | Stan |
+|---|---|---|---|
+| 0 | Przygotowanie | praca na `main` zacommitowana, gałąź `rust-edit`, crate w `rust/` (bo `src/` zajmuje JS), job `rust` w CI | ✅ |
+| 1 | Kontrakt | testy czarnej skrzynki i generator wektorów, nadal na JS | |
+| 2 | Szkielet | `config.rs` (JSON + zmienne), log, `/health`, argument `config.json`/`CONFIG` | |
+| 3 | Logika bez grafiki | `template.rs` (daty ISO z offsetem i 7 cyframi ułamka z .NET), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`, reklamy, `GAP_GRACE`), `/etv` z pustymi klatkami | |
+| 4 | Klatki | `packets.rs`, `png.rs`, `rects.rs`, `yuva.rs`, `scale.rs`, `stream.rs` (wyprzedzenie, `SAMPLE_DELAY_MS`, `Repeat`); cecha `Source` z atrapą do testów | |
+| 5 | Chromium | `capture.rs`: te same flagi, CDP przez rurę, screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami | |
+| 6 | Nakładka ffmpeg | `/ffmpeg`, `/ffmpeg/frames`, `HOLD_MS`, `FRAMES_WAIT_MS`, kanały z nakładką | |
+| 7 | Obraz i CI | wieloetapowy `Dockerfile`, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`) zamiast QEMU, `ci.yml`, compose | |
+| 8 | Odbiór | pełny stos (oba tory grafiki, reklamy, restart Chromium, brak sidecara); benchmark §8 JS vs Rust na amd64 i Ampere A1 – nie gorzej niż JS | |
+| 9 | Sprzątanie | usunięcie `bin/`, `src/*.js`, `docker/sidecar.Dockerfile`; `rust/` do korzenia; DOKUMENTACJA, README, CLAUDE.md; scalenie do `main`, wersja zgodna z VizRS | |
+
+## 5. Ryzyka
+
+- **`ad_match`.** `regex-lite` nie ma lookahead ani odwołań wstecznych. Nieprawidłowy wzorzec ma dawać ostrzeżenie w logu i „nie reklama”, nigdy błąd. Trzeba to opisać w DOKUMENTACJI §5.
+- **Daty.** Własny parser zastępuje `Date.parse`. Wektory zbieram z prawdziwych danych szablonu z `seed/`.
+- **Sesja wstrzymana.** Nagłówki muszą wyjść od razu (dziś robi to `flushHeaders`), inaczej klient ETV czeka.
+- **Skalowanie.** Własny Lanczos odbiega od libvips o pojedyncze wartości. Test ma tolerancję.
+- **Tryb rury DevTools.** Do potwierdzenia na `chromium-headless-shell` z Debiana (amd64 i arm64) w etapie 5. Zapasowo własny klient WebSocket.

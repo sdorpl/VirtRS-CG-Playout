@@ -4,7 +4,7 @@ name: CI
 # Ampere A1 pobiera gotowy obraz zamiast budować go na sobie.
 on:
   push:
-    branches: [main]
+    branches: [main, rust-edit]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -28,6 +28,16 @@ jobs:
       - run: npm test
         env:
           VIZRS_BROWSER_NO_SANDBOX: "1"
+
+  # Migracja do Rusta (docs/plany/PLAN-rust.md): crate w rust/.
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --locked
 
   docker:
     needs: test

@@ -39,6 +39,7 @@ Nakładki: `docker-compose.ampere.yml` (Oracle Ampere A1), `docker-compose.nvidi
 
 ```bash
 npm test                                   # node --test test/*.test.mjs
+(cd rust && cargo test)                    # crate Rusta (gałąź rust-edit)
 ```
 
 `units` (szablony, pakiety, konfiguracja), `integration` (udawany VizRS i klient ErsatzTV), `chromium` (prawdziwe przechwytywanie; pomijane bez przeglądarki).
@@ -65,6 +66,8 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 | `test/` | testy `node --test` |
 | `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; `init.sh` kopiuje je do pustych wolumenów (DOKUMENTACJA §4) |
 | `bench/` | benchmark przechwytywania: sidecar, Chromium zsynchronizowany z klatkami, WPE (osobny obraz i compose, DOKUMENTACJA §8) |
+| `rust/` | migracja sidecara do Rusta, gałąź `rust-edit` (plan i stan: `docs/plany/PLAN-rust.md`); do scalenia używany jest Node.js |
+| `docs/plany/` | plany prac |
 | `.github/workflows/ci.yml` | testy; obraz amd64 + arm64 do ghcr po znaczniku `v*` |
 
 ## Commity
