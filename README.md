@@ -1,0 +1,44 @@
+# VirtRS CG Playout — grafika VizRS na kanałach ErsatzTV
+
+Część rodziny **VizRS**: grafika z [VizRS CG System](../VizRS%20CG%20System)
+na kanałach [ErsatzTV](https://ersatztv.org). Mały serwis pomocniczy (sidecar)
+obok niezmienionego ErsatzTV:
+
+- **Komendy na start klipu** – gdy zaczyna się pozycja playoutu, do VizRS idą
+  komendy TCP (`TAKE`, `UPDATE`, `OUT`, `MACRO`, …) z danymi klipu
+  i następnego programu (`{title}`, `{next_title}`, `{next_start}`, …).
+- **Reklamy bez grafiki** – na reklamie wszystkie warstwy na antenie schodzą;
+  strony wracają jednym `TAKE` na pierwszym zwykłym klipie.
+- **Wtapianie (burn-in)** – strona `/output` VizRS renderowana bezgłowym
+  Chromium (bez GPU) i nakładana na obraz przez samo ErsatzTV.
+
+## Rodzina VizRS
+
+| Repozytorium | Rola |
+|---|---|
+| [VizRS CG System](../VizRS%20CG%20System) | silnik grafiki: Artist (sceny), Trio (playout stron), `/output`, API TCP 6100 / HTTP / SSE |
+| [VizRS ffPlayout System](../VizRS%20ffPlayout%20System) | własny playout kanału 24/7 (fork ffplayout, GPL-3.0) z brandingiem VizRS |
+| **VirtRS CG Playout** (to repo) | ta sama integracja VizRS dla kanałów ErsatzTV, bez zmian w ErsatzTV |
+
+Aplikacje łączy tylko protokół VizRS (TCP 6100, `/output`), opisany w
+[API.md](../VizRS%20CG%20System/docs/API.md) systemu VizRS. Konfiguracja
+celowo odpowiada ustawieniom grafiki w VizRS ffPlayout System – szablony
+komend przenosi się bez zmian.
+
+## Szybki start
+
+```sh
+docker compose up -d
+```
+
+uruchamia VizRS (`:8788`, Trio pod `/trio`), sidecar (`:7700/health`)
+i ErsatzTV (`:8409`). W ErsatzTV dodaj element grafiki **VizRS** do pozycji
+harmonogramu albo do **Deco** kanału i zresetuj playout. Przed otwarciem
+portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
+
+## Dokumentacja
+
+| Dokument | Treść |
+|---|---|
+| [docs/DOKUMENTACJA.md](docs/DOKUMENTACJA.md) | działanie, konfiguracja, symbole zastępcze, Docker (Ampere A1, NVENC), awarie, testy |
+| [CLAUDE.md](CLAUDE.md) | dla programistów i agentów: zasady, struktura, testy, commity |

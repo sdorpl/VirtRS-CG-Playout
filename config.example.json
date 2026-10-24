@@ -1,0 +1,10 @@
+{
+  "listen": "0.0.0.0:7700",
+  "vizrs": { "address": "127.0.0.1:6100", "token": "vizrs-operator-change-me" },
+  "output_url": "http://127.0.0.1:8088/output?token=vizrs-output-change-me",
+  "on_clip": "TAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}",
+  "on_ad": "",
+  "ad_match": { "path": "/reklamy/", "title": "" },
+  "ad_without_element": true,
+  "lead_seconds": 6
+}

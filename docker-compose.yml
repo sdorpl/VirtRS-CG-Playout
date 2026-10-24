@@ -1,0 +1,69 @@
+# VizRS CG System + VirtRS CG sidecar + ErsatzTV.
+#
+#   docker compose up -d
+#
+#   ErsatzTV     http://<server>:8409
+#   VizRS Trio   http://<server>:8788/trio   token vizrs-operator-change-me
+#   Sidecar      http://<server>:7700/health
+#
+# In ErsatzTV: Channel → Deco → Graphics Elements → add "VizRS".
+# Change the tokens before opening the ports.
+
+x-tokens: &tokens
+  VIZRS_TOKEN: ${VIZRS_TOKEN:-vizrs-operator-change-me}
+  VIZRS_OUTPUT_TOKEN: ${VIZRS_OUTPUT_TOKEN:-vizrs-output-change-me}
+
+services:
+  vizrs:
+    image: ghcr.io/sdorpl/vizrs:latest
+    restart: unless-stopped
+    environment:
+      <<: *tokens
+      VIZRS_TCP: "6100"
+    volumes:
+      - vizrs-data:/data
+    ports:
+      - "${VIZRS_PORT:-8788}:8088"
+
+  cg:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - vizrs
+    environment:
+      VIZRS_ADDRESS: vizrs:6100
+      VIZRS_TOKEN: ${VIZRS_TOKEN:-vizrs-operator-change-me}
+      VIZRS_OUTPUT_URL: http://vizrs:8088/output?token=${VIZRS_OUTPUT_TOKEN:-vizrs-output-change-me}
+      # Commands per clip; "\n" separates lines.
+      VIZRS_ON_CLIP: "${VIZRS_ON_CLIP:-TAKE 4001 headline={title}|sub=Next: {next_title} at {next_start}}"
+      VIZRS_ON_AD: ${VIZRS_ON_AD:-}
+      VIZRS_AD_PATH: ${VIZRS_AD_PATH:-/(ads|commercials|reklamy)/}
+      # Schedule items without the VizRS element count as ads (0 = off).
+      VIZRS_AD_WITHOUT_ELEMENT: ${VIZRS_AD_WITHOUT_ELEMENT:-1}
+      # Player buffer vs. graphics delay: ErsatzTV may run this far ahead of the clock.
+      LEAD_SECONDS: ${LEAD_SECONDS:-4}
+    # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
+    shm_size: 512mb
+    ports:
+      - "7700:7700"
+
+  ersatztv:
+    image: ghcr.io/ersatztv/ersatztv:latest
+    restart: unless-stopped
+    depends_on:
+      - cg
+    environment:
+      TZ: ${TZ:-Europe/Warsaw}
+    volumes:
+      - ersatztv-config:/config
+      - ./etv/templates/graphics-elements/script/vizrs.yml:/config/templates/graphics-elements/script/vizrs.yml:ro
+      - ./client:/vizrs:ro
+      - ${MEDIA_DIR:-./media}:/media:ro
+    tmpfs:
+      - /transcode
+    ports:
+      - "8409:8409"
+
+volumes:
+  vizrs-data:
+  ersatztv-config:

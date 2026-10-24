@@ -1,0 +1,17 @@
+# VizRS graphics for ErsatzTV (VirtRS CG Playout).
+# Copy to <ErsatzTV config>/templates/graphics-elements/script/ and add the
+# element "VizRS" to the channel's Deco (Graphics Elements).
+# Change "channel=1" per channel when several channels share one sidecar.
+name: VizRS
+command: python3
+args:
+  - /vizrs/vizrs-etv-client.py
+  - http://cg:7700/etv?channel=1
+z_index: 100
+# Current and next programmes from the guide: {next_title}, {next_start}.
+epg_entries: 3
+start_seconds: 0
+# The element ends with the item; this only has to be longer than any item.
+duration_seconds: 172800
+pixel_format: rgba
+format: packet

@@ -1,0 +1,20 @@
+{
+  "name": "virtrs-cg-playout",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VizRS graphics for ErsatzTV channels: commands on clip start and burn-in of /output through the ErsatzTV script graphics element",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "virtrs-cg": "bin/virtrs-cg.js"
+  },
+  "scripts": {
+    "start": "node bin/virtrs-cg.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "sharp": "0.34.4"
+  }
+}

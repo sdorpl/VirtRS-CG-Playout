@@ -1,0 +1,38 @@
+# Oracle Cloud Ampere A1 (arm64, no GPU, e.g. the free 4 OCPU / 24 GB shape):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ampere.yml up -d --build
+#
+# Build on the A1 itself: a cross-build through QEMU is very slow.
+# There is no hardware encoder, so ErsatzTV encodes with libx264 on the CPU;
+# in its FFmpeg profile use Hardware Acceleration: None and preset veryfast
+# (or superfast for several channels / 1080p50).
+#
+# CPU split for 4 OCPUs: the sidecar (Chromium + PNG decode) is capped so
+# ffmpeg always keeps most of the cores. Under load the graphics drop frames;
+# the video never stalls. Scale the numbers with the shape (CG_CPUS, ...).
+
+services:
+  vizrs:
+    platform: linux/arm64
+    cpus: ${VIZRS_CPUS:-0.5}
+
+  cg:
+    platform: linux/arm64
+    cpus: ${CG_CPUS:-1.5}
+    mem_limit: ${CG_MEMORY:-2g}
+    environment:
+      # Chromium: software raster on fewer threads.
+      VIZRS_BROWSER_ARGS: ${VIZRS_BROWSER_ARGS:---num-raster-threads=2 --disable-smooth-scrolling}
+      # libvips (sharp) and the Node thread pool sized to the CPU cap.
+      VIPS_CONCURRENCY: ${VIPS_CONCURRENCY:-2}
+      UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE:-2}
+      # A1 cores are slower per thread than x86: a little more player buffer.
+      LEAD_SECONDS: ${LEAD_SECONDS:-5}
+
+  ersatztv:
+    platform: linux/arm64
+    # Higher CPU priority than the graphics when the cores are busy.
+    cpu_shares: 2048
+    tmpfs: !override
+      # HLS segments in RAM (24 GB on the free shape); keeps the boot volume idle.
+      - /transcode:size=${TRANSCODE_TMPFS:-4g}
