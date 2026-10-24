@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { loadConfig } from "../src/config.js";
-import { clearPacket, crop, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
+import { clearPacket, crop, framePacket, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
 import { decodePng } from "../src/png.js";
 import { clipContext, isAd, renderCommands, timeSpanSeconds } from "../src/template.js";
 import { onAir } from "../src/vizrs.js";
@@ -31,6 +31,7 @@ test("visible rectangles and crop", () => {
   const rgba = Buffer.alloc(width * 6 * 4);
   rgba[(2 * width + 3) * 4 + 3] = 255;
   rgba[(4 * width + 7) * 4 + 3] = 10;
+  rgba[(0 * width + 1) * 4] = 200; // colour without alpha stays invisible
 
   const rects = visibleRects(rgba, width, 6);
   assert.deepEqual(rects, [{ x: 3, y: 2, w: 5, h: 3 }]);
@@ -75,6 +76,12 @@ test("packets are read the way ErsatzTV draws them", () => {
   assert.deepEqual(frames[1].subarray(2 * width * 4, (2 * width + 1) * 4), rects[1].pixels);
   assert.deepEqual(frames[4], frames[1]);
   assert.ok(frames[5].every((b) => b === 0));
+});
+
+test("a frame's packet is built once for all sessions", () => {
+  const frame = { seq: 1, rects: [{ x: 0, y: 0, w: 1, h: 1, pixels: Buffer.alloc(4, 7) }] };
+  assert.equal(framePacket(frame), framePacket(frame));
+  assert.deepEqual(framePacket({ seq: 0, rects: [] }), clearPacket());
 });
 
 test("ErsatzTV template data becomes the clip context", () => {

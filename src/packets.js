@@ -49,9 +49,13 @@ export function rectanglesPacket(rects) {
   return Buffer.concat([header(Type.Rectangles, payload.length), payload]);
 }
 
-/** Packet for a captured frame: its visible rectangles, or Clear. */
+/**
+ * Packet for a captured frame: its visible rectangles, or Clear. Built once
+ * and kept on the frame, so sessions of the same size share one buffer.
+ */
 export function framePacket(frame) {
-  return frame.rects.length ? rectanglesPacket(frame.rects) : clearPacket();
+  frame.packet ??= frame.rects.length ? rectanglesPacket(frame.rects) : clearPacket();
+  return frame.packet;
 }
 
 // Transparent gaps narrower than this stay inside one rectangle: fewer
@@ -66,10 +70,16 @@ const MAX_RECTS = 32;
  */
 export function visibleRects(rgba, width, height) {
   const rowVisible = new Uint8Array(height);
+  const rowBytes = width * 4;
+  const zeros = Buffer.alloc(rowBytes);
 
   for (let y = 0; y < height; y++) {
-    const end = (y + 1) * width * 4;
-    for (let i = y * width * 4 + 3; i < end; i += 4) {
+    const start = y * rowBytes;
+    // Transparent pixels from Chromium are all zero: a native compare skips
+    // empty rows, the alpha scan only runs where something may be drawn.
+    if (rgba.compare(zeros, 0, rowBytes, start, start + rowBytes) === 0) continue;
+    const end = start + rowBytes;
+    for (let i = start + 3; i < end; i += 4) {
       if (rgba[i] !== 0) {
         rowVisible[y] = 1;
         break;
