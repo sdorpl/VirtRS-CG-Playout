@@ -1,7 +1,7 @@
 # VirtRS CG sidecar: Node + headless Chromium (no GPU), amd64 and arm64.
 # chromium-headless-shell renders /output with about half the CPU of the full
 # browser (no browser UI layer); same engine and version as `chromium`.
-FROM node:22-bookworm-slim
+FROM node:current-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium-headless-shell fonts-dejavu-core fonts-noto-core \

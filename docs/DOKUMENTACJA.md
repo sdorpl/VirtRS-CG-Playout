@@ -50,7 +50,7 @@ Błędna wartość trafia do logu, a grafika renderuje się w rozmiarze kanału.
 Bez `sharp` (instalacja bez zależności) opcja jest pomijana.
 Kanały o tym samym rozmiarze i rozmiarze renderowania dzielą jedną przeglądarkę.
 
-Sidecar (Node 22):
+Sidecar (Node.js, w obrazie i CI najnowszy – `node:current`; minimum 22):
 
 | Adres | Co |
 |---|---|
@@ -163,6 +163,11 @@ do playoutu i zresetuj playout – bez tego ErsatzTV nie uruchamia skryptu.
 Przy kilku kanałach skopiuj element z `channel=2`, … w URL.
 
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
+Ustawienia stałe dla danej maszyny (nazwa projektu, nakładki, porty, tokeny)
+trzymaj w pliku `.env` obok compose (poza gitem), np.
+`COMPOSE_PROJECT_NAME=virtrs`, `COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml`,
+`VIZRS_PORT=8789` – wtedy samo `docker compose pull && docker compose up -d --build`
+odtwarza ten sam stos.
 Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
 
 ### Wersje ErsatzTV i Node.js

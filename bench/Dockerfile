@@ -1,7 +1,7 @@
 # Engine benchmark: Chromium (as the sidecar) vs WPE WebKit (GStreamer wpevideosrc).
 # Build from the repository root: docker build -f bench/Dockerfile .
 # Debian trixie: WPE WebKit 2.48 with the WPE GStreamer plugin; amd64 and arm64.
-FROM node:22-trixie-slim
+FROM node:current-trixie-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

@@ -1,6 +1,6 @@
 # VirtRS CG Playout
 
-Sidecar (Node 22 + bezgłowy Chromium) łączący **ErsatzTV** z silnikiem grafiki **VizRS**: komendy TCP na start klipu,
+Sidecar (Node.js – najnowszy, minimum 22 – + bezgłowy Chromium) łączący **ErsatzTV** z silnikiem grafiki **VizRS**: komendy TCP na start klipu,
 reklamy bez grafiki i wtapianie `/output` przez element grafiki „script” ErsatzTV. ErsatzTV zostaje niezmienione.
 
 Rodzina VizRS (repozytoria obok, `../`):

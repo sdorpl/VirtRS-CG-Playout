@@ -1,5 +1,5 @@
 # VirtRS CG sidecar: Node + headless Chromium (no GPU). amd64 and arm64.
-FROM node:22-bookworm-slim
+FROM node:current-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium fonts-dejavu-core fonts-noto-core \
