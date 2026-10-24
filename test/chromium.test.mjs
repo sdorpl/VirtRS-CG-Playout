@@ -31,12 +31,14 @@ test("Chromium capture gives the visible box of a transparent page", { skip: !br
   }).start();
 
   try {
+    // A cold browser may first send a half-painted frame; the picture must settle on the page.
+    const expected = { x: 40, y: 300, w: 400, h: 60 };
+    const boxes = () => capture.frame.rects.map(({ pixels, ...rect }) => rect);
     const deadline = Date.now() + 60000;
-    while (!capture.frame.rects.length && Date.now() < deadline) await sleep(100);
+    while (JSON.stringify(boxes()) !== JSON.stringify([expected]) && Date.now() < deadline) await sleep(100);
 
-    const [{ pixels, ...rect }] = capture.frame.rects;
-    assert.deepEqual(rect, { x: 40, y: 300, w: 400, h: 60 });
-    const [r, g, b, a] = pixels.subarray(0, 4);
+    assert.deepEqual(boxes(), [expected]);
+    const [r, g, b, a] = capture.frame.rects[0].pixels.subarray(0, 4);
     assert.deepEqual([r, g, b, a], [255, 0, 0, 255]);
   } finally {
     capture.stop();
