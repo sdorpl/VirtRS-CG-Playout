@@ -165,6 +165,19 @@ Przy kilku kanałach skopiuj element z `channel=2`, … w URL.
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
 
+### Wersje ErsatzTV i Node.js
+
+Zasady:
+
+- **ErsatzTV** – zawsze najnowsza wersja z
+  [github.com/ErsatzTV/legacy](https://github.com/ErsatzTV/legacy.git);
+  compose używa obrazu `ghcr.io/ersatztv/legacy:latest` (amd64 i arm64).
+- **Node.js** – zawsze najnowsza wersja z
+  [github.com/nodejs/node](https://github.com/nodejs/node.git).
+
+Integrację, testy i obrazy sprawdzamy na tych wersjach; zgłoszenia na
+starszych najpierw powtarzamy po aktualizacji.
+
 ### Oracle Cloud Ampere A1
 
 Na maszynie Ampere A1 (arm64, bez GPU) z nakładką:

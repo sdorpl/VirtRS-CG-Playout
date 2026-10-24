@@ -51,7 +51,7 @@ services:
       - "7700:7700"
 
   ersatztv:
-    image: ghcr.io/ersatztv/ersatztv:latest
+    image: ghcr.io/ersatztv/legacy:latest
     restart: unless-stopped
     depends_on:
       - cg
