@@ -158,7 +158,7 @@ docker compose up -d
 ```
 
 uruchamia VizRS (`:8788`), sidecar (`:7700`, `/health`) i ErsatzTV (`:8409`,
-media z `./media` albo `MEDIA_DIR`). Compose montuje
+media z `./seed/media` albo `MEDIA_DIR`). Compose montuje
 [vizrs.yml](../etv/templates/graphics-elements/script/vizrs.yml) do
 `/config/templates/graphics-elements/script/`, a klienta do `/vizrs`.
 W ErsatzTV dodaj element **VizRS** do pozycji harmonogramu
@@ -173,6 +173,35 @@ trzymaj w pliku `.env` obok compose (poza gitem), np.
 `VIZRS_PORT=8789` – wtedy samo `docker compose pull && docker compose up -d --build`
 odtwarza ten sam stos.
 Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
+
+### Dane startowe (`seed/`)
+
+Pierwszy start stosu (także w Portainerze z repozytorium) dostaje gotową
+konfigurację instancji wzorcowej: usługa `seed` kopiuje `seed/` do **pustych**
+wolumenów i kończy pracę, a VizRS i ErsatzTV startują po niej. Wolumen
+z danymi zostaje nietknięty (w logu `seed: … present, left alone`), więc
+`docker compose up -d` na działającej instancji niczego nie nadpisuje.
+
+| Katalog | Zawartość | Trafia do |
+|---|---|---|
+| `seed/vizrs-data/` | show „Newsroom INFO24” (`shows/newsroom-info24.json`, aktywny), `show.json`, tła z `assets/` | wolumen `vizrs-data` (`/data` VizRS) |
+| `seed/ersatztv-config/ersatztv.sqlite3` | baza ErsatzTV: kanał 1 z elementem **VizRS**, harmonogram, biblioteka `/media`, profil FFmpeg 1080p x264 | wolumen `ersatztv-config` (`/config`) |
+| `seed/media/` | odcinki testowe i reklama (`reklamy/` – bez grafiki) | montowany jako `/media` (domyślne `MEDIA_DIR`) |
+
+Bez sekretów: nie ma tu plików `*-secrets.json`, kluczy `data-protection`,
+logów, cache ani indeksu wyszukiwania (ErsatzTV buduje go przy pierwszym
+starcie – ostrzeżenie `Search index failed to initialize` jest wtedy
+normalne). Profil FFmpeg koduje programowo (Hardware Acceleration: None),
+żeby kanał ruszył na każdej maszynie; z kartą NVIDIA przełącz go na Nvidia
+(niżej). Tokeny VizRS ustawiasz jak zwykle w `.env`.
+
+Odświeżenie danych startowych z działającej instancji: zatrzymaj ErsatzTV
+(`docker compose stop ersatztv`, baza bez otwartego WAL), skopiuj z wolumenów
+`show.json`, `shows/`, `assets/` i `ersatztv.sqlite3` do `seed/`, w kopii
+bazy ustaw `FFmpegProfile.HardwareAcceleration = 0` i usuń wpis
+`search_index.version` z `ConfigElement`, potem `docker compose start ersatztv`.
+Własne media trzymaj w `media/` (poza gitem) i wskaż je przez
+`MEDIA_DIR=./media`; ścieżki w ErsatzTV zaczynają się od `/media`.
 
 ### Wersje ErsatzTV i Node.js
 

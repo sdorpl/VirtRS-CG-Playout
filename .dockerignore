@@ -3,3 +3,5 @@ test
 .git
 *.log
 config.json
+seed
+media

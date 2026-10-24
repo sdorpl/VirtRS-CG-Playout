@@ -61,11 +61,12 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 | `Dockerfile` | obraz sidecara (używany przez compose) |
 | `docker/sidecar.Dockerfile` | starsza wersja obrazu, nieużywana przez compose |
 | `test/` | testy `node --test` |
+| `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; `init.sh` kopiuje je do pustych wolumenów (DOKUMENTACJA §4) |
 | `bench/` | benchmark przechwytywania: sidecar, Chromium zsynchronizowany z klatkami, WPE (osobny obraz i compose, DOKUMENTACJA §8) |
 | `.github/workflows/ci.yml` | testy; obraz amd64 + arm64 do ghcr po znaczniku `v*` |
 
 ## Commity
 
 - Jedna spójna zmiana = jeden commit, po polsku, opisowo. Tylko zielone stany.
-- Pliki dodawaj jawnie (`git add ścieżka`). Nie commituj `config.json`, `media/`, zrzutów PNG ani logów.
+- Pliki dodawaj jawnie (`git add ścieżka`). Nie commituj `config.json`, `media/` (własne media; testowe są w `seed/media/`), zrzutów PNG ani logów. W `seed/` nigdy sekretów ErsatzTV (`*-secrets.json`, `data-protection`) ani tokenów.
 - Commit i push tylko na prośbę użytkownika.

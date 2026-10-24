@@ -1,0 +1,4579 @@
+{
+  "name": "Newsroom INFO24",
+  "scenes": [
+    {
+      "id": "s_belka",
+      "name": "Belka",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.26,
+      "stops": [
+        0.6
+      ],
+      "fieldMeta": {
+        "styl": {
+          "type": "select",
+          "label": "Styl",
+          "options": [
+            "info",
+            "pilne"
+          ],
+          "default": "info"
+        },
+        "headline": {
+          "label": "Treść belki"
+        }
+      },
+      "nodes": [
+        {
+          "id": "b_info",
+          "type": "rect",
+          "name": "bar_info",
+          "props": {
+            "x": 60,
+            "y": 998,
+            "w": 1800,
+            "h": 90,
+            "anchorY": "bottom",
+            "color": "#141418e8",
+            "radius": 8,
+            "shadow": 20,
+            "follow": "headline",
+            "followAxis": "h",
+            "followPad": 24,
+            "followMin": 84
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.35,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 0.88,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.22,
+                "v": 100
+              }
+            ]
+          },
+          "showIf": {
+            "field": "styl",
+            "value": "info"
+          }
+        },
+        {
+          "id": "b_pil",
+          "type": "rect",
+          "name": "bar_pilne",
+          "props": {
+            "x": 60,
+            "y": 998,
+            "w": 1800,
+            "h": 90,
+            "anchorY": "bottom",
+            "color": "#d0102b",
+            "color2": "#a80c22",
+            "gradAngle": 90,
+            "radius": 8,
+            "shadow": 20,
+            "follow": "headline",
+            "followAxis": "h",
+            "followPad": 24,
+            "followMin": 84
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.35,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 0.83,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.17,
+                "v": 100
+              }
+            ]
+          },
+          "showIf": {
+            "field": "styl",
+            "value": "pilne"
+          }
+        },
+        {
+          "id": "b_str",
+          "type": "rect",
+          "name": "stripe",
+          "props": {
+            "x": 60,
+            "y": 998,
+            "w": 12,
+            "h": 90,
+            "anchorY": "bottom",
+            "color": "#d0102b",
+            "follow": "headline",
+            "followAxis": "h",
+            "followPad": 24,
+            "followMin": 84
+          },
+          "anim": {
+            "clipT": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.25,
+                "v": 0
+              }
+            ],
+            "clipB": [
+              {
+                "t": 0.78,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.12,
+                "v": 100
+              }
+            ]
+          },
+          "showIf": {
+            "field": "styl",
+            "value": "info"
+          }
+        },
+        {
+          "id": "b_txt",
+          "type": "text",
+          "name": "headline",
+          "props": {
+            "x": 100,
+            "y": 986,
+            "w": 1730,
+            "h": 300,
+            "anchorY": "bottom",
+            "valign": "bottom",
+            "text": "Treść belki",
+            "font": "Barlow Condensed",
+            "size": 68,
+            "weight": "600",
+            "upper": true,
+            "lineHeight": 1.02,
+            "maxLines": 2,
+            "textFit": "squeeze-lines",
+            "color": "#ffffff",
+            "spacing": 0.5,
+            "hlColor": "#ffffff",
+            "hlText": "#c8102e",
+            "squeezeMin": 0.6
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.15,
+                "v": 0
+              },
+              {
+                "t": 0.45,
+                "v": 1
+              },
+              {
+                "t": 0.62,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 0.88,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.15,
+                "v": 130,
+                "e": "out"
+              },
+              {
+                "t": 0.5,
+                "v": 100
+              },
+              {
+                "t": 0.62,
+                "v": 100,
+                "e": "in"
+              },
+              {
+                "t": 0.88,
+                "v": 126
+              }
+            ]
+          },
+          "fields": {
+            "text": "headline"
+          }
+        }
+      ]
+    },
+    {
+      "id": "s_podpis",
+      "name": "Podpis",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.25,
+      "stops": [
+        0.6
+      ],
+      "fieldMeta": {
+        "name": {
+          "label": "Imię i nazwisko"
+        },
+        "title": {
+          "label": "Funkcja / opis"
+        }
+      },
+      "nodes": [
+        {
+          "id": "p_box",
+          "type": "rect",
+          "name": "box",
+          "props": {
+            "x": 60,
+            "y": 998,
+            "w": 600,
+            "h": 112,
+            "anchorY": "bottom",
+            "color": "#f3f3f3f2",
+            "radius": 8,
+            "shadow": 18,
+            "follow": "name,title",
+            "followAxis": "w",
+            "followPad": 64,
+            "followMin": 560
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.4,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 0.87,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.21,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "p_str",
+          "type": "rect",
+          "name": "stripe",
+          "props": {
+            "x": 60,
+            "y": 998,
+            "w": 12,
+            "h": 112,
+            "anchorY": "bottom",
+            "color": "#c8102e"
+          },
+          "anim": {
+            "clipT": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.25,
+                "v": 0
+              }
+            ],
+            "clipB": [
+              {
+                "t": 0.82,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.16,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "p_name",
+          "type": "text",
+          "name": "name",
+          "props": {
+            "x": 92,
+            "y": 892,
+            "w": 1700,
+            "h": 58,
+            "valign": "bottom",
+            "text": "Imię Nazwisko",
+            "font": "Barlow",
+            "size": 48,
+            "weight": "600",
+            "color": "#8c0f1f",
+            "textFit": "squeeze"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.25,
+                "v": 0
+              },
+              {
+                "t": 0.55,
+                "v": 1
+              },
+              {
+                "t": 0.66,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 0.92,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.66,
+                "v": 92,
+                "e": "in"
+              },
+              {
+                "t": 0.92,
+                "v": 118
+              }
+            ]
+          },
+          "fields": {
+            "text": "name"
+          }
+        },
+        {
+          "id": "p_title",
+          "type": "text",
+          "name": "title",
+          "props": {
+            "x": 92,
+            "y": 950,
+            "w": 1700,
+            "h": 40,
+            "valign": "top",
+            "text": "Funkcja",
+            "font": "Barlow Condensed",
+            "size": 32,
+            "weight": "600",
+            "color": "#1d1d22",
+            "upper": true,
+            "spacing": 1,
+            "textFit": "squeeze"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.35,
+                "v": 0
+              },
+              {
+                "t": 0.62,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 0.88,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.62,
+                "v": 92,
+                "e": "in"
+              },
+              {
+                "t": 0.88,
+                "v": 118
+              }
+            ]
+          },
+          "fields": {
+            "text": "title"
+          }
+        }
+      ]
+    },
+    {
+      "id": "s_live",
+      "name": "NaZywo",
+      "layer": "bug",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.3,
+      "stops": [
+        0.6
+      ],
+      "fieldMeta": {
+        "place": {
+          "label": "Miejsce"
+        },
+        "live": {
+          "label": "Napis"
+        }
+      },
+      "nodes": [
+        {
+          "id": "l_g",
+          "type": "group",
+          "name": "live_bug",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 200
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 0.35,
+                "v": 1
+              },
+              {
+                "t": 0.6,
+                "v": 1
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "l_red",
+              "type": "rect",
+              "name": "red",
+              "props": {
+                "x": 1860,
+                "y": 56,
+                "w": 196,
+                "h": 54,
+                "anchorX": "right",
+                "color": "#d0102b",
+                "radius": 4
+              },
+              "anim": {
+                "clipT": [
+                  {
+                    "t": 0,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.3,
+                    "v": 0
+                  }
+                ],
+                "clipB": [
+                  {
+                    "t": 0.92,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.26,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "l_dot",
+              "type": "ellipse",
+              "name": "dot",
+              "props": {
+                "x": 1680,
+                "y": 76,
+                "w": 14,
+                "h": 14,
+                "color": "#ffffff",
+                "blink": 1.4
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.87,
+                    "v": 1
+                  },
+                  {
+                    "t": 1.07,
+                    "v": 0
+                  }
+                ]
+              }
+            },
+            {
+              "id": "l_txt",
+              "type": "text",
+              "name": "live",
+              "props": {
+                "x": 1702,
+                "y": 56,
+                "w": 152,
+                "h": 54,
+                "text": "Na żywo",
+                "font": "Barlow Condensed",
+                "size": 36,
+                "weight": "700",
+                "upper": true,
+                "color": "#ffffff",
+                "textFit": "squeeze-shrink"
+              },
+              "fields": {
+                "text": "live"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.66,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.92,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.66,
+                    "v": 1702,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.92,
+                    "v": 1728
+                  }
+                ]
+              }
+            },
+            {
+              "id": "l_box",
+              "type": "rect",
+              "name": "placebox",
+              "props": {
+                "x": 1664,
+                "y": 56,
+                "w": 200,
+                "h": 54,
+                "anchorX": "right",
+                "color": "#f3f3f3",
+                "radius": 4,
+                "follow": "place",
+                "followAxis": "w",
+                "followPad": 40,
+                "followMin": 120
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.1,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.45,
+                    "v": 0
+                  }
+                ],
+                "clipR": [
+                  {
+                    "t": 0.82,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.16,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "l_place",
+              "type": "text",
+              "name": "place",
+              "props": {
+                "x": 1644,
+                "y": 56,
+                "w": 1000,
+                "h": 54,
+                "anchorX": "right",
+                "align": "right",
+                "text": "Warszawa",
+                "font": "Barlow Condensed",
+                "size": 30,
+                "weight": "600",
+                "upper": true,
+                "color": "#152a6b",
+                "textFit": "squeeze"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.2,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.5,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.62,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.88,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.62,
+                    "v": 1644,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.88,
+                    "v": 1670
+                  }
+                ]
+              },
+              "fields": {
+                "text": "place"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s_ticker",
+      "name": "Ticker",
+      "layer": "back",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1,
+      "stops": [
+        0.45
+      ],
+      "fieldMeta": {
+        "label": {
+          "label": "Etykieta"
+        },
+        "items": {
+          "label": "Wiadomości (jedna w linii)"
+        }
+      },
+      "nodes": [
+        {
+          "id": "t_g",
+          "type": "group",
+          "name": "ticker",
+          "props": {
+            "x": 0,
+            "y": 1010,
+            "w": 1920,
+            "h": 60
+          },
+          "anim": {
+            "y": [
+              {
+                "t": 0,
+                "v": 1080,
+                "e": "out"
+              },
+              {
+                "t": 0.45,
+                "v": 1010
+              },
+              {
+                "t": 0.6,
+                "v": 1010,
+                "e": "in"
+              },
+              {
+                "t": 1,
+                "v": 1080
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "t_bg",
+              "type": "rect",
+              "name": "bg",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 1920,
+                "h": 60,
+                "color": "#0f0f13"
+              }
+            },
+            {
+              "id": "t_line",
+              "type": "rect",
+              "name": "line",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 1920,
+                "h": 3,
+                "color": "#c8102e"
+              }
+            },
+            {
+              "id": "t_crawl",
+              "type": "ticker",
+              "name": "crawl",
+              "props": {
+                "x": 205,
+                "y": 3,
+                "w": 1540,
+                "h": 57,
+                "text": "Wiadomość pierwsza\nWiadomość druga",
+                "font": "Barlow Condensed",
+                "size": 34,
+                "weight": "600",
+                "upper": true,
+                "color": "#ffffff",
+                "speed": 150,
+                "sep": "   /   ",
+                "sepColor": "#ff2a3d"
+              },
+              "fields": {
+                "text": "items"
+              }
+            },
+            {
+              "id": "t_lb",
+              "type": "rect",
+              "name": "labelbox",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 190,
+                "h": 60,
+                "color": "#c8102e",
+                "shadow": 14
+              }
+            },
+            {
+              "id": "t_lt",
+              "type": "text",
+              "name": "label",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 190,
+                "h": 60,
+                "text": "INFO24",
+                "font": "Barlow Condensed",
+                "size": 36,
+                "weight": "700",
+                "align": "center",
+                "upper": true,
+                "color": "#ffffff",
+                "padX": 10,
+                "textFit": "squeeze-shrink"
+              },
+              "fields": {
+                "text": "label"
+              }
+            },
+            {
+              "id": "t_cb",
+              "type": "rect",
+              "name": "clockbox",
+              "props": {
+                "x": 1750,
+                "y": 0,
+                "w": 170,
+                "h": 60,
+                "color": "#1c3f94",
+                "shadow": 14
+              }
+            },
+            {
+              "id": "t_clk",
+              "type": "clock",
+              "name": "clock",
+              "props": {
+                "x": 1750,
+                "y": 0,
+                "w": 170,
+                "h": 60,
+                "format": "HH:mm",
+                "mode": "time",
+                "font": "Barlow Condensed",
+                "size": 40,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s_count",
+      "name": "Odliczanie",
+      "layer": "count",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.15,
+      "stops": [
+        0.5
+      ],
+      "fieldMeta": {
+        "label": {
+          "label": "Opis"
+        },
+        "target": {
+          "label": "Data docelowa (RRRR-MM-DD GG:MM:SS)"
+        }
+      },
+      "nodes": [
+        {
+          "id": "c_g",
+          "type": "group",
+          "name": "countdown",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 320
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 0.35,
+                "v": 1
+              }
+            ],
+            "y": [
+              {
+                "t": 0,
+                "v": -20,
+                "e": "out"
+              },
+              {
+                "t": 0.4,
+                "v": 0
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "c_box",
+              "type": "rect",
+              "name": "box",
+              "props": {
+                "x": 1860,
+                "y": 124,
+                "w": 300,
+                "h": 80,
+                "anchorX": "right",
+                "color": "#141418e8",
+                "radius": 6,
+                "follow": "count,clabel",
+                "followAxis": "w",
+                "followPad": 40,
+                "followMin": 240
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.77,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.11,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "c_top",
+              "type": "rect",
+              "name": "topline",
+              "props": {
+                "x": 1860,
+                "y": 124,
+                "w": 300,
+                "h": 4,
+                "anchorX": "right",
+                "color": "#c8102e",
+                "follow": "count,clabel",
+                "followAxis": "w",
+                "followPad": 40,
+                "followMin": 240
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.72,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.06,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "c_lbl",
+              "type": "text",
+              "name": "clabel",
+              "props": {
+                "x": 1840,
+                "y": 132,
+                "w": 700,
+                "h": 26,
+                "anchorX": "right",
+                "align": "right",
+                "text": "Do Sylwestra",
+                "font": "Barlow Condensed",
+                "size": 22,
+                "weight": "600",
+                "upper": true,
+                "spacing": 1.5,
+                "color": "#ff9aa7"
+              },
+              "fields": {
+                "text": "label"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.56,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.82,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.56,
+                    "v": 1840,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.82,
+                    "v": 1866
+                  }
+                ]
+              }
+            },
+            {
+              "id": "c_clk",
+              "type": "clock",
+              "name": "count",
+              "props": {
+                "x": 1840,
+                "y": 156,
+                "w": 700,
+                "h": 44,
+                "anchorX": "right",
+                "align": "right",
+                "mode": "target",
+                "target": "2027-01-01 00:00:00",
+                "format": "Dn HH:mm:ss",
+                "font": "Barlow Condensed",
+                "size": 38,
+                "weight": "600",
+                "color": "#ffffff"
+              },
+              "fields": {
+                "target": "target"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.52,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.78,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.52,
+                    "v": 1840,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.78,
+                    "v": 1866
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s_pilne",
+      "name": "PilneLogo",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.63,
+      "stops": [
+        0.75
+      ],
+      "fieldMeta": {
+        "kicker": {
+          "label": "Etykieta"
+        },
+        "top": {
+          "label": "Górna linia"
+        },
+        "main": {
+          "label": "Tytuł"
+        },
+        "logo": {
+          "label": "Logo (plik)"
+        }
+      },
+      "nodes": [
+        {
+          "id": "x_g",
+          "type": "group",
+          "name": "composite",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "anim": {},
+          "children": [
+            {
+              "id": "x_lb",
+              "type": "rect",
+              "name": "logobox",
+              "props": {
+                "x": 60,
+                "y": 840,
+                "w": 140,
+                "h": 116,
+                "color": "#ffffff"
+              },
+              "anim": {
+                "clipB": [
+                  {
+                    "t": 0,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.3,
+                    "v": 0
+                  }
+                ],
+                "clipT": [
+                  {
+                    "t": 1.25,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.59,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_lt",
+              "type": "text",
+              "name": "logotext",
+              "props": {
+                "x": 60,
+                "y": 840,
+                "w": 140,
+                "h": 116,
+                "text": "24",
+                "font": "Barlow Condensed",
+                "size": 92,
+                "weight": "800",
+                "align": "center",
+                "color": "#c8102e"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.2,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.45,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.97,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.23,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.97,
+                    "v": 60,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.23,
+                    "v": 86
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_li",
+              "type": "image",
+              "name": "logo",
+              "props": {
+                "x": 64,
+                "y": 844,
+                "w": 132,
+                "h": 108,
+                "src": "",
+                "fitMode": "contain"
+              },
+              "fields": {
+                "src": "logo"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.93,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.19,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.93,
+                    "v": 64,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.19,
+                    "v": 90
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_cb",
+              "type": "rect",
+              "name": "clockbox",
+              "props": {
+                "x": 60,
+                "y": 956,
+                "w": 140,
+                "h": 42,
+                "color": "#141418"
+              },
+              "anim": {
+                "clipT": [
+                  {
+                    "t": 0.1,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.35,
+                    "v": 0
+                  }
+                ],
+                "clipB": [
+                  {
+                    "t": 1.2,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.54,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_clk",
+              "type": "clock",
+              "name": "clock",
+              "props": {
+                "x": 60,
+                "y": 956,
+                "w": 140,
+                "h": 42,
+                "format": "HH:mm",
+                "font": "Barlow Condensed",
+                "size": 30,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.25,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.45,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.89,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.15,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.89,
+                    "v": 60,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.15,
+                    "v": 86
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_kb",
+              "type": "rect",
+              "name": "kickerbox",
+              "props": {
+                "x": 200,
+                "y": 840,
+                "w": 150,
+                "h": 44,
+                "color": "#c8102e"
+              },
+              "anim": {
+                "clipR": [
+                  {
+                    "t": 0.15,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.4,
+                    "v": 0
+                  }
+                ],
+                "clipL": [
+                  {
+                    "t": 1.15,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.49,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_kt",
+              "type": "text",
+              "name": "kicker",
+              "props": {
+                "x": 200,
+                "y": 840,
+                "w": 150,
+                "h": 44,
+                "text": "Pilne",
+                "font": "Barlow Condensed",
+                "size": 30,
+                "weight": "700",
+                "align": "center",
+                "upper": true,
+                "color": "#ffffff",
+                "padX": 8,
+                "textFit": "squeeze-shrink"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.3,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.5,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.85,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.11,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.85,
+                    "v": 200,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.11,
+                    "v": 226
+                  }
+                ]
+              },
+              "fields": {
+                "text": "kicker"
+              }
+            },
+            {
+              "id": "x_tb",
+              "type": "rect",
+              "name": "topbox",
+              "props": {
+                "x": 350,
+                "y": 840,
+                "w": 600,
+                "h": 44,
+                "color": "#141418e8",
+                "follow": "top",
+                "followAxis": "w",
+                "followPad": 36,
+                "followMin": 400
+              },
+              "anim": {
+                "clipR": [
+                  {
+                    "t": 0.25,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.55,
+                    "v": 0
+                  }
+                ],
+                "clipL": [
+                  {
+                    "t": 1.1,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.44,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_tt",
+              "type": "text",
+              "name": "top",
+              "props": {
+                "x": 368,
+                "y": 840,
+                "w": 1450,
+                "h": 44,
+                "text": "Górna linia",
+                "font": "Barlow Condensed",
+                "size": 30,
+                "weight": "600",
+                "upper": true,
+                "color": "#ffffff",
+                "textFit": "squeeze"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.4,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.65,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.81,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.07,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.81,
+                    "v": 368,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.07,
+                    "v": 394
+                  }
+                ]
+              },
+              "fields": {
+                "text": "top"
+              }
+            },
+            {
+              "id": "x_mb",
+              "type": "rect",
+              "name": "mainbox",
+              "props": {
+                "x": 200,
+                "y": 884,
+                "w": 900,
+                "h": 114,
+                "color": "#f3f3f3f0",
+                "follow": "main",
+                "followAxis": "w",
+                "followPad": 50,
+                "followMin": 700,
+                "shadow": 16
+              },
+              "anim": {
+                "clipR": [
+                  {
+                    "t": 0.2,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.55,
+                    "v": 0
+                  }
+                ],
+                "clipL": [
+                  {
+                    "t": 1.05,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.39,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "x_mt",
+              "type": "text",
+              "name": "main",
+              "props": {
+                "x": 225,
+                "y": 884,
+                "w": 1600,
+                "h": 114,
+                "text": "Tekst",
+                "font": "Barlow Condensed",
+                "size": 84,
+                "weight": "700",
+                "upper": true,
+                "color": "#141418",
+                "textFit": "squeeze"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.4,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.7,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.77,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.03,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.4,
+                    "v": 255,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.75,
+                    "v": 225
+                  },
+                  {
+                    "t": 0.77,
+                    "v": 225,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.03,
+                    "v": 251
+                  }
+                ]
+              },
+              "fields": {
+                "text": "main"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s_title",
+      "name": "Title",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.65,
+      "stops": [
+        1
+      ],
+      "fieldMeta": {
+        "headline": {
+          "label": "Tytuł"
+        },
+        "sub": {
+          "label": "Podtytuł"
+        }
+      },
+      "nodes": [
+        {
+          "id": "ti_plate",
+          "type": "rect",
+          "name": "plate",
+          "props": {
+            "x": 260,
+            "y": 380,
+            "w": 1400,
+            "h": 320,
+            "color": "#0b1730e6",
+            "radius": 4,
+            "shadow": 40
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.5,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 1.27,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.61,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "ti_head",
+          "type": "text",
+          "name": "headline",
+          "fields": {
+            "text": "headline"
+          },
+          "props": {
+            "x": 300,
+            "y": 400,
+            "w": 1320,
+            "h": 180,
+            "text": "Wybory 2026",
+            "font": "Bebas Neue",
+            "size": 150,
+            "weight": "400",
+            "align": "center",
+            "color": "#ffffff",
+            "spacing": 4
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.3,
+                "v": 0
+              },
+              {
+                "t": 0.7,
+                "v": 1
+              },
+              {
+                "t": 1,
+                "v": 1
+              },
+              {
+                "t": 1.06,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.32,
+                "v": 0
+              }
+            ],
+            "blur": [
+              {
+                "t": 0.3,
+                "v": 14,
+                "e": "out"
+              },
+              {
+                "t": 0.75,
+                "v": 0
+              }
+            ],
+            "spacing": [
+              {
+                "t": 0.3,
+                "v": 40,
+                "e": "out"
+              },
+              {
+                "t": 0.95,
+                "v": 4
+              }
+            ],
+            "x": [
+              {
+                "t": 1.06,
+                "v": 300,
+                "e": "in"
+              },
+              {
+                "t": 1.32,
+                "v": 326
+              }
+            ]
+          }
+        },
+        {
+          "id": "ti_line",
+          "type": "rect",
+          "name": "line",
+          "props": {
+            "x": 760,
+            "y": 590,
+            "w": 400,
+            "h": 6,
+            "color": "#e30613"
+          },
+          "anim": {
+            "clipL": [
+              {
+                "t": 0.4,
+                "v": 50,
+                "e": "out"
+              },
+              {
+                "t": 0.8,
+                "v": 0
+              },
+              {
+                "t": 1.22,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.56,
+                "v": 100
+              }
+            ],
+            "clipR": [
+              {
+                "t": 0.4,
+                "v": 50,
+                "e": "out"
+              },
+              {
+                "t": 0.8,
+                "v": 0
+              }
+            ]
+          }
+        },
+        {
+          "id": "ti_sub",
+          "type": "text",
+          "name": "sub",
+          "fields": {
+            "text": "sub"
+          },
+          "props": {
+            "x": 300,
+            "y": 605,
+            "w": 1320,
+            "h": 80,
+            "text": "Wyniki exit poll o 21:00",
+            "font": "Inter",
+            "size": 40,
+            "weight": "500",
+            "align": "center",
+            "color": "#cfd8ea"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.55,
+                "v": 0
+              },
+              {
+                "t": 0.95,
+                "v": 1
+              },
+              {
+                "t": 1,
+                "v": 1
+              },
+              {
+                "t": 1.02,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.28,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 1.02,
+                "v": 300,
+                "e": "in"
+              },
+              {
+                "t": 1.28,
+                "v": 326
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "s_score",
+      "name": "Scoreboard",
+      "layer": "score",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1,
+      "stops": [
+        0.5
+      ],
+      "fieldMeta": {
+        "home": {
+          "label": "Gospodarze"
+        },
+        "homeScore": {
+          "label": "Wynik gosp."
+        },
+        "awayScore": {
+          "label": "Wynik gości"
+        },
+        "away": {
+          "label": "Goście"
+        }
+      },
+      "nodes": [
+        {
+          "id": "sc_g",
+          "type": "group",
+          "name": "score",
+          "props": {
+            "x": 60,
+            "y": 50,
+            "w": 520,
+            "h": 100
+          },
+          "anim": {
+            "y": [
+              {
+                "t": 0,
+                "v": -110,
+                "e": "back"
+              },
+              {
+                "t": 0.5,
+                "v": 50
+              },
+              {
+                "t": 0.6,
+                "v": 50,
+                "e": "in"
+              },
+              {
+                "t": 1,
+                "v": -110
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "sc_bg",
+              "type": "rect",
+              "name": "bg",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 520,
+                "h": 60,
+                "color": "#0b1730",
+                "radius": 6,
+                "shadow": 20
+              }
+            },
+            {
+              "id": "sc_home",
+              "type": "text",
+              "name": "home",
+              "fields": {
+                "text": "home"
+              },
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 186,
+                "h": 60,
+                "text": "LEG",
+                "font": "Oswald",
+                "size": 34,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff",
+                "upper": true
+              }
+            },
+            {
+              "id": "sc_sbg",
+              "type": "rect",
+              "name": "scorebg",
+              "props": {
+                "x": 190,
+                "y": 6,
+                "w": 140,
+                "h": 48,
+                "color": "#e30613",
+                "radius": 4
+              }
+            },
+            {
+              "id": "sc_s1",
+              "type": "text",
+              "name": "homeScore",
+              "fields": {
+                "text": "homeScore"
+              },
+              "props": {
+                "x": 190,
+                "y": 0,
+                "w": 60,
+                "h": 60,
+                "text": "0",
+                "font": "Oswald",
+                "size": 40,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            },
+            {
+              "id": "sc_col",
+              "type": "text",
+              "name": "colon",
+              "props": {
+                "x": 250,
+                "y": 0,
+                "w": 20,
+                "h": 60,
+                "text": ":",
+                "font": "Oswald",
+                "size": 36,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            },
+            {
+              "id": "sc_s2",
+              "type": "text",
+              "name": "awayScore",
+              "fields": {
+                "text": "awayScore"
+              },
+              "props": {
+                "x": 270,
+                "y": 0,
+                "w": 60,
+                "h": 60,
+                "text": "0",
+                "font": "Oswald",
+                "size": 40,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            },
+            {
+              "id": "sc_away",
+              "type": "text",
+              "name": "away",
+              "fields": {
+                "text": "away"
+              },
+              "props": {
+                "x": 334,
+                "y": 0,
+                "w": 186,
+                "h": 60,
+                "text": "WIS",
+                "font": "Oswald",
+                "size": 34,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff",
+                "upper": true
+              }
+            },
+            {
+              "id": "sc_tbg",
+              "type": "rect",
+              "name": "timebg",
+              "props": {
+                "x": 190,
+                "y": 60,
+                "w": 140,
+                "h": 36,
+                "color": "#173264",
+                "radius": 0
+              }
+            },
+            {
+              "id": "sc_clk",
+              "type": "clock",
+              "name": "timer",
+              "props": {
+                "x": 190,
+                "y": 60,
+                "w": 140,
+                "h": 36,
+                "mode": "up",
+                "format": "mm:ss",
+                "font": "Roboto Mono",
+                "size": 24,
+                "weight": "500",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s_autor",
+      "name": "BelkaAutor",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.4,
+      "stops": [
+        0.7
+      ],
+      "fieldMeta": {
+        "author": {
+          "label": "Autor / źródło"
+        },
+        "headline": {
+          "label": "Treść belki"
+        }
+      },
+      "nodes": [
+        {
+          "id": "a_bar",
+          "type": "rect",
+          "name": "bar",
+          "props": {
+            "x": 60,
+            "y": 998,
+            "w": 1800,
+            "h": 104,
+            "anchorY": "bottom",
+            "color": "#d0102b",
+            "color2": "#e8471f",
+            "gradAngle": 90,
+            "shadow": 22
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0.1,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.45,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 1.02,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.36,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "a_head",
+          "type": "text",
+          "name": "headline",
+          "props": {
+            "x": 100,
+            "y": 894,
+            "w": 1720,
+            "h": 104,
+            "text": "Treść belki",
+            "font": "Barlow Condensed",
+            "size": 86,
+            "weight": "700",
+            "upper": true,
+            "color": "#ffffff",
+            "textFit": "squeeze-lines",
+            "maxLines": 1,
+            "squeezeMin": 0.6,
+            "shadow": 6
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.3,
+                "v": 0
+              },
+              {
+                "t": 0.55,
+                "v": 1
+              },
+              {
+                "t": 0.76,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.02,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.3,
+                "v": 130,
+                "e": "out"
+              },
+              {
+                "t": 0.6,
+                "v": 100
+              },
+              {
+                "t": 0.76,
+                "v": 100,
+                "e": "in"
+              },
+              {
+                "t": 1.02,
+                "v": 126
+              }
+            ]
+          },
+          "fields": {
+            "text": "headline"
+          }
+        },
+        {
+          "id": "a_tag",
+          "type": "rect",
+          "name": "tagbox",
+          "props": {
+            "x": 60,
+            "y": 894,
+            "w": 400,
+            "h": 42,
+            "anchorY": "bottom",
+            "color": "#141418",
+            "follow": "author",
+            "followAxis": "w",
+            "followPad": 48,
+            "followMin": 200
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0.35,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.65,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 0.97,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.31,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "a_tagl",
+          "type": "rect",
+          "name": "tagline",
+          "props": {
+            "x": 60,
+            "y": 894,
+            "w": 6,
+            "h": 42,
+            "anchorY": "bottom",
+            "color": "#d0102b"
+          },
+          "anim": {
+            "clipT": [
+              {
+                "t": 0.35,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.5,
+                "v": 0
+              }
+            ],
+            "clipB": [
+              {
+                "t": 0.92,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.26,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "a_auth",
+          "type": "text",
+          "name": "author",
+          "props": {
+            "x": 84,
+            "y": 852,
+            "w": 1200,
+            "h": 42,
+            "text": "Imię Nazwisko / INFO24",
+            "font": "Barlow Condensed",
+            "size": 30,
+            "weight": "600",
+            "upper": true,
+            "spacing": 0.5,
+            "color": "#ffffff",
+            "textFit": "squeeze"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.5,
+                "v": 0
+              },
+              {
+                "t": 0.7,
+                "v": 1
+              },
+              {
+                "t": 0.72,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 0.98,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.72,
+                "v": 84,
+                "e": "in"
+              },
+              {
+                "t": 0.98,
+                "v": 110
+              }
+            ]
+          },
+          "fields": {
+            "text": "author"
+          }
+        }
+      ]
+    },
+    {
+      "id": "s_program",
+      "name": "BelkaProgram",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.48,
+      "stops": [
+        0.7
+      ],
+      "fieldMeta": {
+        "program": {
+          "label": "Nazwa programu"
+        },
+        "czas": {
+          "label": "Godzina"
+        },
+        "logo": {
+          "label": "Logo programu (plik)"
+        },
+        "headline": {
+          "label": "Temat"
+        }
+      },
+      "nodes": [
+        {
+          "id": "r_pb",
+          "type": "rect",
+          "name": "progbox",
+          "props": {
+            "x": 60,
+            "y": 860,
+            "w": 210,
+            "h": 96,
+            "color": "#1b2f6b",
+            "color2": "#2c4fb0",
+            "gradAngle": 135,
+            "radius": 6,
+            "shadow": 18
+          },
+          "anim": {
+            "clipB": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.3,
+                "v": 0
+              }
+            ],
+            "clipT": [
+              {
+                "t": 1.1,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.44,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "r_pt",
+          "type": "text",
+          "name": "program",
+          "props": {
+            "x": 60,
+            "y": 860,
+            "w": 210,
+            "h": 96,
+            "text": "#PORANEK",
+            "font": "Barlow Condensed",
+            "size": 40,
+            "weight": "700",
+            "italic": true,
+            "align": "center",
+            "color": "#ffffff",
+            "padX": 12,
+            "textFit": "squeeze-shrink",
+            "shadow": 6
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.2,
+                "v": 0
+              },
+              {
+                "t": 0.4,
+                "v": 1
+              },
+              {
+                "t": 0.84,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.1,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.84,
+                "v": 60,
+                "e": "in"
+              },
+              {
+                "t": 1.1,
+                "v": 86
+              }
+            ]
+          },
+          "fields": {
+            "text": "program"
+          }
+        },
+        {
+          "id": "r_logo",
+          "type": "image",
+          "name": "logo",
+          "props": {
+            "x": 66,
+            "y": 864,
+            "w": 198,
+            "h": 88,
+            "src": "",
+            "fitMode": "contain"
+          },
+          "fields": {
+            "src": "logo"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.8,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.06,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.8,
+                "v": 66,
+                "e": "in"
+              },
+              {
+                "t": 1.06,
+                "v": 92
+              }
+            ]
+          }
+        },
+        {
+          "id": "r_tb",
+          "type": "rect",
+          "name": "timebox",
+          "props": {
+            "x": 60,
+            "y": 956,
+            "w": 210,
+            "h": 42,
+            "color": "#f3f3f3",
+            "radius": 4
+          },
+          "anim": {
+            "clipT": [
+              {
+                "t": 0.15,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.35,
+                "v": 0
+              }
+            ],
+            "clipB": [
+              {
+                "t": 1.05,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.39,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "r_time",
+          "type": "text",
+          "name": "czas",
+          "props": {
+            "x": 60,
+            "y": 956,
+            "w": 210,
+            "h": 42,
+            "text": "7:10",
+            "font": "Barlow Condensed",
+            "size": 30,
+            "weight": "600",
+            "align": "center",
+            "color": "#1b2f6b"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.3,
+                "v": 0
+              },
+              {
+                "t": 0.5,
+                "v": 1
+              },
+              {
+                "t": 0.76,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.02,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.76,
+                "v": 60,
+                "e": "in"
+              },
+              {
+                "t": 1.02,
+                "v": 86
+              }
+            ]
+          },
+          "fields": {
+            "text": "czas"
+          }
+        },
+        {
+          "id": "r_bar",
+          "type": "rect",
+          "name": "bar",
+          "props": {
+            "x": 278,
+            "y": 998,
+            "w": 1582,
+            "h": 84,
+            "anchorY": "bottom",
+            "color": "#f3f3f3f2",
+            "radius": 6,
+            "shadow": 18
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0.2,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.55,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 1,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.34,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "r_head",
+          "type": "text",
+          "name": "headline",
+          "props": {
+            "x": 304,
+            "y": 914,
+            "w": 1530,
+            "h": 84,
+            "text": "Temat programu",
+            "font": "Barlow",
+            "size": 50,
+            "weight": "600",
+            "upper": true,
+            "color": "#8c0f1f",
+            "textFit": "squeeze-lines",
+            "maxLines": 1
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.4,
+                "v": 0
+              },
+              {
+                "t": 0.65,
+                "v": 1
+              },
+              {
+                "t": 0.72,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 0.98,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.72,
+                "v": 304,
+                "e": "in"
+              },
+              {
+                "t": 0.98,
+                "v": 330
+              }
+            ]
+          },
+          "fields": {
+            "text": "headline"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ix_qr",
+      "name": "INFO24 KodQR",
+      "layer": "qr",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.33,
+      "stops": [
+        0.5
+      ],
+      "fieldMeta": {
+        "strona": {
+          "type": "select",
+          "label": "Strona",
+          "options": [
+            "lewa",
+            "prawa"
+          ],
+          "default": "lewa"
+        },
+        "url": {
+          "label": "Adres w kodzie QR"
+        },
+        "caption": {
+          "label": "Podpis pod kodem"
+        }
+      },
+      "nodes": [
+        {
+          "id": "iq_lewa",
+          "type": "group",
+          "name": "kafel_lewa",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 0.35,
+                "v": 1
+              }
+            ],
+            "y": [
+              {
+                "t": 0,
+                "v": 24,
+                "e": "out"
+              },
+              {
+                "t": 0.4,
+                "v": 0
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "iq_lewa_box",
+              "type": "rect",
+              "name": "box",
+              "props": {
+                "x": 60,
+                "y": 560,
+                "w": 200,
+                "h": 262,
+                "color": "#141418e8",
+                "radius": 6,
+                "shadow": 22
+              },
+              "anim": {
+                "clipB": [
+                  {
+                    "t": 0.95,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.29,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "iq_lewa_acc",
+              "type": "rect",
+              "name": "acc",
+              "props": {
+                "x": 60,
+                "y": 560,
+                "w": 200,
+                "h": 6,
+                "color": "#d0102b"
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.9,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.24,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "iq_lewa_qr",
+              "type": "qr",
+              "name": "qr",
+              "props": {
+                "x": 76,
+                "y": 580,
+                "w": 168,
+                "h": 168,
+                "text": "https://example.com",
+                "color": "#101014",
+                "qrBg": "#ffffff",
+                "radius": 4
+              },
+              "fields": {
+                "text": "url"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.64,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.9,
+                    "v": 0
+                  }
+                ],
+                "scale": [
+                  {
+                    "t": 0.64,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.9,
+                    "v": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "id": "iq_lewa_cap",
+              "type": "text",
+              "name": "caption",
+              "props": {
+                "x": 68,
+                "y": 754,
+                "w": 184,
+                "h": 60,
+                "text": "Wesprzyj nas",
+                "font": "Barlow Condensed",
+                "size": 24,
+                "weight": "700",
+                "upper": true,
+                "align": "center",
+                "lineHeight": 1,
+                "maxLines": 2,
+                "textFit": "squeeze-lines",
+                "color": "#ffffff"
+              },
+              "fields": {
+                "text": "caption"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.6,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.86,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.6,
+                    "v": 68,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.86,
+                    "v": 94
+                  }
+                ]
+              }
+            }
+          ],
+          "showIf": {
+            "field": "strona",
+            "value": "lewa"
+          }
+        },
+        {
+          "id": "iq_prawa",
+          "type": "group",
+          "name": "kafel_prawa",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 0.35,
+                "v": 1
+              }
+            ],
+            "y": [
+              {
+                "t": 0,
+                "v": 24,
+                "e": "out"
+              },
+              {
+                "t": 0.4,
+                "v": 0
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "iq_prawa_box",
+              "type": "rect",
+              "name": "box",
+              "props": {
+                "x": 1660,
+                "y": 560,
+                "w": 200,
+                "h": 262,
+                "color": "#141418e8",
+                "radius": 6,
+                "shadow": 22
+              },
+              "anim": {
+                "clipB": [
+                  {
+                    "t": 0.85,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.19,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "iq_prawa_acc",
+              "type": "rect",
+              "name": "acc",
+              "props": {
+                "x": 1660,
+                "y": 560,
+                "w": 200,
+                "h": 6,
+                "color": "#d0102b"
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.8,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.14,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "iq_prawa_qr",
+              "type": "qr",
+              "name": "qr",
+              "props": {
+                "x": 1676,
+                "y": 580,
+                "w": 168,
+                "h": 168,
+                "text": "https://example.com",
+                "color": "#101014",
+                "qrBg": "#ffffff",
+                "radius": 4
+              },
+              "fields": {
+                "text": "url"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.56,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.82,
+                    "v": 0
+                  }
+                ],
+                "scale": [
+                  {
+                    "t": 0.56,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.82,
+                    "v": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "id": "iq_prawa_cap",
+              "type": "text",
+              "name": "caption",
+              "props": {
+                "x": 1668,
+                "y": 754,
+                "w": 184,
+                "h": 60,
+                "text": "Wesprzyj nas",
+                "font": "Barlow Condensed",
+                "size": 24,
+                "weight": "700",
+                "upper": true,
+                "align": "center",
+                "lineHeight": 1,
+                "maxLines": 2,
+                "textFit": "squeeze-lines",
+                "color": "#ffffff"
+              },
+              "fields": {
+                "text": "caption"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.52,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.78,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.52,
+                    "v": 1668,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.78,
+                    "v": 1694
+                  }
+                ]
+              }
+            }
+          ],
+          "showIf": {
+            "field": "strona",
+            "value": "prawa"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ix_hash",
+      "name": "INFO24 Hashtag",
+      "layer": "main",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.49,
+      "stops": [
+        0.7
+      ],
+      "fieldMeta": {
+        "hashtag": {
+          "label": "Hashtag / hasło"
+        },
+        "badge": {
+          "label": "Plakietka"
+        },
+        "tlo": {
+          "label": "Tło (obraz/wideo)"
+        }
+      },
+      "nodes": [
+        {
+          "id": "ih_img",
+          "type": "image",
+          "name": "tlo",
+          "props": {
+            "x": 250,
+            "y": 896,
+            "w": 1610,
+            "h": 102,
+            "src": "tlo_hashtag.jpg",
+            "fitMode": "cover"
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0.15,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.5,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 1.11,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.45,
+                "v": 100
+              }
+            ]
+          },
+          "fields": {
+            "src": "tlo"
+          }
+        },
+        {
+          "id": "ih_ov",
+          "type": "rect",
+          "name": "overlay",
+          "props": {
+            "x": 250,
+            "y": 896,
+            "w": 1610,
+            "h": 102,
+            "color": "#141418f2",
+            "color2": "#14141810",
+            "gradAngle": 90
+          },
+          "anim": {
+            "clipR": [
+              {
+                "t": 0.15,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.5,
+                "v": 0
+              }
+            ],
+            "clipL": [
+              {
+                "t": 1.06,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.4,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "ih_logo",
+          "type": "rect",
+          "name": "logobox",
+          "props": {
+            "x": 60,
+            "y": 896,
+            "w": 190,
+            "h": 102,
+            "color": "#d0102b",
+            "color2": "#a80c22",
+            "gradAngle": 135,
+            "skewX": 0,
+            "shadow": 18
+          },
+          "anim": {
+            "clipB": [
+              {
+                "t": 0,
+                "v": 100,
+                "e": "out"
+              },
+              {
+                "t": 0.3,
+                "v": 0
+              }
+            ],
+            "clipT": [
+              {
+                "t": 1.01,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.35,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "ih_lt",
+          "type": "text",
+          "name": "logo",
+          "props": {
+            "x": 60,
+            "y": 896,
+            "w": 190,
+            "h": 102,
+            "text": "INFO24",
+            "font": "Barlow Condensed",
+            "size": 52,
+            "weight": "800",
+            "italic": false,
+            "align": "center",
+            "color": "#ffffff",
+            "padX": 12,
+            "textFit": "squeeze-shrink"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.2,
+                "v": 0
+              },
+              {
+                "t": 0.4,
+                "v": 1
+              },
+              {
+                "t": 0.8,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.06,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.8,
+                "v": 60,
+                "e": "in"
+              },
+              {
+                "t": 1.06,
+                "v": 86
+              }
+            ]
+          }
+        },
+        {
+          "id": "ih_txt",
+          "type": "text",
+          "name": "hashtag",
+          "props": {
+            "x": 284,
+            "y": 896,
+            "w": 1300,
+            "h": 102,
+            "text": "#HASHTAG",
+            "font": "Barlow Condensed",
+            "size": 88,
+            "weight": "800",
+            "upper": true,
+            "color": "#ffffff",
+            "textFit": "squeeze-lines",
+            "maxLines": 1,
+            "shadow": 10
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.35,
+                "v": 0
+              },
+              {
+                "t": 0.6,
+                "v": 1
+              },
+              {
+                "t": 0.76,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 1.02,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.35,
+                "v": 320,
+                "e": "out"
+              },
+              {
+                "t": 0.7,
+                "v": 284
+              },
+              {
+                "t": 0.76,
+                "v": 284,
+                "e": "in"
+              },
+              {
+                "t": 1.02,
+                "v": 310
+              }
+            ]
+          },
+          "fields": {
+            "text": "hashtag"
+          }
+        },
+        {
+          "id": "ih_bb",
+          "type": "rect",
+          "name": "badgebox",
+          "props": {
+            "x": 1836,
+            "y": 922,
+            "w": 200,
+            "h": 50,
+            "anchorX": "right",
+            "color": "#f3f3f3",
+            "radius": 25,
+            "skewX": 0,
+            "follow": "badge",
+            "followAxis": "w",
+            "followPad": 40,
+            "followMin": 120
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.5,
+                "v": 0
+              },
+              {
+                "t": 0.7,
+                "v": 1
+              }
+            ],
+            "scale": [
+              {
+                "t": 0.5,
+                "v": 0.6,
+                "e": "back"
+              }
+            ],
+            "clipL": [
+              {
+                "t": 0.96,
+                "v": 0,
+                "e": "in"
+              },
+              {
+                "t": 1.3,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "id": "ih_b",
+          "type": "text",
+          "name": "badge",
+          "props": {
+            "x": 1816,
+            "y": 922,
+            "w": 500,
+            "h": 50,
+            "anchorX": "right",
+            "align": "right",
+            "text": "PROGRAM",
+            "font": "Barlow Condensed",
+            "size": 28,
+            "weight": "800",
+            "upper": true,
+            "spacing": 1,
+            "color": "#8c0f1f",
+            "textFit": "squeeze"
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0.55,
+                "v": 0
+              },
+              {
+                "t": 0.72,
+                "v": 1,
+                "e": "in"
+              },
+              {
+                "t": 0.98,
+                "v": 0
+              }
+            ],
+            "x": [
+              {
+                "t": 0.72,
+                "v": 1816,
+                "e": "in"
+              },
+              {
+                "t": 0.98,
+                "v": 1842
+              }
+            ]
+          },
+          "fields": {
+            "text": "badge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ix_bug2",
+      "name": "INFO24 NaZywo2",
+      "layer": "bug",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.25,
+      "stops": [
+        0.55
+      ],
+      "fieldMeta": {
+        "place": {
+          "label": "Miejsce (Enter = 2. wiersz)"
+        },
+        "live": {
+          "label": "Napis"
+        }
+      },
+      "nodes": [
+        {
+          "id": "ib_g",
+          "type": "group",
+          "name": "bug",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 200
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 0.3,
+                "v": 1
+              },
+              {
+                "t": 0.55,
+                "v": 1
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "ib_lb",
+              "type": "rect",
+              "name": "livebox",
+              "props": {
+                "x": 1860,
+                "y": 56,
+                "w": 168,
+                "h": 56,
+                "anchorX": "right",
+                "color": "#d0102b",
+                "skewX": 0,
+                "radius": 4
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.87,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.21,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ib_dot",
+              "type": "ellipse",
+              "name": "dot",
+              "props": {
+                "x": 1708,
+                "y": 77,
+                "w": 14,
+                "h": 14,
+                "color": "#ffffff",
+                "blink": 1.3
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.82,
+                    "v": 1
+                  },
+                  {
+                    "t": 1.02,
+                    "v": 0
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ib_lt",
+              "type": "text",
+              "name": "live",
+              "props": {
+                "x": 1728,
+                "y": 56,
+                "w": 126,
+                "h": 56,
+                "text": "NA ŻYWO",
+                "font": "Barlow Condensed",
+                "size": 32,
+                "weight": "800",
+                "upper": true,
+                "color": "#ffffff",
+                "textFit": "squeeze-shrink"
+              },
+              "fields": {
+                "text": "live"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.61,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.87,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.61,
+                    "v": 1728,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.87,
+                    "v": 1754
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ib_pb",
+              "type": "rect",
+              "name": "placebox",
+              "props": {
+                "x": 1692,
+                "y": 56,
+                "w": 300,
+                "h": 56,
+                "anchorX": "right",
+                "color": "#f3f3f3",
+                "radius": 4,
+                "follow": "place",
+                "followAxis": "w",
+                "followPad": 32,
+                "followMin": 140
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.1,
+                    "v": 100,
+                    "e": "out"
+                  },
+                  {
+                    "t": 0.45,
+                    "v": 0
+                  }
+                ],
+                "clipR": [
+                  {
+                    "t": 0.77,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.11,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ib_pt",
+              "type": "text",
+              "name": "place",
+              "props": {
+                "x": 1676,
+                "y": 56,
+                "w": 700,
+                "h": 56,
+                "anchorX": "right",
+                "align": "right",
+                "text": "Miasto\nMiejsce",
+                "font": "Barlow Condensed",
+                "size": 21,
+                "weight": "700",
+                "upper": true,
+                "lineHeight": 1.02,
+                "maxLines": 2,
+                "textFit": "squeeze-lines",
+                "color": "#152a6b"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.2,
+                    "v": 0
+                  },
+                  {
+                    "t": 0.45,
+                    "v": 1
+                  },
+                  {
+                    "t": 0.57,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.83,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.57,
+                    "v": 1676,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.83,
+                    "v": 1702
+                  }
+                ]
+              },
+              "fields": {
+                "text": "place"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ix_rot",
+      "name": "INFO24 KafelProgramu",
+      "layer": "prog",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1.24,
+      "stops": [
+        0.5
+      ],
+      "fieldMeta": {
+        "programs": {
+          "label": "Programy (jeden w linii)"
+        },
+        "times": {
+          "label": "Godziny (w tej samej kolejności)"
+        },
+        "next": {
+          "label": "Nagłówek"
+        }
+      },
+      "nodes": [
+        {
+          "id": "ir_g",
+          "type": "group",
+          "name": "tile",
+          "props": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "anim": {
+            "opacity": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 0.3,
+                "v": 1
+              }
+            ],
+            "x": [
+              {
+                "t": 0,
+                "v": -30,
+                "e": "out"
+              },
+              {
+                "t": 0.45,
+                "v": 0
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "ir_hb",
+              "type": "rect",
+              "name": "headbox",
+              "props": {
+                "x": 60,
+                "y": 690,
+                "w": 230,
+                "h": 30,
+                "color": "#d0102b",
+                "skewX": 0
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.86,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.2,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ir_ht",
+              "type": "text",
+              "name": "next",
+              "props": {
+                "x": 60,
+                "y": 690,
+                "w": 230,
+                "h": 30,
+                "text": "ZA CHWILĘ",
+                "font": "Barlow Condensed",
+                "size": 20,
+                "weight": "800",
+                "upper": true,
+                "spacing": 2,
+                "align": "center",
+                "color": "#ffffff"
+              },
+              "fields": {
+                "text": "next"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.6,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.86,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.6,
+                    "v": 60,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.86,
+                    "v": 86
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ir_pb",
+              "type": "rect",
+              "name": "progbox",
+              "props": {
+                "x": 60,
+                "y": 720,
+                "w": 230,
+                "h": 80,
+                "color": "#141418",
+                "color2": "#1c3f94",
+                "gradAngle": 135,
+                "skewX": 0,
+                "shadow": 18
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.81,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.15,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ir_pt",
+              "type": "text",
+              "name": "program",
+              "props": {
+                "x": 60,
+                "y": 720,
+                "w": 230,
+                "h": 80,
+                "text": "Program 1\nProgram 2",
+                "cycle": 4,
+                "font": "Barlow Condensed",
+                "size": 38,
+                "weight": "800",
+                "italic": false,
+                "upper": true,
+                "align": "center",
+                "color": "#ffffff",
+                "padX": 14,
+                "textFit": "squeeze-shrink",
+                "lineHeight": 1
+              },
+              "fields": {
+                "text": "programs"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.56,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.82,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.56,
+                    "v": 60,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.82,
+                    "v": 86
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ir_tb",
+              "type": "rect",
+              "name": "timebox",
+              "props": {
+                "x": 60,
+                "y": 800,
+                "w": 230,
+                "h": 40,
+                "color": "#f3f3f3",
+                "skewX": 0
+              },
+              "anim": {
+                "clipL": [
+                  {
+                    "t": 0.76,
+                    "v": 0,
+                    "e": "in"
+                  },
+                  {
+                    "t": 1.1,
+                    "v": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ir_tt",
+              "type": "text",
+              "name": "time",
+              "props": {
+                "x": 60,
+                "y": 800,
+                "w": 230,
+                "h": 40,
+                "text": "7:10\n7:55",
+                "cycle": 4,
+                "font": "Barlow Condensed",
+                "size": 30,
+                "weight": "700",
+                "align": "center",
+                "color": "#8c0f1f"
+              },
+              "fields": {
+                "text": "times"
+              },
+              "anim": {
+                "opacity": [
+                  {
+                    "t": 0.52,
+                    "v": 1,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.78,
+                    "v": 0
+                  }
+                ],
+                "x": [
+                  {
+                    "t": 0.52,
+                    "v": 60,
+                    "e": "in"
+                  },
+                  {
+                    "t": 0.78,
+                    "v": 86
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ti_roll",
+      "name": "TickerRoll",
+      "layer": "back",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1,
+      "stops": [
+        0.45
+      ],
+      "fieldMeta": {
+        "items": {
+          "label": "Wiadomości: KATEGORIA|treść (kolor: KATEGORIA#hex|treść)"
+        }
+      },
+      "nodes": [
+        {
+          "id": "t_g_roll",
+          "type": "group",
+          "name": "ticker",
+          "props": {
+            "x": 0,
+            "y": 1010,
+            "w": 1920,
+            "h": 60
+          },
+          "anim": {
+            "y": [
+              {
+                "t": 0,
+                "v": 1080,
+                "e": "out"
+              },
+              {
+                "t": 0.45,
+                "v": 1010
+              },
+              {
+                "t": 0.6,
+                "v": 1010,
+                "e": "in"
+              },
+              {
+                "t": 1,
+                "v": 1080
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "t_bg_roll",
+              "type": "rect",
+              "name": "bg",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 1920,
+                "h": 60,
+                "color": "#0f0f13"
+              }
+            },
+            {
+              "id": "t_line_roll",
+              "type": "rect",
+              "name": "line",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 1920,
+                "h": 3,
+                "color": "#c8102e"
+              }
+            },
+            {
+              "id": "t_crawl_roll",
+              "type": "ticker",
+              "name": "crawl",
+              "props": {
+                "x": 205,
+                "y": 3,
+                "w": 1540,
+                "h": 57,
+                "text": "Wiadomość pierwsza\nWiadomość druga",
+                "font": "Barlow Condensed",
+                "size": 32,
+                "weight": "600",
+                "upper": true,
+                "color": "#ffffff",
+                "speed": 150,
+                "sep": "   /   ",
+                "sepColor": "#ff2a3d",
+                "tickerMode": "roll",
+                "hold": 4.5,
+                "catW": 170,
+                "catBg": "#d0102b",
+                "catFg": "#ffffff"
+              },
+              "fields": {
+                "text": "items"
+              }
+            },
+            {
+              "id": "t_lb_roll",
+              "type": "rect",
+              "name": "labelbox",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 190,
+                "h": 60,
+                "color": "#c8102e",
+                "shadow": 14
+              }
+            },
+            {
+              "id": "t_lt_roll",
+              "type": "text",
+              "name": "label",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 190,
+                "h": 60,
+                "text": "INFO24",
+                "font": "Barlow Condensed",
+                "size": 36,
+                "weight": "700",
+                "align": "center",
+                "upper": true,
+                "color": "#ffffff",
+                "padX": 10,
+                "textFit": "squeeze-shrink"
+              },
+              "fields": {
+                "text": "label"
+              }
+            },
+            {
+              "id": "t_cb_roll",
+              "type": "rect",
+              "name": "clockbox",
+              "props": {
+                "x": 1750,
+                "y": 0,
+                "w": 170,
+                "h": 60,
+                "color": "#1c3f94",
+                "shadow": 14
+              }
+            },
+            {
+              "id": "t_clk_roll",
+              "type": "clock",
+              "name": "clock",
+              "props": {
+                "x": 1750,
+                "y": 0,
+                "w": 170,
+                "h": 60,
+                "format": "HH:mm",
+                "mode": "time",
+                "font": "Barlow Condensed",
+                "size": 40,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ti_wipe",
+      "name": "TickerWipe",
+      "layer": "back",
+      "width": 1920,
+      "height": 1080,
+      "duration": 1,
+      "stops": [
+        0.45
+      ],
+      "fieldMeta": {
+        "items": {
+          "label": "Wiadomości: KATEGORIA|treść (kolor: KATEGORIA#hex|treść)"
+        }
+      },
+      "nodes": [
+        {
+          "id": "t_g_wipe",
+          "type": "group",
+          "name": "ticker",
+          "props": {
+            "x": 0,
+            "y": 1010,
+            "w": 1920,
+            "h": 60
+          },
+          "anim": {
+            "y": [
+              {
+                "t": 0,
+                "v": 1080,
+                "e": "out"
+              },
+              {
+                "t": 0.45,
+                "v": 1010
+              },
+              {
+                "t": 0.6,
+                "v": 1010,
+                "e": "in"
+              },
+              {
+                "t": 1,
+                "v": 1080
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": "t_bg_wipe",
+              "type": "rect",
+              "name": "bg",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 1920,
+                "h": 60,
+                "color": "#0f0f13"
+              }
+            },
+            {
+              "id": "t_line_wipe",
+              "type": "rect",
+              "name": "line",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 1920,
+                "h": 3,
+                "color": "#c8102e"
+              }
+            },
+            {
+              "id": "t_crawl_wipe",
+              "type": "ticker",
+              "name": "crawl",
+              "props": {
+                "x": 205,
+                "y": 3,
+                "w": 1540,
+                "h": 57,
+                "text": "Wiadomość pierwsza\nWiadomość druga",
+                "font": "Barlow Condensed",
+                "size": 32,
+                "weight": "600",
+                "upper": true,
+                "color": "#ffffff",
+                "speed": 150,
+                "sep": "   /   ",
+                "sepColor": "#ff2a3d",
+                "tickerMode": "wipe",
+                "hold": 4.5,
+                "catW": 170,
+                "catBg": "#d0102b",
+                "catFg": "#ffffff"
+              },
+              "fields": {
+                "text": "items"
+              }
+            },
+            {
+              "id": "t_lb_wipe",
+              "type": "rect",
+              "name": "labelbox",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 190,
+                "h": 60,
+                "color": "#c8102e",
+                "shadow": 14
+              }
+            },
+            {
+              "id": "t_lt_wipe",
+              "type": "text",
+              "name": "label",
+              "props": {
+                "x": 0,
+                "y": 0,
+                "w": 190,
+                "h": 60,
+                "text": "INFO24",
+                "font": "Barlow Condensed",
+                "size": 36,
+                "weight": "700",
+                "align": "center",
+                "upper": true,
+                "color": "#ffffff",
+                "padX": 10,
+                "textFit": "squeeze-shrink"
+              },
+              "fields": {
+                "text": "label"
+              }
+            },
+            {
+              "id": "t_cb_wipe",
+              "type": "rect",
+              "name": "clockbox",
+              "props": {
+                "x": 1750,
+                "y": 0,
+                "w": 170,
+                "h": 60,
+                "color": "#1c3f94",
+                "shadow": 14
+              }
+            },
+            {
+              "id": "t_clk_wipe",
+              "type": "clock",
+              "name": "clock",
+              "props": {
+                "x": 1750,
+                "y": 0,
+                "w": 170,
+                "h": 60,
+                "format": "HH:mm",
+                "mode": "time",
+                "font": "Barlow Condensed",
+                "size": 40,
+                "weight": "600",
+                "align": "center",
+                "color": "#ffffff"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "id": "p1",
+      "number": 1001,
+      "name": "Belka – budżet",
+      "scene": "s_belka",
+      "values": {
+        "styl": "info",
+        "headline": "Rząd przedstawił projekt budżetu na 2027 rok. Deficyt niższy od oczekiwań ekonomistów"
+      }
+    },
+    {
+      "id": "p2",
+      "number": 1002,
+      "name": "Belka PILNE – A2",
+      "scene": "s_belka",
+      "values": {
+        "styl": "pilne",
+        "headline": "Utrudnienia na autostradzie A2 w kierunku Warszawy"
+      }
+    },
+    {
+      "id": "p3",
+      "number": 1003,
+      "name": "Belka – infolinia",
+      "scene": "s_belka",
+      "values": {
+        "styl": "info",
+        "headline": "Infolinia dla poszkodowanych: [[800 123 456]] – czynna całą dobę"
+      }
+    },
+    {
+      "id": "p4",
+      "number": 1101,
+      "name": "Podpis – reporterka",
+      "scene": "s_podpis",
+      "values": {
+        "name": "Anna Kowalska",
+        "title": "INFO24"
+      }
+    },
+    {
+      "id": "p5",
+      "number": 1102,
+      "name": "Podpis – ekspert",
+      "scene": "s_podpis",
+      "values": {
+        "name": "prof. Jan Nowak",
+        "title": "Politechnika Warszawska, Wydział Transportu"
+      }
+    },
+    {
+      "id": "p6",
+      "number": 2001,
+      "name": "Na żywo – Plac Zamkowy",
+      "scene": "s_live",
+      "values": {
+        "place": "Plac Zamkowy",
+        "live": "Na żywo"
+      }
+    },
+    {
+      "id": "p7",
+      "number": 2101,
+      "name": "Odliczanie – Sylwester",
+      "scene": "s_count",
+      "values": {
+        "label": "Do Sylwestra",
+        "target": "2027-01-01 00:00:00"
+      }
+    },
+    {
+      "id": "p8",
+      "number": 3001,
+      "name": "Ticker",
+      "scene": "s_ticker",
+      "values": {
+        "label": "INFO24",
+        "items": "Rząd przyjął projekt budżetu na 2027 rok\nKurs EUR/PLN stabilny w okolicach 4,25\nJutro w całym kraju do 18 stopni, przelotne opady\nReprezentacja awansowała do turnieju finałowego\nNowe połączenia kolejowe od grudnia"
+      }
+    },
+    {
+      "id": "p9",
+      "number": 4001,
+      "name": "Tytuł",
+      "scene": "s_title",
+      "values": {
+        "headline": "Wybory 2026",
+        "sub": "Wyniki exit poll o 21:00"
+      }
+    },
+    {
+      "id": "p10",
+      "number": 4101,
+      "name": "Pilne z logo",
+      "scene": "s_pilne",
+      "values": {
+        "kicker": "Pilne",
+        "top": "Komunikat Głównego Inspektoratu Sanitarnego",
+        "main": "Wiadomość dnia",
+        "logo": ""
+      }
+    },
+    {
+      "id": "p11",
+      "number": 5001,
+      "name": "Wynik meczu",
+      "scene": "s_score",
+      "values": {
+        "home": "LEG",
+        "away": "WIS",
+        "homeScore": "2",
+        "awayScore": "1"
+      }
+    },
+    {
+      "id": "p12",
+      "number": 1201,
+      "name": "Belka z autorem",
+      "scene": "s_autor",
+      "values": {
+        "author": "Anna Kowalska / INFO24",
+        "headline": "Jutro nowe rozkłady jazdy pociągów"
+      }
+    },
+    {
+      "id": "p13",
+      "number": 1202,
+      "name": "Belka z autorem – długa",
+      "scene": "s_autor",
+      "values": {
+        "author": "Jan Nowak / INFO24, Kraków",
+        "headline": "Rekordowa frekwencja na targach książki w Krakowie"
+      }
+    },
+    {
+      "id": "p14",
+      "number": 1301,
+      "name": "Belka programu",
+      "scene": "s_program",
+      "values": {
+        "program": "#PORANEK",
+        "czas": "7:10",
+        "logo": "",
+        "headline": "Przegląd prasy"
+      }
+    },
+    {
+      "id": "ipg1",
+      "number": 1401,
+      "name": "QR lewy – wsparcie",
+      "scene": "ix_qr",
+      "values": {
+        "strona": "lewa",
+        "url": "https://info24.example/wesprzyj",
+        "caption": "Wesprzyj nas!"
+      }
+    },
+    {
+      "id": "ipg2",
+      "number": 1402,
+      "name": "QR prawy – aplikacja",
+      "scene": "ix_qr",
+      "values": {
+        "strona": "prawa",
+        "url": "https://info24.example/aplikacja",
+        "caption": "Pobierz aplikację INFO24"
+      }
+    },
+    {
+      "id": "ipg3",
+      "number": 1403,
+      "name": "Hashtag",
+      "scene": "ix_hash",
+      "values": {
+        "hashtag": "#DROGAPRZEZPOLSKĘ",
+        "badge": "Reportaż",
+        "tlo": "tlo_hashtag.jpg"
+      }
+    },
+    {
+      "id": "ipg4",
+      "number": 1404,
+      "name": "Na żywo – 2 wiersze",
+      "scene": "ix_bug2",
+      "values": {
+        "place": "Gdańsk, Polska\nWodowanie nowego promu",
+        "live": "Na żywo"
+      }
+    },
+    {
+      "id": "ipg5",
+      "number": 1405,
+      "name": "Kafel programu (rotacja)",
+      "scene": "ix_rot",
+      "values": {
+        "next": "Za chwilę",
+        "programs": "Dzień Dobry\nPogoda\nSerwis",
+        "times": "7:10\n7:55\n9:00"
+      }
+    },
+    {
+      "id": "ti_pg_roll",
+      "number": 3002,
+      "name": "Ticker góra-dół z kategoriami",
+      "scene": "ti_roll",
+      "values": {
+        "items": "KRAJ|Nowa linia tramwajowa połączy dworzec z lotniskiem\nŚWIAT#1c3f94|Szczyt klimatyczny zakończony porozumieniem w sprawie oceanów\nŚWIAT#1c3f94|Rekordowa liczba turystów w europejskich stolicach\nGOSPODARKA#6b3fa0|Kurs EUR/PLN bez większych zmian, złoty stabilny\nSPORT#1f8a4c|Finał pucharu kraju w sobotę o 18:00\nPOGODA#c77700|Jutro słonecznie, do 19 stopni na zachodzie kraju"
+      }
+    },
+    {
+      "id": "ti_pg_wipe",
+      "number": 3003,
+      "name": "Ticker wipe z kategoriami",
+      "scene": "ti_wipe",
+      "values": {
+        "items": "KRAJ|Nowa linia tramwajowa połączy dworzec z lotniskiem\nŚWIAT#1c3f94|Szczyt klimatyczny zakończony porozumieniem w sprawie oceanów\nŚWIAT#1c3f94|Rekordowa liczba turystów w europejskich stolicach\nGOSPODARKA#6b3fa0|Kurs EUR/PLN bez większych zmian, złoty stabilny\nSPORT#1f8a4c|Finał pucharu kraju w sobotę o 18:00\nPOGODA#c77700|Jutro słonecznie, do 19 stopni na zachodzie kraju"
+      }
+    },
+    {
+      "id": "ti_pg_crawlcat",
+      "number": 3004,
+      "name": "Ticker przewijany z kategoriami",
+      "scene": "s_ticker",
+      "values": {
+        "label": "INFO24",
+        "items": "KRAJ|Nowa linia tramwajowa połączy dworzec z lotniskiem\nŚWIAT#1c3f94|Szczyt klimatyczny zakończony porozumieniem w sprawie oceanów\nŚWIAT#1c3f94|Rekordowa liczba turystów w europejskich stolicach\nGOSPODARKA#6b3fa0|Kurs EUR/PLN bez większych zmian, złoty stabilny\nSPORT#1f8a4c|Finał pucharu kraju w sobotę o 18:00\nPOGODA#c77700|Jutro słonecznie, do 19 stopni na zachodzie kraju"
+      }
+    }
+  ],
+  "playlists": [
+    {
+      "id": "pl1",
+      "name": "Belki",
+      "loop": true,
+      "items": [
+        {
+          "page": "p1",
+          "duration": 7
+        },
+        {
+          "page": "p2",
+          "duration": 7
+        },
+        {
+          "page": "p3",
+          "duration": 7
+        }
+      ]
+    },
+    {
+      "id": "pl2",
+      "name": "Podpisy",
+      "loop": true,
+      "items": [
+        {
+          "page": "p4",
+          "duration": 6
+        },
+        {
+          "page": "p5",
+          "duration": 6
+        }
+      ]
+    }
+  ],
+  "rev": 0,
+  "rundowns": [],
+  "macros": []
+}

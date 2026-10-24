@@ -6,7 +6,9 @@
 #   VizRS Trio   http://<server>:8788/trio   token vizrs-operator-change-me
 #   Sidecar      http://<server>:7700/health
 #
-# In ErsatzTV: Channel → Deco → Graphics Elements → add "VizRS".
+# The first start fills empty volumes from seed/: the VizRS show "newsroom-info24"
+# and ErsatzTV channel 1 with the VizRS element, test videos in seed/media.
+# Other channels: Channel → Deco → Graphics Elements → add "VizRS".
 # Change the tokens before opening the ports.
 
 x-tokens: &tokens
@@ -14,9 +16,23 @@ x-tokens: &tokens
   VIZRS_OUTPUT_TOKEN: ${VIZRS_OUTPUT_TOKEN:-vizrs-output-change-me}
 
 services:
+  # Copies seed/ into empty volumes, then exits; volumes with data stay untouched.
+  seed:
+    image: ghcr.io/ersatztv/legacy:latest
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["sh", "/seed/init.sh"]
+    volumes:
+      - ./seed:/seed:ro
+      - vizrs-data:/vizrs-data
+      - ersatztv-config:/ersatztv-config
+
   vizrs:
     image: ghcr.io/sdorpl/vizrs:latest
     restart: unless-stopped
+    depends_on:
+      seed:
+        condition: service_completed_successfully
     environment:
       <<: *tokens
       VIZRS_TCP: "6100"
@@ -54,14 +70,18 @@ services:
     image: ghcr.io/ersatztv/legacy:latest
     restart: unless-stopped
     depends_on:
-      - cg
+      seed:
+        condition: service_completed_successfully
+      cg:
+        condition: service_started
     environment:
       TZ: ${TZ:-Europe/Warsaw}
     volumes:
       - ersatztv-config:/config
       - ./etv/templates/graphics-elements/script/vizrs.yml:/config/templates/graphics-elements/script/vizrs.yml:ro
       - ./client:/vizrs:ro
-      - ${MEDIA_DIR:-./media}:/media:ro
+      # Test videos of the seeded channel; your own: MEDIA_DIR (paths in ErsatzTV start with /media).
+      - ${MEDIA_DIR:-./seed/media}:/media:ro
     tmpfs:
       - /transcode
     ports:

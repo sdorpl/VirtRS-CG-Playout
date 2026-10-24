@@ -32,9 +32,11 @@ docker compose up -d
 ```
 
 uruchamia VizRS (`:8788`, Trio pod `/trio`), sidecar (`:7700/health`)
-i ErsatzTV (`:8409`). W ErsatzTV dodaj element grafiki **VizRS** do pozycji
-harmonogramu albo do **Deco** kanału i zresetuj playout. Przed otwarciem
-portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
+i ErsatzTV (`:8409`). Pierwszy start wypełnia puste wolumeny danymi z `seed/`:
+show VizRS i kanał 1 ErsatzTV z grafiką VizRS na odcinkach testowych.
+Kolejne kanały: element grafiki **VizRS** w pozycji harmonogramu albo w **Deco**
+kanału, potem reset playoutu. Przed otwarciem portów zmień `VIZRS_TOKEN`
+i `VIZRS_OUTPUT_TOKEN`.
 
 ## Dokumentacja
 
