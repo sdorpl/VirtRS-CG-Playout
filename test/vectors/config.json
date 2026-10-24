@@ -1,0 +1,218 @@
+{
+ "defaults": {
+  "listen": "0.0.0.0:7700",
+  "vizrs": {
+   "address": "127.0.0.1:6100",
+   "token": ""
+  },
+  "output_url": "",
+  "on_clip": "",
+  "on_ad": "",
+  "ad_match": {
+   "path": "",
+   "title": ""
+  },
+  "ad_without_element": true,
+  "lead_seconds": 4,
+  "render_size": "",
+  "browser": "",
+  "no_sandbox": false,
+  "browser_args": []
+ },
+ "cases": [
+  {
+   "file": null,
+   "env": {},
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": null,
+   "env": {
+    "VIZRS_ADDRESS": "vizrs:6100",
+    "VIZRS_ON_CLIP": "TAKE 1\\nTAKE 2",
+    "LEAD_SECONDS": "1"
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "vizrs:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "TAKE 1\nTAKE 2",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 1,
+    "render_size": "",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": null,
+   "env": {
+    "VIZRS_AD_WITHOUT_ELEMENT": "0",
+    "VIZRS_RENDER_SIZE": "720p",
+    "VIZRS_BROWSER_NO_SANDBOX": "1",
+    "VIZRS_BROWSER_ARGS": "  --a  --b=1 "
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": false,
+    "lead_seconds": 4,
+    "render_size": "720p",
+    "browser": "",
+    "no_sandbox": true,
+    "browser_args": [
+     "--a",
+     "--b=1"
+    ]
+   }
+  },
+  {
+   "file": null,
+   "env": {
+    "VIZRS_AD_WITHOUT_ELEMENT": "no",
+    "VIZRS_TOKEN": "",
+    "VIZRS_OUTPUT_URL": "",
+    "VIZRS_BROWSER_NO_SANDBOX": "true",
+    "LEAD_SECONDS": ""
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": {
+    "listen": "127.0.0.1:7701",
+    "vizrs": {
+     "token": "t"
+    },
+    "ad_match": {
+     "title": "^R"
+    },
+    "lead_seconds": 2.5,
+    "on_ad": "OUT x",
+    "gap_grace_ms": 50
+   },
+   "env": {},
+   "config": {
+    "listen": "127.0.0.1:7701",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": "t"
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "OUT x",
+    "ad_match": {
+     "path": "",
+     "title": "^R"
+    },
+    "ad_without_element": true,
+    "lead_seconds": 2.5,
+    "render_size": "",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": [],
+    "gap_grace_ms": 50
+   }
+  },
+  {
+   "file": {
+    "vizrs": {
+     "address": "h:1",
+     "token": "file"
+    },
+    "ad_match": {
+     "path": "/a/",
+     "title": "b"
+    },
+    "browser_args": [
+     "--x"
+    ]
+   },
+   "env": {
+    "VIZRS_TOKEN": "env",
+    "VIZRS_AD_PATH": "/env/",
+    "VIZRS_ON_AD": "OUT a\\nOUT b",
+    "LISTEN": "0.0.0.0:1",
+    "VIZRS_BROWSER": "/usr/bin/chromium"
+   },
+   "config": {
+    "listen": "0.0.0.0:1",
+    "vizrs": {
+     "address": "h:1",
+     "token": "env"
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "OUT a\nOUT b",
+    "ad_match": {
+     "path": "/env/",
+     "title": "b"
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "browser": "/usr/bin/chromium",
+    "no_sandbox": false,
+    "browser_args": [
+     "--x"
+    ]
+   }
+  }
+ ]
+}
