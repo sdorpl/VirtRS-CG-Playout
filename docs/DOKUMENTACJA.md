@@ -158,8 +158,10 @@ równoległych sesji NVENC, czyli kanałów transkodowanych naraz.
 
 ## 5. Uruchamianie bez Dockera, konfiguracja
 
-Node 22+ i Chromium (`chromium`, `google-chrome`, … w `PATH` albo
-`VIZRS_BROWSER`):
+Node 22+ i Chromium (`chromium-headless-shell`, `chromium`, `google-chrome`,
+… w `PATH` – w tej kolejności – albo `VIZRS_BROWSER`). Obraz Dockera używa
+`chromium-headless-shell` (Debian): ten sam silnik bez warstwy interfejsu,
+przy animacji ok. połowa CPU pełnego `chromium`.
 
 ```sh
 node bin/virtrs-cg.js config.json

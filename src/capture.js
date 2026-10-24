@@ -19,7 +19,7 @@ const RESTART_DELAY = 3000;
 // Without sessions (ErsatzTV transcodes on demand) the page stops being
 // captured after this long; the gap between two items is much shorter.
 const IDLE_MS = 30000;
-const BROWSERS = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
+const BROWSERS = ["chromium-headless-shell", "chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
 
 export function findBrowser(env = process.env) {
   if (env.VIZRS_BROWSER) return env.VIZRS_BROWSER;
