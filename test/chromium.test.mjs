@@ -8,6 +8,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { Capture, findBrowser } from "../src/capture.js";
 
 const browser = findBrowser();
+// Without the sandbox as root, and where the host forbids it (CI runners, containers).
+const noSandbox = process.getuid?.() === 0 || process.env.VIZRS_BROWSER_NO_SANDBOX === "1";
 const quiet = { debug() {}, info() {}, warn: (m) => process.env.TRACE && console.error(m), error: (m) => process.env.TRACE && console.error(m) };
 
 const PAGE = `<!doctype html><html><body style="margin:0;background:transparent">
@@ -24,7 +26,7 @@ test("Chromium capture gives the visible box of a transparent page", { skip: !br
     height: 360,
     fps: 25,
     browser,
-    noSandbox: process.getuid?.() === 0,
+    noSandbox,
     log: quiet,
   }).start();
 
@@ -52,7 +54,7 @@ test("Chromium capture pauses without sessions and resumes with a fresh frame", 
     height: 360,
     fps: 25,
     browser,
-    noSandbox: process.getuid?.() === 0,
+    noSandbox,
     idleMs: 200,
     log: quiet,
   }).start();
@@ -95,7 +97,7 @@ test("Chromium capture renders smaller and scales to the channel", { skip: !brow
     outHeight: 360,
     fps: 25,
     browser,
-    noSandbox: process.getuid?.() === 0,
+    noSandbox,
     log: quiet,
   }).start();
 
