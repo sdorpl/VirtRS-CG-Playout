@@ -17,13 +17,13 @@ obok niezmienionego ErsatzTV:
 | Repozytorium | Rola |
 |---|---|
 | [VizRS CG System](../VizRS%20CG%20System) | silnik grafiki: Artist (sceny), Trio (playout stron), `/output`, API TCP 6100 / HTTP / SSE |
-| [VizRS ffPlayout System](../VizRS%20ffPlayout%20System) | własny playout kanału 24/7 (fork ffplayout, GPL-3.0) z brandingiem VizRS |
+| [VizRS ffPlayout System](../VizRS%20ffPlayout%20System) | **archiwum** (od 2026-10-24): porzucony playout 24/7 (fork ffplayout, GPL-3.0), wzorzec integracji |
 | **VirtRS CG Playout** (to repo) | ta sama integracja VizRS dla kanałów ErsatzTV, bez zmian w ErsatzTV |
 
 Aplikacje łączy tylko protokół VizRS (TCP 6100, `/output`), opisany w
 [API.md](../VizRS%20CG%20System/docs/API.md) systemu VizRS. Konfiguracja
-celowo odpowiada ustawieniom grafiki w VizRS ffPlayout System – szablony
-komend przenosi się bez zmian.
+celowo odpowiada ustawieniom grafiki w VizRS ffPlayout System (dziś
+archiwum i wzorzec) – szablony komend przenosi się bez zmian.
 
 ## Szybki start
 

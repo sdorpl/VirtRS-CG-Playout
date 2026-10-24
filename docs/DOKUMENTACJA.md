@@ -76,6 +76,10 @@ harmonogramu jest dużo krótsza, więc w trakcie emisji pauza nie występuje.
 
 ## 2. Odpowiedniki w VizRS ffPlayout System
 
+VizRS ffPlayout System jest od 2026-10-24 archiwum: nie jest rozwijany i
+zostaje jako wzorzec. Tabela pokazuje, skąd pochodzą opcje i jak przenieść
+szablony komend; nowe funkcje VirtRS CG nie mają już odpowiednika tam.
+
 | ffPlayout | ErsatzTV / VirtRS CG |
 |---|---|
 | Ustawienia → grafika VizRS: adres, token | `vizrs.address`, `vizrs.token` |
