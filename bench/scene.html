@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  Benchmark scene: broadcast graphics like VizRS /output on a transparent page.
+  ?scene=static    clock (every second) and a lower third whose text changes over SSE
+  ?scene=animated  plus a 3D logo, a lower third sliding in and out, a blurred glow and a ticker
+  ?fps=25          the ticker moves at most this often (as VizRS ?fps=)
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; font-family: Bench, "DejaVu Sans", sans-serif; color: #fff; }
+  .box { position: absolute; border-radius: 10px; background: linear-gradient(135deg, #1d4ed8, #7c3aed); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .6)); }
+  #clock { left: 80px; top: 60px; padding: 14px 26px; font-size: 44px; font-weight: bold; letter-spacing: 2px; }
+  #logo { position: absolute; right: 90px; top: 50px; width: 120px; height: 120px; perspective: 500px; }
+  #logo div { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fde68a, #f59e0b 55%, #b45309); display: grid; place-items: center; font-size: 38px; font-weight: bold; color: #1f2937; filter: drop-shadow(0 0 10px rgba(245, 158, 11, .8)); }
+  .animated #logo div { animation: spin 4s linear infinite; }
+  @keyframes spin { to { transform: rotateY(360deg); } }
+  #third { left: 120px; bottom: 170px; width: 1100px; height: 130px; transition: transform .6s cubic-bezier(.2, .8, .2, 1), opacity .6s; }
+  #third.out { transform: translateX(-1300px); opacity: 0; }
+  #glow { position: absolute; left: -20px; top: 20px; width: 260px; height: 90px; border-radius: 50%; background: #22d3ee; filter: blur(24px); opacity: .5; }
+  .animated #glow { animation: pulse 2s ease-in-out infinite alternate; }
+  @keyframes pulse { to { opacity: .9; transform: translateX(800px); } }
+  #headline { position: absolute; left: 40px; top: 18px; font-size: 48px; font-weight: bold; white-space: nowrap; }
+  #sub { position: absolute; left: 40px; top: 80px; font-size: 28px; opacity: .85; clip-path: inset(0 0 0 0); }
+  #ticker { position: absolute; left: 0; bottom: 40px; width: 1920px; height: 70px; background: rgba(15, 23, 42, .85); overflow: hidden; display: none; }
+  .animated #ticker { display: block; }
+  #ticker span { position: absolute; top: 12px; white-space: nowrap; font-size: 36px; will-change: transform; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="clock" class="box">00:00:00</div>
+  <div id="logo"><div>VRS</div></div>
+  <div id="third" class="box">
+    <div id="glow"></div>
+    <div id="headline">VirtRS CG benchmark</div>
+    <div id="sub">Chromium vs WPE WebKit</div>
+  </div>
+  <div id="ticker"><span id="tick">+++ VirtRS CG Playout +++ benchmark silników przeglądarki +++ zegar, logo 3D, lower third, ticker +++ przezroczyste tło +++</span></div>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const animated = params.get("scene") === "animated";
+  const fps = Number(params.get("fps")) || 25;
+  if (animated) document.body.classList.add("animated");
+
+  const stage = document.getElementById("stage");
+  const fit = () => { stage.style.transform = `scale(${innerWidth / 1920}, ${innerHeight / 1080})`; };
+  addEventListener("resize", fit);
+  fit();
+
+  new FontFace("Bench", "local('DejaVu Sans Bold'), local('DejaVuSans-Bold')").load()
+    .then((font) => document.fonts.add(font)).catch(() => {});
+
+  const clock = document.getElementById("clock");
+  const tickClock = () => { clock.textContent = new Date().toTimeString().slice(0, 8); };
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  // Headlines arrive like VizRS updates (SSE).
+  const events = new EventSource("/events");
+  events.onmessage = (event) => {
+    const { headline, sub } = JSON.parse(event.data);
+    document.getElementById("headline").textContent = headline;
+    document.getElementById("sub").textContent = sub;
+  };
+
+  if (animated) {
+    const third = document.getElementById("third");
+    setInterval(() => third.classList.toggle("out"), 5000);
+
+    const tick = document.getElementById("tick");
+    const speed = 240; // px/s
+    let start = null;
+    let lastStep = -1;
+    const move = (time) => {
+      start ??= time;
+      const step = Math.floor(((time - start) / 1000) * fps);
+      if (step !== lastStep) {
+        lastStep = step;
+        const width = tick.offsetWidth + 1920;
+        const x = 1920 - ((step / fps) * speed) % width;
+        tick.style.transform = `translateX(${x}px)`;
+      }
+      requestAnimationFrame(move);
+    };
+    requestAnimationFrame(move);
+  }
+</script>
+</body>
+</html>

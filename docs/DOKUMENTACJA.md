@@ -7,6 +7,7 @@
 5. [Uruchamianie bez Dockera, konfiguracja](#5-uruchamianie-bez-dockera-konfiguracja)
 6. [Awarie](#6-awarie)
 7. [Testy](#7-testy)
+8. [Benchmark silników: Chromium a WPE WebKit](#8-benchmark-silników-chromium-a-wpe-webkit)
 
 ## 1. Jak to działa
 
@@ -304,3 +305,101 @@ system prune --volumes` – usuwają dane bez takiego sprawdzenia.
 CI (`.github/workflows/ci.yml`) uruchamia testy przy każdym wypchnięciu na
 `main` i w PR, a po znaczniku `v*` (albo ręcznie) buduje obraz sidecara
 na amd64 i arm64 i publikuje go jako `ghcr.io/<właściciel>/virtrs-cg`.
+
+## 8. Benchmark silników: Chromium a WPE WebKit
+
+`bench/` porównuje na tej samej maszynie dwa silniki renderujące grafikę
+bez GPU:
+
+- **Chromium** (`chromium-headless-shell`) przechwytywany dokładnie jak
+  w sidecarze – klasa `Capture` z `src/capture.js` (screencast PNG co n-tą
+  klatkę, dekodowanie przez `sharp`, przycinanie),
+- **WPE WebKit** – silnik WebKit dla urządzeń wbudowanych, przez element
+  GStreamera `wpevideosrc` (surowe klatki RGBA z przezroczystością, bez PNG),
+  z tym samym przycinaniem.
+
+Oba renderują stronę `bench/scene.html`, podobną do grafiki VizRS:
+przezroczyste tło, zegar, logo obracane w 3D (`perspective`), lower third
+z gradientem, `drop-shadow` i `blur`, wysuwany co 5 s, tekst przez
+`EventSource`, ticker na `requestAnimationFrame` ograniczony do klatkażu.
+Scena `static` ma tylko zegar i zmieniany tekst, `animated` – wszystko.
+Zamiast sceny można zmierzyć prawdziwe `/output` VizRS (`BENCH_URL`, scena
+`url`; grafika musi być na antenie).
+
+Każdy przebieg (silnik × scena) to rozgrzewka i pomiar. Raport pod
+`http://<serwer>:7790/` pokazuje:
+
+| Kolumna | Znaczenie |
+|---|---|
+| nowe klatki/s | zmienione obrazy z widoczną grafiką (animacja przy 25 fps: ok. 25) |
+| przerwa p95 / max | odstępy między nowymi klatkami – równomierność animacji |
+| CPU silnik | procesy przeglądarki albo GStreamera, % jednego rdzenia |
+| CPU node | dekodowanie PNG (Chromium) albo odbiór surowych klatek (WPE) i przycinanie – praca sidecara |
+| PSS silnika | pamięć procesów silnika (część współdzielona liczona proporcjonalnie) |
+
+oraz po jednej klatce z każdego silnika na szachownicy, żeby porównać
+wierność obrazu (czcionki, cienie, rozmycie, przezroczystość).
+
+Zmienne środowiskowe (wszystkie opcjonalne):
+
+| Zmienna | Domyślnie | Znaczenie |
+|---|---|---|
+| `BENCH_ENGINES` | `chromium,wpe` | silniki |
+| `BENCH_SCENES` | `static,animated` (+`url` przy `BENCH_URL`) | sceny |
+| `BENCH_URL` | – | adres do zmierzenia, np. `http://vizrs:8088/output?token=…&fps=25` |
+| `BENCH_SIZE` | `1920x1080` | rozmiar renderowania |
+| `BENCH_FPS` | `25` | klatkaż kanału |
+| `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
+| `BENCH_DURATION` | `60` | pomiar [s] |
+| `BENCH_PORT` | `7790` | port raportu na hoście |
+
+Z domyślnymi wartościami całość trwa ok. 5 min. Mierz na maszynie
+docelowej i bez innego obciążenia (zatrzymaj na ten czas sidecar, jeśli
+działa na tym samym hoście) – wyniki z różnych maszyn nie są porównywalne.
+
+### Instalacja w Portainerze
+
+Obraz buduje się z repozytorium na maszynie docelowej (amd64 albo arm64,
+np. Ampere A1); pierwszy build trwa kilka minut.
+
+1. **Stacks → Add stack**, nazwa np. `virtrs-bench`.
+2. **Build method: Repository**:
+   - Repository URL: `https://github.com/sdorpl/VirtRS-CG-Playout`
+   - Repository reference: `refs/heads/main`
+   - Compose path: `bench/docker-compose.yml`
+   - (repozytorium jest publiczne – bez uwierzytelniania)
+3. **Environment variables** (opcjonalnie): np. `BENCH_DURATION=120`, a do
+   pomiaru prawdziwej grafiki `BENCH_URL` z adresem `/output` osiągalnym
+   z kontenera (adres hosta, nie `localhost`).
+4. **Deploy the stack**. Postęp: **Containers → virtrs-bench-bench-1 → Logs**.
+5. Raport: `http://<serwer>:7790/` – odświeża się sam, dopóki pomiar trwa.
+   Wyniki zostają też w wolumenie `bench-results` (`results.json`, klatki PNG).
+6. Kolejny pomiar: **Containers → virtrs-bench-bench-1 → Restart**. Po zmianie
+   zmiennych: **Stacks → virtrs-bench → Editor/Environment → Update the stack**.
+7. Po zakończeniu sprzątanie (§7): **Stacks → virtrs-bench → Delete**, potem
+   w **Volumes** usuń `virtrs-bench_bench-results`, a w **Images**
+   `virtrs-cg-bench:local`.
+
+Bez Portainera, z katalogu repozytorium:
+
+```sh
+docker compose -f bench/docker-compose.yml -p virtrs-bench up --build -d
+docker compose -f bench/docker-compose.yml -p virtrs-bench logs -f
+# sprzątanie
+docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
+docker volume rm virtrs-bench_bench-results
+```
+
+### Uwagi
+
+- WebKit, podobnie jak Chromium, nie uruchomi w kontenerze własnej
+  piaskownicy; benchmark ją wyłącza
+  (`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`) – to odpowiednik
+  `--no-sandbox`.
+- WPE oddaje surowe klatki w stałym tempie (8 MB na klatkę przy 1080p); ten
+  sam obraz jest odrzucany porównaniem bufora, zanim trafi do przycinania.
+- Pierwsze krótkie pomiary (Xeon E3-1270 v3, amd64, 1080p, 25 fps, scena
+  `animated`) dały WPE więcej CPU (260–310% wobec 205–230% dla Chromium)
+  i więcej pamięci (375–390 MB wobec 230–260 MB PSS) przy tej samej
+  liczbie klatek, a `FontFace` z `local()` w WPE się nie załadował.
+  Rozstrzyga pomiar na Ampere A1.
