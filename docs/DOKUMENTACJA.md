@@ -31,8 +31,10 @@ Sidecar (Node 22):
 | `GET /health` | liczba sesji i stan przechwytywania (`size`, `status`, `seq`) |
 
 Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje najnowszą
-klatkę, przycina ją do widocznego obszaru i wysyła jako jeden pakiet
-`Rectangles`; niezmienione klatki idą jako `Repeat`, więc statyczna grafika
+klatkę, przycina ją do widocznych obszarów i wysyła jako jeden pakiet
+`Rectangles` z osobnym prostokątem na każdą grupę grafik (np. logo w rogu
+i pasek na dole to dwa małe prostokąty, a nie jeden na cały ekran;
+przerwy węższe niż 32 px zostają w jednym prostokącie). Niezmienione klatki idą jako `Repeat`, więc statyczna grafika
 prawie nic nie kosztuje. Animacje pod obciążeniem gubią klatki, ale nie
 zostają w tyle. Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,

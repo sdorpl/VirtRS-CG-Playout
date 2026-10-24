@@ -14,7 +14,7 @@ import { ChannelEvents } from "./vizrs.js";
 const MAX_BODY = 4 * 1024 * 1024;
 
 /** Transparent frames when burn-in is off or the size is unknown. */
-const EMPTY = { frame: { seq: 0, rect: null, pixels: null }, status: "off" };
+const EMPTY = { frame: { seq: 0, rects: [] }, status: "off" };
 
 export function createServer(config, { log = console, captureFactory } = {}) {
   const browser = config.browser || findBrowser();

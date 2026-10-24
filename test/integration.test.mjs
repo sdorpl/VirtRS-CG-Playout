@@ -66,7 +66,7 @@ const item = (path, start, extra = {}) => ({
 
 test("client streams frames paced by the clock, commands reach VizRS once per item", async () => {
   const vizrs = await fakeVizrs();
-  const capture = { frame: { seq: 0, rect: null, pixels: null }, key: "8x4", status: "fake" };
+  const capture = { frame: { seq: 0, rects: [] }, key: "8x4", status: "fake" };
   const config = {
     ...loadConfig(null, {}),
     vizrs: { address: vizrs.address, token: "secret" },
@@ -80,7 +80,7 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
 
   // Graphics appear 300 ms into the item.
   setTimeout(() => {
-    capture.frame = { seq: 1, rect: { x: 2, y: 1, w: 2, h: 1 }, pixels: Buffer.alloc(8, 200) };
+    capture.frame = { seq: 1, rects: [{ x: 2, y: 1, w: 2, h: 1, pixels: Buffer.alloc(8, 200) }] };
   }, 300);
   const stream = await runClient(url, item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), 1000);
   const frames = readFrames(stream, 8, 4);

@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { crop, visibleRect } from "./packets.js";
+import { crop, visibleRects } from "./packets.js";
 import { decodePng } from "./png.js";
 
 const START_TIMEOUT = 15000;
@@ -103,7 +103,7 @@ export class Capture {
     this.extraArgs = extraArgs;
     this.log = log;
     // seq grows with every new picture; sessions compare it to what they sent.
-    this.frame = { seq: 0, rect: null, pixels: null };
+    this.frame = { seq: 0, rects: [] };
     this.stopped = false;
     this.status = "starting";
     this.pendingPng = null;
@@ -129,15 +129,15 @@ export class Capture {
 
       if (this.stopped) break;
       // No graphics until the browser is back; playout continues.
-      this.setFrame(null, null);
+      this.setFrame([]);
       this.status = "restarting";
       await sleep(RESTART_DELAY);
     }
   }
 
-  setFrame(rect, pixels) {
-    if (!rect && !this.frame.rect) return;
-    this.frame = { seq: this.frame.seq + 1, rect, pixels };
+  setFrame(rects) {
+    if (!rects.length && !this.frame.rects.length) return;
+    this.frame = { seq: this.frame.seq + 1, rects };
   }
 
   async runBrowser() {
@@ -283,8 +283,7 @@ export class Capture {
         return;
       }
 
-      const rect = visibleRect(rgba, width, height);
-      this.setFrame(rect, rect ? crop(rgba, width, rect) : null);
+      this.setFrame(visibleRects(rgba, width, height).map((rect) => ({ ...rect, pixels: crop(rgba, width, rect) })));
     } catch (error) {
       this.log.warn(`burn-in ${this.key}: ${error.message}`);
     }

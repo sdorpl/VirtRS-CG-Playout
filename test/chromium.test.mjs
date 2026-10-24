@@ -30,10 +30,11 @@ test("Chromium capture gives the visible box of a transparent page", { skip: !br
 
   try {
     const deadline = Date.now() + 20000;
-    while (!capture.frame.rect && Date.now() < deadline) await sleep(100);
+    while (!capture.frame.rects.length && Date.now() < deadline) await sleep(100);
 
-    assert.deepEqual(capture.frame.rect, { x: 40, y: 300, w: 400, h: 60 });
-    const [r, g, b, a] = capture.frame.pixels.subarray(0, 4);
+    const [{ pixels, ...rect }] = capture.frame.rects;
+    assert.deepEqual(rect, { x: 40, y: 300, w: 400, h: 60 });
+    const [r, g, b, a] = pixels.subarray(0, 4);
     assert.deepEqual([r, g, b, a], [255, 0, 0, 255]);
   } finally {
     capture.stop();

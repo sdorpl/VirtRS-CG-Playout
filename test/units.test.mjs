@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { loadConfig } from "../src/config.js";
-import { clearPacket, crop, rectanglePacket, repeatPacket, visibleRect } from "../src/packets.js";
+import { clearPacket, crop, rectanglesPacket, repeatPacket, visibleRects } from "../src/packets.js";
 import { decodePng } from "../src/png.js";
 import { clipContext, isAd, renderCommands, timeSpanSeconds } from "../src/template.js";
 import { onAir } from "../src/vizrs.js";
@@ -26,28 +26,53 @@ test("PNG decodes every filter type, RGBA and RGB", () => {
   assert.deepEqual(decodePng(encodePng(7, 5, rgba, { alpha: false, filter: 4 })).rgba, opaque);
 });
 
-test("visible rectangle and crop", () => {
+test("visible rectangles and crop", () => {
   const width = 10;
   const rgba = Buffer.alloc(width * 6 * 4);
   rgba[(2 * width + 3) * 4 + 3] = 255;
   rgba[(4 * width + 7) * 4 + 3] = 10;
 
-  const rect = visibleRect(rgba, width, 6);
-  assert.deepEqual(rect, { x: 3, y: 2, w: 5, h: 3 });
-  assert.equal(crop(rgba, width, rect).length, 5 * 3 * 4);
-  assert.equal(visibleRect(Buffer.alloc(40), 5, 2), null);
+  const rects = visibleRects(rgba, width, 6);
+  assert.deepEqual(rects, [{ x: 3, y: 2, w: 5, h: 3 }]);
+  assert.equal(crop(rgba, width, rects[0]).length, 5 * 3 * 4);
+  assert.deepEqual(visibleRects(Buffer.alloc(40), 5, 2), []);
+});
+
+test("distant graphics become separate rectangles", () => {
+  const [width, height] = [320, 180];
+  const rgba = Buffer.alloc(width * height * 4);
+  const fill = (x0, y0, w, h) => {
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) rgba[(y * width + x) * 4 + 3] = 255;
+  };
+  fill(10, 10, 40, 20); // logo
+  fill(260, 12, 50, 16); // clock, same rows
+  fill(0, 150, 320, 20); // ticker
+  fill(100, 160, 3, 3); // inside the ticker
+
+  assert.deepEqual(visibleRects(rgba, width, height), [
+    { x: 10, y: 10, w: 40, h: 20 },
+    { x: 260, y: 12, w: 50, h: 16 },
+    { x: 0, y: 150, w: 320, h: 20 },
+  ]);
+
+  // Gaps under 32 px stay in one rectangle.
+  fill(70, 10, 10, 10);
+  assert.deepEqual(visibleRects(rgba, width, height)[0], { x: 10, y: 10, w: 70, h: 20 });
 });
 
 test("packets are read the way ErsatzTV draws them", () => {
   const [width, height] = [4, 3];
-  const rect = { x: 1, y: 1, w: 2, h: 1 };
-  const pixels = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
-  const stream = Buffer.concat([clearPacket(), rectanglePacket(rect, pixels), repeatPacket(3), clearPacket()]);
+  const rects = [
+    { x: 1, y: 1, w: 2, h: 1, pixels: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]) },
+    { x: 0, y: 2, w: 1, h: 1, pixels: Buffer.from([9, 10, 11, 12]) },
+  ];
+  const stream = Buffer.concat([clearPacket(), rectanglesPacket(rects), repeatPacket(3), clearPacket()]);
 
   const frames = readFrames(stream, width, height);
   assert.equal(frames.length, 1 + 1 + 3 + 1);
   assert.ok(frames[0].every((b) => b === 0));
-  assert.deepEqual(frames[1].subarray((1 * width + 1) * 4, (1 * width + 3) * 4), pixels);
+  assert.deepEqual(frames[1].subarray((1 * width + 1) * 4, (1 * width + 3) * 4), rects[0].pixels);
+  assert.deepEqual(frames[1].subarray(2 * width * 4, (2 * width + 1) * 4), rects[1].pixels);
   assert.deepEqual(frames[4], frames[1]);
   assert.ok(frames[5].every((b) => b === 0));
 });
