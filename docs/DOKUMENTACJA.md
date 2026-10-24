@@ -252,6 +252,8 @@ Grafika nigdy nie zatrzymuje playoutu. Komendy idą w tle z limitem 2 s na
 połączenie i każdą odpowiedź; błędy i odpowiedzi `ERR` trafiają do logu.
 Nieudane przywrócenie stron po reklamie jest ponawiane na kolejnym klipie.
 Po awarii przeglądarki grafika jest czyszczona, a Chromium wraca po 3 s.
+Przeglądarka ma 30 s na start i otwarcie `/output` (pierwszy start na zimnej
+maszynie, np. małej VM ARM, potrafi trwać 15–20 s); potem jest restartowana.
 Gdy sidecar jest nieosiągalny, klient kończy pracę i pozycja leci bez grafiki.
 
 ## 7. Testy

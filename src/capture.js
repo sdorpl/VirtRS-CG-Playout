@@ -15,7 +15,8 @@ import { crop, visibleRects } from "./packets.js";
 import { decodePng } from "./png.js";
 import { scaleRects } from "./scale.js";
 
-const START_TIMEOUT = 15000;
+// First start on a cold host (CI runner, small ARM VM) can take 15–20 s.
+const START_TIMEOUT = 30000;
 const RESTART_DELAY = 3000;
 // Without sessions (ErsatzTV transcodes on demand) the page stops being
 // captured after this long; the gap between two items is much shorter.
