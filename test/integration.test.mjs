@@ -66,7 +66,11 @@ const item = (path, start, extra = {}) => ({
 
 test("client streams frames paced by the clock, commands reach VizRS once per item", async () => {
   const vizrs = await fakeVizrs();
-  const capture = { frame: { seq: 0, rects: [] }, key: "8x4", status: "fake" };
+  const capture = {
+    frame: { seq: 0, rects: [] }, key: "8x4", status: "fake", users: 0,
+    acquire() { this.users += 1; },
+    release() { this.users -= 1; },
+  };
   const config = {
     ...loadConfig(null, {}),
     vizrs: { address: vizrs.address, token: "secret" },
@@ -94,6 +98,7 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   await runClient(url, item("/m/News.mp4", "2026-10-24T20:00:00+02:00", { MediaItem_StreamSeek: "00:05:00" }), 300);
   await sleep(100);
   assert.deepEqual(vizrs.received, ["AUTH secret", "TAKE 4001 headline=News"]);
+  assert.equal(capture.users, 0, "every session released the capture");
 
   server.close();
   vizrs.close();

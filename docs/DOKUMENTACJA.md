@@ -28,7 +28,7 @@ Sidecar (Node 22):
 | Adres | Co |
 |---|---|
 | `POST /etv?channel=1` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV |
-| `GET /health` | liczba sesji i stan przechwytywania (`size`, `status`, `seq`) |
+| `GET /health` | liczba sesji i stan przechwytywania (`size`, `status`: `capturing`, `paused`, `restarting`…, `seq`) |
 
 Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje najnowszą
 klatkę, przycina ją do widocznych obszarów i wysyła jako jeden pakiet
@@ -40,6 +40,13 @@ zostają w tyle. Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,
 i zarazem opóźnienie zmiany z VizRS na obrazie. Mniej = szybsza grafika,
 więcej = gdy odtwarzanie się zacina.
+
+Gdy przez 30 s nie ma żadnej sesji danego rozmiaru (ErsatzTV transkoduje
+kanał tylko przy widzach), przechwytywanie przechodzi w `paused`: Chromium
+zostaje uruchomiony ze stroną `/output`, ale nie renderuje klatek (przy
+animowanym pasku 1080p z ~200% CPU do kilku procent). Pierwsza sesja
+wznawia je i od razu dostaje świeżą klatkę. Przerwa między pozycjami
+harmonogramu jest dużo krótsza, więc w trakcie emisji pauza nie występuje.
 
 ## 2. Odpowiedniki w VizRS ffPlayout System
 

@@ -16,6 +16,9 @@ import { decodePng } from "./png.js";
 
 const START_TIMEOUT = 15000;
 const RESTART_DELAY = 3000;
+// Without sessions (ErsatzTV transcodes on demand) the page stops being
+// captured after this long; the gap between two items is much shorter.
+const IDLE_MS = 30000;
 const BROWSERS = ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
 
 export function findBrowser(env = process.env) {
@@ -93,7 +96,7 @@ class DevTools {
 }
 
 export class Capture {
-  constructor({ url, width, height, fps, browser, noSandbox, extraArgs = [], log = console }) {
+  constructor({ url, width, height, fps, browser, noSandbox, extraArgs = [], idleMs = IDLE_MS, log = console }) {
     this.url = url;
     this.width = width;
     this.height = height;
@@ -108,6 +111,11 @@ export class Capture {
     this.status = "starting";
     this.pendingPng = null;
     this.decoding = false;
+    this.idleMs = idleMs;
+    this.users = 0;
+    this.active = true;
+    this.idleTimer = null;
+    this.screencast = null;
   }
 
   get key() {
@@ -117,6 +125,33 @@ export class Capture {
   start() {
     this.loop();
     return this;
+  }
+
+  /** A session starts reading frames. */
+  acquire() {
+    this.users += 1;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    if (!this.active) this.setActive(true);
+  }
+
+  /** The last session left: pause the capture once idle for `idleMs`. */
+  release() {
+    this.users = Math.max(0, this.users - 1);
+    if (this.users || this.idleTimer) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      this.setActive(false);
+    }, this.idleMs);
+    this.idleTimer.unref();
+  }
+
+  setActive(active) {
+    this.active = active;
+    this.log.info(`burn-in ${this.key}: ${active ? "resumed" : "paused, no sessions"}`);
+    if (!this.screencast) return;
+    this.status = active ? "capturing" : "paused";
+    this.screencast(active).catch((error) => this.log.warn(`burn-in ${this.key}: ${error.message}`));
   }
 
   async loop() {
@@ -249,11 +284,21 @@ export class Capture {
     // Transparency only through DevTools: `--default-background-color` crashes current renderers.
     await call("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
     await call("Page.enable");
-    await call("Page.startScreencast", { format: "png", maxWidth: this.width, maxHeight: this.height, everyNthFrame: 1 });
 
-    this.status = "capturing";
+    const screencast = { format: "png", maxWidth: this.width, maxHeight: this.height, everyNthFrame: 1 };
+    this.screencast = async (active) => {
+      if (active) await call("Page.startScreencast", screencast);
+      else await call("Page.stopScreencast");
+    };
+    if (this.active) await call("Page.startScreencast", screencast);
+
+    this.status = this.active ? "capturing" : "paused";
     this.log.info(`burn-in ${this.key}: capturing ${this.url}`);
-    await ended;
+    try {
+      await ended;
+    } finally {
+      this.screencast = null;
+    }
   }
 
   /** Keeps only the newest undecoded frame: animations drop frames, never lag. */
@@ -291,6 +336,7 @@ export class Capture {
 
   stop() {
     this.stopped = true;
+    clearTimeout(this.idleTimer);
     this.child?.kill("SIGKILL");
   }
 }

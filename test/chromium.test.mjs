@@ -41,3 +41,41 @@ test("Chromium capture gives the visible box of a transparent page", { skip: !br
     server.close();
   }
 });
+
+test("Chromium capture pauses without sessions and resumes with a fresh frame", { skip: !browser && "no Chromium", timeout: 30000 }, async () => {
+  const server = http.createServer((_, res) => res.end(PAGE));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  const capture = new Capture({
+    url: `http://127.0.0.1:${server.address().port}/`,
+    width: 640,
+    height: 360,
+    fps: 25,
+    browser,
+    noSandbox: process.getuid?.() === 0,
+    idleMs: 200,
+    log: quiet,
+  }).start();
+  const until = async (check) => {
+    const deadline = Date.now() + 20000;
+    while (!check() && Date.now() < deadline) await sleep(50);
+    assert.ok(check());
+  };
+
+  try {
+    capture.acquire();
+    await until(() => capture.frame.rects.length);
+    capture.release();
+    await until(() => capture.status === "paused");
+
+    // A static page still sends a frame when the screencast starts again.
+    const seq = capture.frame.seq;
+    capture.acquire();
+    assert.equal(capture.status, "capturing");
+    await until(() => capture.frame.seq > seq);
+    assert.equal(capture.frame.rects.length, 1);
+  } finally {
+    capture.stop();
+    server.close();
+  }
+});

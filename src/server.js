@@ -78,13 +78,16 @@ export function createServer(config, { log = console, captureFactory } = {}) {
       // Commands go out in the background; frames start at once.
       const ended = eventsFor(channel).session(ctx);
 
+      const capture = captureFor(ctx.width, ctx.height, fps);
+      capture.acquire?.();
       response.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-store" });
       sessions += 1;
       response.on("close", () => {
         sessions -= 1;
+        capture.release?.();
         ended();
       });
-      streamFrames(captureFor(ctx.width, ctx.height, fps), response, { fps, leadSeconds: config.lead_seconds });
+      streamFrames(capture, response, { fps, leadSeconds: config.lead_seconds });
     });
   });
 
