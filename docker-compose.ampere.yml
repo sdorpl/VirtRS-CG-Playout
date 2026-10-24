@@ -1,8 +1,10 @@
 # Oracle Cloud Ampere A1 (arm64, no GPU, e.g. the free 4 OCPU / 24 GB shape):
 #
-#   docker compose -f docker-compose.yml -f docker-compose.ampere.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.ampere.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.ampere.yml up -d
 #
-# Build on the A1 itself: a cross-build through QEMU is very slow.
+# The sidecar image (amd64 + arm64) comes from CI (tags v*). Without a
+# published image, add --build to `up`: it builds on the A1 itself.
 # There is no hardware encoder, so ErsatzTV encodes with libx264 on the CPU;
 # in its FFmpeg profile use Hardware Acceleration: None and preset veryfast
 # (or superfast for several channels / 1080p50).
@@ -17,6 +19,7 @@ services:
     cpus: ${VIZRS_CPUS:-0.5}
 
   cg:
+    image: ${CG_IMAGE:-ghcr.io/sdorpl/virtrs-cg:latest}
     platform: linux/arm64
     cpus: ${CG_CPUS:-1.5}
     mem_limit: ${CG_MEMORY:-2g}

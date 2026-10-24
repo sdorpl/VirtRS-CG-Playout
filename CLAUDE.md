@@ -59,6 +59,7 @@ npm test                                   # node --test test/*.test.mjs
 | `Dockerfile` | obraz sidecara (używany przez compose) |
 | `docker/sidecar.Dockerfile` | starsza wersja obrazu, nieużywana przez compose |
 | `test/` | testy `node --test` |
+| `.github/workflows/ci.yml` | testy; obraz amd64 + arm64 do ghcr po znaczniku `v*` |
 
 ## Commity
 

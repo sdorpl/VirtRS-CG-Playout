@@ -116,13 +116,21 @@ Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
 
 ### Oracle Cloud Ampere A1
 
-Na maszynie Ampere A1 (arm64, bez GPU) buduj na samej maszynie z nakładką:
+Na maszynie Ampere A1 (arm64, bez GPU) z nakładką:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.ampere.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.ampere.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ampere.yml up -d
 ```
 
-Ogranicza sidecar do 1,5 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
+Obraz sidecara `ghcr.io/sdorpl/virtrs-cg` (amd64 i arm64, zmienna
+`CG_IMAGE`) buduje CI po znaczniku `v*` (`.github/workflows/ci.yml`); pakiet
+w ghcr musi być publiczny albo maszyna zalogowana (`docker login ghcr.io`).
+Bez opublikowanego obrazu dodaj `--build` do `up` – zbuduje go sama A1
+(kilka minut; budowanie krzyżowe przez QEMU na x86 jest dużo wolniejsze).
+Obraz VizRS ma wariant arm64.
+
+Nakładka ogranicza sidecar do 1,5 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
 Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), dopasowuje libvips
 i pulę wątków Node, daje ErsatzTV wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
@@ -131,6 +139,21 @@ None**, libx264, preset `veryfast` (`superfast` przy kilku kanałach albo
 1080p50). Na darmowym kształcie 4 OCPU realnie jeden kanał 1080p albo dwa
 720p transkodowane jednocześnie. Otwórz porty w liście bezpieczeństwa VCN
 i w zaporze maszyny (`firewalld`/`iptables`).
+
+Grafika na A1 kosztuje głównie przy animacji: przesuwający się pasek 1080p
+to ok. 2 rdzenie Chromium (pomiar na x86), więc przy limicie `CG_CPUS`
+animacje gubią klatki, a obraz statyczny (logo, plansza, zegar co sekundę)
+prawie nic nie kosztuje. Bez widzów przechwytywanie stoi (§1). Lżejsze
+`/output` (mniej ciągłych animacji, mniejsze rozmiary kanału) daje więcej
+niż podnoszenie `CG_CPUS`.
+
+Limity darmowego planu (Always Free): 4 OCPU i 24 GB łącznie na wszystkie
+instancje A1, 200 GB dysków, 10 TB ruchu wychodzącego miesięcznie – średnio
+ok. 31 Mb/s, czyli ok. 7 widzów HLS 4 Mb/s oglądających non stop. Oracle
+odzyskuje darmowe instancje bezczynne przez 7 dni (jednocześnie CPU
+w 95. percentylu, sieć i pamięć poniżej 20%); kanał na żądanie bez widzów
+tak wygląda. Konto Pay As You Go z tymi samymi
+darmowymi limitami temu nie podlega.
 
 ### NVIDIA NVENC
 
@@ -206,3 +229,7 @@ npm test
 
 Testy jednostkowe, test integracyjny z udawanym VizRS i klientem ErsatzTV
 oraz prawdziwe przechwytywanie Chromium (pomijane bez przeglądarki).
+
+CI (`.github/workflows/ci.yml`) uruchamia testy przy każdym wypchnięciu na
+`main` i w PR, a po znaczniku `v*` (albo ręcznie) buduje obraz sidecara
+na amd64 i arm64 i publikuje go jako `ghcr.io/<właściciel>/virtrs-cg`.
