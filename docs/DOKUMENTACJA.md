@@ -289,6 +289,18 @@ ustawia ErsatzTV `VIZRS_CG_URL=http://cg:7700`. Baza startowa
 instancji ustaw ją w **Settings → FFmpeg → FFmpeg Path**. Powrót do ścieżki
 grafiki ErsatzTV: `/usr/local/bin/ffmpeg` albo `VIZRS_CG_URL=` (puste).
 
+Klienty w `/vizrs` potrzebują `python3`. Obraz ErsatzTV dla amd64 go ma,
+dla arm64 (np. Ampere A1) nie – bez niego ErsatzTV nie uruchamia ani elementu,
+ani nakładki, kanał leci bez grafiki, a `/health` sidecara pokazuje
+`"sessions":0`. Dlatego compose nadpisuje `entrypoint` ErsatzTV: gdy brak
+`python3`, instaluje go z apt i dopiero potem uruchamia `./ErsatzTV` – raz na
+kontener, więc przy tworzeniu kontenera potrzebny jest internet, a pierwszy
+start trwa dłużej (w logu `vizrs: installing python3`). Nieudana instalacja
+nie zatrzymuje ErsatzTV (`vizrs: python3 install failed…`), kanały lecą wtedy
+bez grafiki. Mody linuxservera (`DOCKER_MODS`) tu nie działają – obraz
+startuje `./ErsatzTV` bez `/init`. Sprawdzenie:
+`docker compose exec ersatztv python3 --version`.
+
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 Ustawienia stałe dla danej maszyny (nazwa projektu, nakładki, porty, tokeny)
 trzymaj w pliku `.env` obok compose (poza gitem), np.
@@ -308,7 +320,9 @@ po niej. Wolumen z danymi zostaje nietknięty (w logu `seed: … present, left
 alone`), więc `docker compose up -d` na działającej instancji niczego nie
 nadpisuje. Klientów ErsatzTV i `vizrs.yml` `seed` podmienia zawsze – nowa
 wersja repozytorium przynosi je po `docker compose up -d --build` (w
-Portainerze: **Pull and redeploy**).
+Portainerze: **Pull and redeploy**). Pusty katalog `vizrs.yml`, który
+zostawiało w wolumenie starsze compose (montowało plik z hosta), `seed`
+zastępuje plikiem.
 
 | Katalog | Zawartość | Trafia do |
 |---|---|---|
