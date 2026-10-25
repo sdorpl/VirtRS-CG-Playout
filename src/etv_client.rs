@@ -8,9 +8,8 @@
 //     vizrs-etv-client http://cg:7700/etv?channel=1
 //
 // If the sidecar is not reachable it exits without output: the item plays
-// without graphics. Same behaviour as the former Python client
-// (client/vizrs-etv-client.py in git history); a static binary, so the
-// ErsatzTV image needs no python3.
+// without graphics. A static binary, so the ErsatzTV image needs no extra
+// packages.
 
 use std::io::{self, Read, Write};
 

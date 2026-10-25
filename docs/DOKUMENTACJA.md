@@ -147,9 +147,7 @@ Nakładka `vizrs-ffmpeg` ([src/overlay.rs](../src/overlay.rs)) omija ten
 też statyczna binarka (musl), więc działa w obrazie ErsatzTV na amd64
 i arm64 bez względu na jego glibc; `seed` kładzie ją do `/vizrs` (§4). W ErsatzTV ustawia się ją jako ścieżkę FFmpeg
 (**Settings → FFmpeg → FFmpeg Path** = `/vizrs/vizrs-ffmpeg`); kod ErsatzTV
-zostaje bez zmian. Dawna ścieżka `/vizrs/vizrs-ffmpeg.py` (nakładka
-w Pythonie do wersji 2.1.2) nadal działa: `seed` zostawia pod nią skrypt
-`sh` uruchamiający binarkę.
+zostaje bez zmian.
 
 ```
 ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄── GET /ffmpeg/frames ── sidecar
@@ -338,17 +336,20 @@ W `/vizrs` jest też nakładka ffmpeg `vizrs-ffmpeg` (§1), zbudowana w obrazie
 `seed` dla architektury stosu; compose ustawia ErsatzTV
 `VIZRS_CG_URL=http://cg:7700`. Baza startowa (`seed/`) ma już ścieżkę FFmpeg
 `/vizrs/vizrs-ffmpeg`. W istniejącej instancji ustaw ją w **Settings → FFmpeg
-→ FFmpeg Path** (stara `/vizrs/vizrs-ffmpeg.py` też działa). Powrót do ścieżki
+→ FFmpeg Path**. Powrót do ścieżki
 grafiki ErsatzTV: `/usr/local/bin/ffmpeg` albo `VIZRS_CG_URL=` (puste).
 
 Programy w `/vizrs` to statyczne binarki zbudowane dla architektury stosu:
-obraz ErsatzTV nie potrzebuje Pythona ani dodatkowych pakietów (do wersji
-2.1.2 klienci byli w Pythonie, a compose doinstalowywał `python3` w obrazie
-arm64). Element skopiowany ze starego `vizrs.yml` (`command: python3`,
-`/vizrs/vizrs-etv-client.py`) działa dalej tam, gdzie obraz ma `python3`
-(amd64): `seed` zostawia pod tą ścieżką skrypt uruchamiający binarkę. Na
-arm64 zmień w kopii `command` na `/vizrs/vizrs-etv-client`, a z `args` usuń
-ścieżkę `.py`.
+obraz ErsatzTV nie potrzebuje Pythona ani dodatkowych pakietów.
+
+**Aktualizacja z wersji sprzed 2.1.3 (klienci w Pythonie):** od wersji 2.1.7
+`seed` nie tworzy już w `/vizrs` plików `vizrs-ffmpeg.py`
+i `vizrs-etv-client.py`. Przed aktualizacją ustaw **FFmpeg Path** na
+`/vizrs/vizrs-ffmpeg` – ścieżka `.py` po aktualizacji nie istnieje i ErsatzTV
+przestałby transkodować kanał. W kopiach elementu ze starego `vizrs.yml`
+(`command: python3`, `/vizrs/vizrs-etv-client.py`) zmień `command` na
+`/vizrs/vizrs-etv-client`, a z `args` usuń ścieżkę `.py`; bez tego pozycja
+leci bez grafiki.
 
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 Ustawienia stałe dla danej maszyny (nazwa projektu, nakładki, porty, tokeny)

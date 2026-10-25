@@ -1,8 +1,8 @@
 // Minimal HTTP/1.1 server: one request per connection, a thread per
 // connection. Replies are complete (with Content-Length) or an endless stream
-// framed as Node.js does it: chunked for HTTP/1.1 (Python's http.client drops
-// its socket for a reply that ends with the connection), raw bytes until the
-// connection closes for HTTP/1.0 (the ffmpeg overlay).
+// framed as Node.js does it: chunked for HTTP/1.1 (a reply ended only by the
+// connection is cut short by some clients), raw bytes until the connection
+// closes for HTTP/1.0 (the ErsatzTV programs).
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};

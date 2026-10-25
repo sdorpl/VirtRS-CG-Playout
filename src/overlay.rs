@@ -22,9 +22,8 @@
 //     VIZRS_FFMPEG       real ffmpeg (default /usr/local/bin/ffmpeg)
 //     VIZRS_FFMPEG_FPS   channel frame rate, e.g. 50 (empty: the media's rate)
 //
-// Same behaviour as the former Python overlay (client/vizrs-ffmpeg.py in git
-// history); a static binary, so it runs in the ErsatzTV image of any
-// architecture without python3. A canvas over https goes to plain ffmpeg.
+// A static binary, so it runs in the ErsatzTV image of any architecture
+// without extra packages. A canvas over https goes to plain ffmpeg.
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
