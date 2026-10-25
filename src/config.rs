@@ -38,7 +38,7 @@ pub struct Config {
     pub area: String,
     /// Upper limit of the capture rate, e.g. 25 on small ARM hosts; 0 = the channel rate.
     pub max_fps: f64,
-    /// How Chromium's pictures are taken: "screencast" (default) or "frames" (begin frames).
+    /// How Chromium's pictures are taken: "frames" (begin frames, the default) or "screencast".
     pub capture_mode: String,
     pub browser: String,
     pub no_sandbox: bool,
@@ -62,7 +62,7 @@ impl Default for Config {
             render_size: String::new(),
             area: String::new(),
             max_fps: 0.0,
-            capture_mode: "screencast".into(),
+            capture_mode: "frames".into(),
             browser: String::new(),
             no_sandbox: false,
             browser_args: Vec::new(),

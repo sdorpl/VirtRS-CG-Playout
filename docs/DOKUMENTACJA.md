@@ -161,7 +161,8 @@ Płynność animacji (rozwiązania z VizRS ffPlayout System):
   w pełnym rozmiarze, 50 albo 60 kl./s), klatki wypadają nieregularnie
   i ruch bywa gorszy niż ze screencastu – wtedy `max_fps` (np. `25` przy
   kanale 50 kl./s: 98,8% równych kroków w 720p) albo `render_size`.
-  Działa tylko z `chromium-headless-shell`; domyślnie wyłączone (§5).
+  Działa tylko z `chromium-headless-shell`. To tryb domyślny; inna
+  przeglądarka sama wraca do screencastu (§5).
 
 Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,
@@ -522,12 +523,12 @@ od wersji 2.1.4. Ustaw preset w profilu FFmpeg jawnie – puste pole to
 niż podnoszenie `CG_CPUS`.
 
 Ustawienia nakładki (render 720p, `VIZRS_MAX_FPS=25`) to dokładnie warunki,
-w których tryb `frames` (§1) dał na x86 najrówniejszy ruch przy mniejszym
-CPU przeglądarki. Na A1 go jeszcze nie zmierzono, więc zostaje wyłączony:
-włącz `VIZRS_CAPTURE_MODE=frames` po pomiarze benchmarkiem (§8,
-`BENCH_CAPTURE=frames BENCH_RENDER=720p BENCH_MAX_FPS=25`); `even_percent`
+w których domyślny tryb `frames` (§1) dał na x86 najrówniejszy ruch przy
+mniejszym CPU przeglądarki. Na A1 nie był jeszcze mierzony: sprawdź go
+benchmarkiem (§8, `BENCH_RENDER=720p BENCH_MAX_FPS=25`); `even_percent`
 wyraźnie poniżej 90% albo ostrzeżenia o nienarysowanych klatkach w logu
-oznaczają, że A1 nie nadąża.
+oznaczają, że A1 nie nadąża – wtedy `VIZRS_AREA` (§1), niższe `VIZRS_MAX_FPS`
+albo `VIZRS_CAPTURE_MODE=screencast`.
 
 Limity darmowego planu (Always Free): 4 OCPU i 24 GB łącznie na wszystkie
 instancje A1, 200 GB dysków, 10 TB ruchu wychodzącego miesięcznie – średnio
@@ -618,7 +619,7 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "render_size": "",
   "area": "",
   "max_fps": 0,
-  "capture_mode": "screencast"
+  "capture_mode": "frames"
 }
 ```
 
@@ -632,7 +633,7 @@ Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 grafiki `SZERxWYS+X+Y` po przecinku, np. `1920x140+0+930,160x160+1690+30`,
 puste = cały kanał; §1), `VIZRS_MAX_FPS`
 (górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
-kanału), `VIZRS_CAPTURE_MODE` (`screencast` albo `frames`, niżej),
+kanału), `VIZRS_CAPTURE_MODE` (`frames` albo `screencast`, niżej),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.
@@ -656,14 +657,14 @@ Chromium (§1, Płynność animacji):
 
 | Wartość | Działanie |
 |---|---|
-| `screencast` (domyślnie, też puste) | Chromium składa stronę 60 razy na sekundę, screencast bierze co n-tą klatkę |
-| `frames` | Chromium rysuje tylko na żądanie (`HeadlessExperimental.beginFrame`), raz na klatkę kanału (albo `max_fps`), z czasem tej klatki |
+| `frames` (domyślnie, też puste) | Chromium rysuje tylko na żądanie (`HeadlessExperimental.beginFrame`), raz na klatkę kanału (albo `max_fps`), z czasem tej klatki |
+| `screencast` | Chromium składa stronę 60 razy na sekundę, screencast bierze co n-tą klatkę (zachowanie do wersji 2.1) |
 
 `frames` działa tylko z `chromium-headless-shell` (obraz Dockera go ma).
 Inna przeglądarka (pełny `chromium`, `google-chrome`) nie ma tej komendy:
 sidecar zapisuje ostrzeżenie, uruchamia przeglądarkę ponownie po 3 s i dalej
 używa screencastu (`/health`: `mode` przechwytywania). Błędna wartość trafia
-do logu, a przechwytywanie idzie screencastem. Gdy host nie nadąża rysować
+do logu, a przechwytywanie idzie trybem `frames`. Gdy host nie nadąża rysować
 każdej klatki, co minutę w logu pojawia się ostrzeżenie z liczbą
 nienarysowanych klatek – obniż wtedy `max_fps` albo `render_size`.
 
@@ -819,7 +820,7 @@ Zmienne środowiskowe (wszystkie opcjonalne):
 | `BENCH_SIZE` | `1920x1080` | rozmiar kanału |
 | `BENCH_FPS` | `25` | klatkaż kanału |
 | `BENCH_FFMPEG_FPS` | `50` | klatkaż nakładki ffmpeg |
-| `BENCH_CAPTURE` | `screencast` | `capture_mode` sidecara (`frames`, §5) |
+| `BENCH_CAPTURE` | `frames` | `capture_mode` sidecara (`screencast`, §5) |
 | `BENCH_MAX_FPS` | `0` | `max_fps` sidecara |
 | `BENCH_RENDER` | – | `render_size` sidecara, np. `720p` |
 | `BENCH_AREA` | – | `area` sidecara, np. `1920x140+0+930` (pasek z tickerem sceny) albo z logo `1920x140+0+930,160x160+1690+30`; znacznik kroku trafia w lewy górny róg pierwszego obszaru |

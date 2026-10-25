@@ -17,7 +17,7 @@
   "render_size": "",
   "area": "",
   "max_fps": 0,
-  "capture_mode": "screencast",
+  "capture_mode": "frames",
   "browser": "",
   "no_sandbox": false,
   "browser_args": []
@@ -44,7 +44,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -75,7 +75,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -107,7 +107,7 @@
     "render_size": "720p",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": true,
     "browser_args": [
@@ -143,7 +143,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -181,7 +181,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": [],
@@ -227,7 +227,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "/usr/bin/chromium",
     "no_sandbox": false,
     "browser_args": [
@@ -258,7 +258,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 25,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -349,7 +349,7 @@
     "render_size": "",
     "area": "1920x140+0+940",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -380,7 +380,7 @@
     "render_size": "",
     "area": "",
     "max_fps": 0,
-    "capture_mode": "screencast",
+    "capture_mode": "frames",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []

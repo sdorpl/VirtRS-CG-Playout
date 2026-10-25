@@ -69,7 +69,7 @@ Chromium rysuje raz cały pasek tekstu, a sidecar przesuwa go o piksele wyliczon
 |---|---|---|
 | 1 | miara równych kroków (`bench/sidecar.mjs`, znacznik w `bench/scene.html`), CPU przeglądarki, `BENCH_CAPTURE`/`BENCH_MAX_FPS`/`BENCH_RENDER` | ✅ |
 | 2 | `capture_mode: frames` (`src/capture.rs`, `src/config.rs`, `src/sys.rs` – zegar monotoniczny), powrót do screencastu bez begin frames, ostrzeżenie o nienarysowanych klatkach, `/health` `mode`, testy Rusta i kontraktu | ✅ |
-| 3 | decyzja: domyślnie `screencast` (niżej) | ✅ (x86) |
+| 3 | decyzja: domyślnie `screencast` (niżej); później zmieniona na `frames` (§5) | ✅ |
 | 4 | DOKUMENTACJA §1 (Płynność animacji, Klatkaż kanału), §4 (A1), §5, §8 | ✅ |
 | 5 | osobny proces na ticker | nie podjęty: brak pomiaru na A1, a `frames` usuwa główną przyczynę bez zmian w VizRS |
 
@@ -110,7 +110,7 @@ Wnioski:
 - Gdy nie nadąża (tu 1080p w pełnym rozmiarze, 720p przy 50/60 kl./s), oba tryby są słabe, a `frames` bez `max_fps` przy 50/60 kl./s gorszy od screencastu: rysowanie jest szeregowe (`beginFrame` czeka na PNG), klatki wypadają nieregularnie. Lekarstwo: `max_fps` (720p50 z `max_fps` 25: 99%) albo `render_size`.
 - Hipoteza 2.2 (30/60 kl./s wyrównują screencast) się nie potwierdziła (34–57% przy 720p).
 
-Decyzja (etap 3): **domyślnie `screencast`**. Powody: `frames` wymaga `chromium-headless-shell` (z innym Chromium tylko powrót do screencastu po restarcie przeglądarki) i bez dobranego `max_fps`/`render_size` na zbyt wolnym hoście bywa gorszy; Ampere A1 nie został zmierzony. Zalecenie w DOKUMENTACJI §1 i §4: `frames` przy renderowaniu, które host rysuje w czasie klatki – sprawdzić benchmarkiem na maszynie docelowej. Na A1 nakładka `docker-compose.ampere.yml` ma już render 720p i `max_fps` 25, czyli warunki, w których `frames` wypadł najlepiej; włączenie po pomiarze na A1.
+Decyzja (etap 3, zastąpiona – patrz „Domyślnie `frames`” w §5): **domyślnie `screencast`**. Powody: `frames` wymaga `chromium-headless-shell` (z innym Chromium tylko powrót do screencastu po restarcie przeglądarki) i bez dobranego `max_fps`/`render_size` na zbyt wolnym hoście bywa gorszy; Ampere A1 nie został zmierzony. Zalecenie w DOKUMENTACJI §1 i §4: `frames` przy renderowaniu, które host rysuje w czasie klatki – sprawdzić benchmarkiem na maszynie docelowej. Na A1 nakładka `docker-compose.ampere.yml` ma już render 720p i `max_fps` 25, czyli warunki, w których `frames` wypadł najlepiej; włączenie po pomiarze na A1.
 
 Możliwe dalsze kroki: kilka przeglądarek rysujących na przemian (stary `frames-worker.mjs` miał `pages`), żeby PNG kodowały się równolegle przy 50 kl./s; automatyczne obniżanie tempa (co druga klatka), gdy host nie nadąża.
 
@@ -139,3 +139,7 @@ Wynik (DOKUMENTACJA §1, §8): z `frames` 96–99,5% równych kroków na kanale 
 Wynik (DOKUMENTACJA §8): pasek + logo przy 25 kl./s 98,9% równych kroków (jeden prostokąt obejmujący: 36%); przy 50 kl./s potrzebne `max_fps` 25 (100%).
 
 Dalej: ciaśniejsze układanie obszarów w klatce ffmpeg (dziś wąskie logo pod szerokim paskiem marnuje ok. połowę klatki); obszar wykrywany automatycznie z widocznych prostokątów.
+
+### Domyślnie `frames` (2026-10-25, decyzja autora)
+
+`capture_mode` domyślnie `frames` – w kodzie, compose, nakładce A1 i benchmarku; screencast zostaje jawną opcją i automatycznym powrotem przeglądarki bez begin frames (pełny Chrome, CI). Zła wartość opcji = `frames`. Nagrania MP4 i klatki (25/30/50/60 kl./s): nowy wariant 99% (25), 91% (50, `max_fps` 25) równych kroków wobec 4–13% screencastu; przy 30/60 kl./s z dwoma obszarami 4 vCPU z równoległym x264 nie nadąża – liczba rysowań (obszary × tempo) ok. 50/s na takiej maszynie.

@@ -73,8 +73,8 @@ services:
       VIZRS_AREA: ${VIZRS_AREA:-}
       # Capture rate limit, e.g. 25 on a 50 fps channel: half the PNG work; empty = channel rate.
       VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-}
-      # How Chromium's pictures are taken: screencast (60 Hz, every n-th frame) or
-      # frames (one per channel frame, even motion; chromium-headless-shell only).
+      # How Chromium's pictures are taken: frames (default: one per channel frame, even
+      # motion; chromium-headless-shell) or screencast (60 Hz, every n-th frame).
       VIZRS_CAPTURE_MODE: ${VIZRS_CAPTURE_MODE:-}
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb

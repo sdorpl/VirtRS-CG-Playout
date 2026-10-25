@@ -32,7 +32,7 @@ const SCENE = env.BENCH_URL ? "url" : env.BENCH_SCENE || "animated";
 const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
 // Sidecar options under test: render_size, capture_mode, max_fps.
 const RENDER = env.BENCH_RENDER || "";
-const CAPTURE = env.BENCH_CAPTURE || "screencast";
+const CAPTURE = env.BENCH_CAPTURE || "frames";
 const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
 // Graphics areas (WxH+X+Y, comma-separated): the marker goes to the top-left
 // corner of the first, ffmpeg asks for their frames.

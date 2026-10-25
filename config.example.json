@@ -10,5 +10,5 @@
   "render_size": "",
   "area": "",
   "max_fps": 0,
-  "capture_mode": "screencast"
+  "capture_mode": "frames"
 }

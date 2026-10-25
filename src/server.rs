@@ -174,8 +174,8 @@ impl Server {
             (width, height)
         });
         let mode = CaptureMode::parse(&self.config.capture_mode).unwrap_or_else(|error| {
-            crate::warn!("{error}; using the screencast");
-            CaptureMode::Screencast
+            crate::warn!("{error}; using frames");
+            CaptureMode::Frames
         });
         let areas = Area::parse_list(area, width, height).unwrap_or_else(|error| {
             crate::warn!("{error}; using the whole channel");

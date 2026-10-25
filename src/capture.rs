@@ -79,11 +79,11 @@ pub enum CaptureMode {
 }
 
 impl CaptureMode {
-    /// `""` or `screencast`, `frames`.
+    /// `""` or `frames` (the default), `screencast`.
     pub fn parse(spec: &str) -> Result<CaptureMode, String> {
         match spec.trim().to_ascii_lowercase().as_str() {
-            "" | "screencast" => Ok(CaptureMode::Screencast),
-            "frames" => Ok(CaptureMode::Frames),
+            "screencast" => Ok(CaptureMode::Screencast),
+            "" | "frames" => Ok(CaptureMode::Frames),
             _ => Err(format!("capture mode \"{spec}\" (expected screencast or frames)")),
         }
     }
