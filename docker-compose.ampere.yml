@@ -30,9 +30,9 @@ services:
       VIZRS_BROWSER_ARGS: ${VIZRS_BROWSER_ARGS:---num-raster-threads=2 --disable-smooth-scrolling}
       # A1 cores are slower per thread than x86: a little more player buffer.
       LEAD_SECONDS: ${LEAD_SECONDS:-5}
-      # Chromium renders 720p (about a third less CPU per frame), scaled to the
-      # channel; VIZRS_RENDER_SIZE= (empty) for full sharpness.
-      VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE-720p}
+      # Chromium renders at the channel size (1080p on a 1080p channel, full
+      # sharpness); VIZRS_RENDER_SIZE=720p saves about a third of the CPU per frame.
+      VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
       # Animations at 25 frames per second also on 50 fps channels.
       VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-25}
 
