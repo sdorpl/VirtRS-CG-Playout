@@ -12,13 +12,10 @@ const MAX_RECTS: usize = 32;
 pub fn visible_rects(rgba: &[u8], width: u32, height: u32) -> Vec<(u32, u32, u32, u32)> {
     let (w, h) = (width as usize, height as usize);
     let row_bytes = w * 4;
-    // Transparent pixels from Chromium are all zero: skip empty rows fast,
-    // look at alpha only where something may be drawn.
+    // A row is visible if any alpha is: checked 16 pixels at a time (the
+    // compiler vectorises the fold), so empty rows cost little.
     let row_visible: Vec<bool> = (0..h)
-        .map(|y| {
-            let row = &rgba[y * row_bytes..(y + 1) * row_bytes];
-            !row.iter().all(|&b| b == 0) && row.chunks_exact(4).any(|p| p[3] != 0)
-        })
+        .map(|y| rgba[y * row_bytes..(y + 1) * row_bytes].chunks(64).any(|block| block.chunks_exact(4).fold(0, |m, p| m | p[3]) != 0))
         .collect();
 
     let mut rects = Vec::new();

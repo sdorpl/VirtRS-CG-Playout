@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::area::Layout;
 use crate::packets::{Rect, picture_packet};
-use crate::yuva::yuva_area;
+use crate::yuva::{Yuva, yuva_area};
 
 /// Turns PNG number `index` of a picture (its graphics area) into visible
 /// rectangles at the channel size, in channel coordinates.
@@ -25,7 +25,7 @@ type Part = (Layout, bool);
 pub struct Picture {
     pub rects: Vec<Rect>,
     packet: OnceLock<Vec<u8>>,
-    yuva: OnceLock<(Part, Arc<[u8]>)>,
+    yuva: OnceLock<(Part, Arc<Yuva>)>,
 }
 
 impl Picture {
@@ -40,7 +40,7 @@ impl Picture {
 
     /// The picture as one yuva420p frame of `layout` (the channel, its
     /// graphics area, or its areas stacked); `hd` = BT.709.
-    pub fn yuva(&self, layout: &Layout, hd: bool) -> Arc<[u8]> {
+    pub fn yuva(&self, layout: &Layout, hd: bool) -> Arc<Yuva> {
         let build = || match layout.single() {
             Some(a) => yuva_area(&self.rects, (a.x, a.y, a.w, a.h), hd),
             None => yuva_area(&layout.place(&self.rects), (0, 0, layout.width, layout.height), hd),

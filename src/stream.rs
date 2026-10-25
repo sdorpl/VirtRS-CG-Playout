@@ -10,11 +10,11 @@
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use crate::area::Layout;
-use crate::frames::Source;
+use crate::frames::{Frame, Picture, Source};
 use crate::packets::repeat_packet;
 
 const TICK: Duration = Duration::from_millis(20);
@@ -100,6 +100,81 @@ pub struct Options {
     pub air: Option<f64>,
 }
 
+/// Raw frames: the picture on air is kept while it stays (a PNG is decoded
+/// again only after every session let go of it, src/frames.rs), and the
+/// next new picture is decoded, scaled and converted on another thread while
+/// this one writes. Raw frames need every picture (a ticker makes a new one
+/// at every frame); on a slow core (Ampere A1) that work takes most of a
+/// frame's time, and ffmpeg waits for the graphics.
+struct Raw {
+    layout: Layout,
+    hd: bool,
+    shown: Option<(u64, Arc<Picture>)>,
+    work: Option<mpsc::Sender<Arc<Frame>>>,
+    done: Option<mpsc::Receiver<(u64, Arc<Picture>)>>,
+    /// The picture being built ahead.
+    pending: Option<u64>,
+}
+
+impl Raw {
+    fn new(layout: &Layout, hd: bool) -> Raw {
+        let (work, jobs) = mpsc::channel::<Arc<Frame>>();
+        let (results, done) = mpsc::channel();
+        let (thread_layout, thread_hd) = (layout.clone(), hd);
+        let started = std::thread::Builder::new().name("frames-ahead".into()).spawn(move || {
+            for frame in jobs {
+                let picture = frame.picture();
+                picture.yuva(&thread_layout, thread_hd);
+                if results.send((frame.seq, picture)).is_err() {
+                    break;
+                }
+            }
+        });
+        // Without the thread every picture is built when it goes out.
+        let (work, done) = if started.is_ok() { (Some(work), Some(done)) } else { (None, None) };
+        Raw { layout: layout.clone(), hd, shown: None, work, done, pending: None }
+    }
+
+    /// The raw frame of `frame`'s picture.
+    fn frame(&mut self, frame: &Frame) -> Arc<crate::yuva::Yuva> {
+        if let Some((seq, picture)) = &self.shown {
+            if *seq == frame.seq {
+                return picture.yuva(&self.layout, self.hd);
+            }
+        }
+        let picture = match (self.pending, &self.done) {
+            (Some(seq), Some(done)) if seq == frame.seq => {
+                self.pending = None;
+                done.recv().map(|(_, picture)| picture).unwrap_or_else(|_| frame.picture())
+            }
+            // One built for a frame passed by (the reader skipped ahead): dropped once there.
+            (Some(seq), Some(done)) if seq < frame.seq => {
+                if done.try_recv().is_ok() {
+                    self.pending = None;
+                }
+                frame.picture()
+            }
+            _ => frame.picture(),
+        };
+        let yuva = picture.yuva(&self.layout, self.hd);
+        self.shown = Some((frame.seq, picture));
+        yuva
+    }
+
+    /// Starts building `next` (the picture of the next output frame) if it
+    /// is new and nothing is being built.
+    fn ahead(&mut self, next: Arc<Frame>) {
+        let shown = self.shown.as_ref().map(|(seq, _)| *seq);
+        if self.pending.is_some() || shown == Some(next.seq) {
+            return;
+        }
+        let seq = next.seq;
+        if self.work.as_ref().is_some_and(|work| work.send(next).is_ok()) {
+            self.pending = Some(seq);
+        }
+    }
+}
+
 /// Instant of an epoch time in milliseconds.
 fn instant_of(epoch_ms: f64) -> Option<Instant> {
     let ahead = Duration::try_from_secs_f64((epoch_ms - crate::time::now_ms() as f64).abs() / 1000.0).ok()?;
@@ -133,6 +208,10 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         at.unwrap_or(base)
     };
     let frame_at = |base: Instant, n: u64| source.frame_at(moment(base, n));
+    let mut raw = match &options.format {
+        Format::Yuva { layout, hd } => Some(Raw::new(layout, *hd)),
+        Format::Packets => None,
+    };
 
     while !control.is_closed() {
         if control.wait_while_paused() {
@@ -153,9 +232,11 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         let due = ((elapsed / frame_s).floor() + 1.0 + lead as f64).max(0.0) as u64;
         while sent < due {
             let frame = frame_at(base, sent);
-            let written = if let Format::Yuva { layout, hd } = &options.format {
+            let written = if let Some(raw) = &mut raw {
                 sent += 1;
-                out.write_all(&frame.picture().yuva(layout, *hd))
+                let yuva = raw.frame(&frame);
+                raw.ahead(frame_at(base, sent));
+                out.write_all(&yuva)
             } else if sent_seq != Some(frame.seq) {
                 sent_seq = Some(frame.seq);
                 sent += 1;
@@ -247,6 +328,40 @@ mod tests {
         assert_eq!(sent, 6);
         assert_eq!(out.len(), 6 * 20);
         assert!(out.chunks(20).all(|frame| frame[12 + 1] == 255));
+    }
+
+    /// Raw frames of a picture that stands: its PNG is decoded once, not at
+    /// every output frame; each new picture once too, the next one ahead.
+    #[test]
+    fn raw_stream_decodes_each_picture_once() {
+        use crate::frames::Decode;
+        use std::sync::atomic::AtomicUsize;
+        let decodes = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&decodes);
+        let decode: Arc<Decode> = Arc::new(move |_, data: &[u8]| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            Ok(vec![Rect { x: 0, y: 0, w: 1, h: 1, pixels: vec![data[0], 0, 0, 255] }])
+        });
+        let history = History::new(Duration::from_secs(5));
+        let now = Instant::now();
+        for (value, ago) in [(1u8, 900), (2, 500), (3, 300)] {
+            history.set_png(vec![value], now - Duration::from_millis(ago), &decode);
+        }
+        let control = Control::new(false);
+        let closer = Arc::clone(&control);
+        let timer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            closer.close();
+        });
+        let mut out = Vec::new();
+        let format = Format::Yuva { layout: Layout::whole(2, 2), hd: false };
+        let sent = stream_frames(&history, &mut out, &Options { fps: 25.0, lead_seconds: 0.8, format, air: None }, &control);
+        timer.join().unwrap();
+        assert!(sent >= 25, "sent {sent}");
+        // Three pictures on air over 25+ output frames: three decodes.
+        assert_eq!(decodes.load(Ordering::Relaxed), 3);
+        let values: Vec<u8> = out.chunks(10).map(|frame| frame[0]).collect();
+        assert!(values.windows(2).all(|w| w[0] <= w[1]), "{values:?}");
     }
 
     /// Chromium draws every 40 ms; each picture arrives decoded 0–85 ms later.

@@ -261,7 +261,12 @@ Warunki i różnice:
 - Tempo transkodowania zależy od tempa grafiki: ffmpeg czeka na klatki
   z sidecara. Sidecar dławiony limitem CPU (przy ciągłej animacji) spowalnia
   więc cały kanał poniżej czasu rzeczywistego – odtwarzacz się buforuje.
-  Daj sidecarowi zapas CPU (`CG_CPUS` na A1, §4).
+  Daj sidecarowi zapas CPU (`CG_CPUS` na A1, §4). Sidecar trzyma obraz
+  pokazywany w danej chwili (stojąca grafika to tylko wysyłanie gotowej
+  klatki, do wersji 2.1.7 każda klatka wyjścia od nowa dekodowała, skalowała
+  i konwertowała PNG), a kolejny nowy obraz przygotowuje w osobnym wątku,
+  gdy bieżąca klatka idzie do ffmpeg. Pomiar §8: grafika stojąca 13,5% CPU
+  rdzenia zamiast 89%, ciągła animacja 57% zamiast 76%.
 - Pozycja z innymi elementami grafiki, ale bez elementu VizRS, startuje
   o 2 s później (nakładka czeka na sesję) i leci ścieżką ErsatzTV.
 - Na wejściu surowe klatki kosztują pasmo, ale nie CPU: 1080p to ok. 5 MB
@@ -866,6 +871,23 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
 ```
 
 ### Uwagi i wyniki
+
+- **Tryb nakładki: obraz trzymany i przygotowywany z wyprzedzeniem**
+  (Xeon 2,8 GHz, 4 vCPU, kanał 1080p, `ffmpeg` 25, `frames`, 15 s; CPU
+  sidecara przed → po, % rdzenia; CPU przeglądarki bez zmian). Do wersji
+  2.1.7 każda klatka wyjścia od nowa dekodowała, skalowała i konwertowała
+  PNG, także przy grafice stojącej:
+
+  | Render | scena `static` | scena `animated` |
+  |---|---|---|
+  | 720p | 74–89% → 12–14% | 68–76% → 51–57% (równo 99% przed i po) |
+  | 1080p | 54% → 11% | 50% → 37% |
+
+  Ciągła animacja zyskuje na szybszej konwersji do `yuva420p` (tablice
+  zamiast mnożeń, pamięć klatek używana ponownie: 11 → 3 ms na klatkę 1080p
+  z belką i logo) i na szybszym wyznaczaniu widocznych prostokątów; wynik
+  bajt w bajt ten sam (wektory `tests/vectors/`). Pamięć procesu rośnie
+  o kilkanaście MB (pula klatek).
 
 - **Równość ruchu, screencast wobec `frames`** (Xeon 2,8 GHz, 4 vCPU
   w chmurze, Chromium 153 `chrome-headless-shell`, scena `animated`, 15 s;
