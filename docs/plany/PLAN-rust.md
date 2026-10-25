@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etapy 0–6 zrobione** – binarka Rusta przechodzi cały zestaw czarnej skrzynki (11 testów, z nakładką ffmpeg i prawdziwym Chromium), w CI także. Następny: etap 7 (obraz Docker i CI).
+> Status (2026-10-25): **etapy 0–8 zrobione** – binarka Rusta przechodzi cały zestaw czarnej skrzynki, działa w obrazie Docker z prawdziwym ErsatzTV i VizRS (nakładka ffmpeg, reklamy, restart Chromium) przy ok. połowie CPU i ⅓ pamięci Node. Otwarte: pomiar na Ampere A1. Następny: etap 9 (sprzątanie i dokumentacja).
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -63,9 +63,20 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | 4 | Klatki | `frames.rs` (klatka z czasem, pakiet i `yuva` liczone raz; historia `setFrame`/`frameAt`), `rects.rs`, `png.rs` (crate `png`), `yuva.rs` (te same działania na `f64` co JS, więc bajt w bajt), `scale.rs` (jak libvips: zmniejszanie Lanczos3 jak `vips_reduce` – najpierw pion, każde przejście w 8 bitach; powiększanie bicubic z próbkowaniem w `x/skala − 0,5`; kolor zerowany, gdy alfa = 0), format `Yuva` w `stream.rs` | ✅ |
 | 5 | Chromium | `capture.rs` (flagi i dekoder najnowszej klatki jak w `vizrs_capture.rs`; screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami), `devtools.rs` (CDP przez `--remote-debugging-pipe`, sprawdzone na Chrome), `sys.rs` (rury na fd 3/4, `PR_SET_PDEATHSIG` – przeglądarka ginie nawet przy `kill -9`; SIGTERM sprząta przeglądarki i profile), `base64.rs`; testy Chromium w `rust/tests/chromium.rs` | ✅ |
 | 6 | Nakładka ffmpeg | `/ffmpeg` (oczekiwanie do 10 s, przejęcie sesji), `/ffmpeg/frames` (surowe `yuva420p`, `raiseFps`), wstrzymanie 3 s (`HOLD`), powrót do ErsatzTV po 10 s bez strumienia (`FRAMES_WAIT`), kanały z nakładką w `/health` | ✅ |
-| 7 | Obraz i CI | wieloetapowy `Dockerfile`, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`) zamiast QEMU, `ci.yml`, `release.yml` (archiwa i obraz), compose | |
-| 8 | Odbiór | pełny stos (oba tory grafiki, reklamy, restart Chromium, brak sidecara); benchmark §8 JS vs Rust na amd64 i Ampere A1 – nie gorzej niż JS | |
+| 7 | Obraz i CI | wieloetapowy `Dockerfile`: binarka budowana na platformie hosta, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`, ok. 40 s zamiast emulacji), obraz `debian:bookworm-slim` + `chromium-headless-shell`; `VIZRS_BROWSER` wskazuje samą przeglądarkę (`/usr/lib/chromium/…`), bo skrypt Debiana w `/usr/bin` uruchamia ją jako dziecko `sh` – zatrzymanie i `PDEATHSIG` trafiały w `sh`; `init: true` w compose zbiera procesy pomocnicze po awarii przeglądarki (wcześniej zombie przy PID 1 – także w obrazie Node); bez zmiennych libvips i Node w nakładce Ampere. `ci.yml` (artefakt binarki) i `release.yml` (archiwa x86_64/arm64, obraz, wydanie) – commit autora 939643b | ✅ |
+| 8 | Odbiór | stos Docker obok działającego (osobny projekt i porty): ErsatzTV z nakładką ffmpeg przejmuje sesję, grafika VizRS (`on_clip` z `{title}`, `{next_title}`) jest w obrazie HLS, przerwa reklamowa zdejmuje i przywraca stronę 4001, zabita przeglądarka wraca po ok. 3,5 s bez zombie, bez sidecara kanał nadaje (nakładka w Pythonie, bez zmian). Benchmark `bench/sidecar.mjs` (tabela niżej). Ampere A1: do zmierzenia | ✅ (amd64) |
 | 9 | Sprzątanie | usunięcie `bin/`, `src/*.js`, `docker/sidecar.Dockerfile`; `rust/` do korzenia; DOKUMENTACJA, README, CLAUDE.md; scalenie do `main`, wersja zgodna z VizRS | |
+
+### Wyniki etapu 8 (Xeon E3-1270 v3, 1080p, scena `animated`, 25 s, dwa przebiegi)
+
+| Tryb | Budowa | CPU sidecara | RSS | Nowe obrazy/s |
+|---|---|---|---|---|
+| `etv` (pakiety) | Node | 53–56% | 263–280 MB | 21–24 |
+| `etv` | Rust | 28% | 93–96 MB | 24 |
+| `ffmpeg` (`yuva420p`, 50 kl./s) | Node | 111–140% | 351–390 MB | 26–38 |
+| `ffmpeg` | Rust | 79–93% | 161–187 MB | 31–38 |
+
+Pamięć zajmują głównie klatki (historia 500 ms, w trybie `ffmpeg` pełne klatki `yuva420p` 1080p po 3 MB), a nie runtime. Zakładane w §0 ok. 10 MB dotyczy samego procesu bez grafiki.
 
 ## 5. Zamierzone różnice względem Node.js
 
