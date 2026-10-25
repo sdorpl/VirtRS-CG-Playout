@@ -18,8 +18,8 @@ RUN case "$TARGETARCH" in \
     && rustup target add "$(cat /target)"
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 WORKDIR /src
-COPY rust/Cargo.toml rust/Cargo.lock ./
-COPY rust/src src
+COPY Cargo.toml Cargo.lock ./
+COPY src src
 RUN cargo build --release --locked --target "$(cat /target)" \
     && cp "target/$(cat /target)/release/virtrs-cg" /virtrs-cg
 

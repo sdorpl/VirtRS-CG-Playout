@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// Sidecar benchmark as a black box: one build (Node.js, or another one with
-// VIRTRS_CG_BIN, e.g. the Rust binary) burns bench/scene.html in for one
-// session, and the CPU and memory of the sidecar process itself are measured
-// (Chromium is the same in every build). Modes (BENCH_MODES):
+// Sidecar benchmark as a black box: a build (target/release/virtrs-cg, or
+// another one with VIRTRS_CG_BIN) burns bench/scene.html in for one session,
+// and the CPU and memory of the sidecar process itself are measured (the
+// browser is measured apart from it). Modes (BENCH_MODES):
 //   etv      ETV packets for the script element (the Python client),
 //   ffmpeg   raw yuva420p frames for the ffmpeg overlay at BENCH_FFMPEG_FPS.
+// Results: a table and one JSON line on stdout (DOKUMENTACJA §8).
 //
-//   node bench/sidecar.mjs
-//   VIRTRS_CG_BIN=rust/target/release/virtrs-cg node bench/sidecar.mjs
+//   cargo build --release && node bench/sidecar.mjs
+//   VIRTRS_CG_BIN=/usr/local/bin/virtrs-cg node bench/sidecar.mjs
 
 import { readFileSync } from "node:fs";
 import http from "node:http";
@@ -15,7 +16,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { findBrowser, startSidecar } from "../test/sidecar.mjs";
+import { findBrowser, startSidecar } from "../tests/contract/sidecar.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const env = process.env;
@@ -24,7 +25,7 @@ const FPS = Number(env.BENCH_FPS || 25);
 const FFMPEG_FPS = Number(env.BENCH_FFMPEG_FPS || 50);
 const WARMUP = Number(env.BENCH_WARMUP || 10);
 const DURATION = Number(env.BENCH_DURATION || 30);
-const SCENE = env.BENCH_SCENE || "animated";
+const SCENE = env.BENCH_URL ? "url" : env.BENCH_SCENE || "animated";
 const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
 const CLK_TCK = 100;
 
@@ -53,7 +54,8 @@ const server = http.createServer((req, res) => {
   }
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const scene = `http://127.0.0.1:${server.address().port}/scene.html?scene=${SCENE}&fps=${FPS}`;
+// BENCH_URL: the real VizRS /output instead of the scene (graphics must be on air).
+const scene = env.BENCH_URL || `http://127.0.0.1:${server.address().port}/scene.html?scene=${SCENE}&fps=${FPS}`;
 
 const browser = findBrowser();
 if (!browser) throw new Error("no Chromium (set VIZRS_BROWSER)");
@@ -92,7 +94,7 @@ async function run(mode) {
   await cg.stop();
 
   return {
-    build: env.VIRTRS_CG_BIN ? path.basename(env.VIRTRS_CG_BIN) : "node",
+    build: path.basename(env.VIRTRS_CG_BIN || "virtrs-cg"),
     mode,
     size: `${WIDTH}x${HEIGHT}`,
     scene: SCENE,

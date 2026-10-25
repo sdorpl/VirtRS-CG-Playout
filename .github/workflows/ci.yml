@@ -1,5 +1,5 @@
 name: CI
-# Testy przy każdym wypchnięciu i PR, binarka Rusta jako artefakt.
+# Testy przy każdym wypchnięciu i PR, binarka jako artefakt.
 # Obraz sidecara i wydanie: release.yml (znacznik v* albo ręcznie).
 on:
   push:
@@ -14,27 +14,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: current
-          cache: npm
-      - run: npm ci
-      # Chromium z obrazu runnera: testy prawdziwego przechwytywania też idą.
-      # Ubuntu 24.04 (AppArmor) nie pozwala na piaskownicę Chromium – jak w obrazie Dockera.
-      - run: npm test
-        env:
-          VIZRS_BROWSER_NO_SANDBOX: "1"
-
-  # Migracja do Rusta (docs/plany/PLAN-rust.md): crate w rust/.
-  rust:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rust
     env:
-      # Chromium z obrazu runnera, bez piaskownicy (AppArmor), jak w testach Node.
+      # Chromium z obrazu runnera, bez piaskownicy (AppArmor w Ubuntu 24.04), jak w obrazie Dockera.
       VIZRS_BROWSER_NO_SANDBOX: "1"
     steps:
       - uses: actions/checkout@v4
@@ -45,16 +26,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: virtrs-cg-linux-x86_64
-          path: rust/target/release/virtrs-cg
-      # Testy czarnej skrzynki (te same co dla Node.js) na binarce Rusta.
+          path: target/release/virtrs-cg
+      # Testy kontraktu: binarka jako czarna skrzynka, udawany VizRS, klienty Pythona.
       - uses: actions/setup-node@v4
         with:
           node-version: current
-      - name: Testy kontraktu (Rust)
-        working-directory: .
-        env:
-          VIRTRS_CG_BIN: rust/target/release/virtrs-cg
-        run: |
-          node --test test/integration.test.mjs
-          node --test --test-name-pattern="sidecar burns the page in" test/chromium.test.mjs
-
+      - run: npm test

@@ -1,12 +1,8 @@
-# Engine benchmark: the sidecar's Chromium capture vs frame-locked Chromium
-# (and optionally WPE WebKit) on the same page (docs/DOKUMENTACJA.md §8).
+# Sidecar benchmark on the target machine (DOKUMENTACJA §8):
 #
-#   docker compose -f bench/docker-compose.yml up --build
-#   Portainer: Stacks → Add stack → Repository, compose path bench/docker-compose.yml
+#   docker compose -f bench/docker-compose.yml -p virtrs-bench up --build
 #
-#   Report  http://<server>:7790/   (about 10 min with the defaults)
-#
-# Restart the container to measure again; remove the stack when done.
+# Results go to the log (a table and one JSON line); the container then exits.
 
 services:
   bench:
@@ -14,27 +10,15 @@ services:
       context: ..
       dockerfile: bench/Dockerfile
     image: virtrs-cg-bench:local
-    # One measurement; the container stays up only to serve the report.
     restart: "no"
-    init: true
-    environment:
-      # chromium (as the sidecar), chromium-frames (frame-locked), wpe.
-      BENCH_ENGINES: ${BENCH_ENGINES:-chromium,chromium-frames}
-      # static, animated; "url" adds BENCH_URL (e.g. VizRS /output with graphics on air).
-      BENCH_SCENES: ${BENCH_SCENES:-}
-      BENCH_URL: ${BENCH_URL:-}
-      BENCH_SIZES: ${BENCH_SIZES:-1920x1080,1280x720}
-      # Browsers of chromium-frames drawing alternate slots (1 = no parallel PNG encoding).
-      BENCH_FRAME_PAGES: ${BENCH_FRAME_PAGES:-2}
-      BENCH_FPS: ${BENCH_FPS:-25}
-      BENCH_WARMUP: ${BENCH_WARMUP:-10}
-      BENCH_DURATION: ${BENCH_DURATION:-60}
-    # Chromium renders through /dev/shm, as the sidecar.
+    # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb
-    volumes:
-      - bench-results:/results
-    ports:
-      - "${BENCH_PORT:-7790}:7790"
-
-volumes:
-  bench-results:
+    environment:
+      BENCH_SIZE: ${BENCH_SIZE:-1920x1080}
+      BENCH_MODES: ${BENCH_MODES:-etv,ffmpeg}
+      BENCH_SCENE: ${BENCH_SCENE:-animated}
+      BENCH_URL: ${BENCH_URL:-}
+      BENCH_FPS: ${BENCH_FPS:-25}
+      BENCH_FFMPEG_FPS: ${BENCH_FFMPEG_FPS:-50}
+      BENCH_WARMUP: ${BENCH_WARMUP:-10}
+      BENCH_DURATION: ${BENCH_DURATION:-30}

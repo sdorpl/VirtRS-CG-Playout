@@ -1,0 +1,330 @@
+// Sidecar end to end as a black box (sidecar.mjs: target/release/virtrs-cg or
+// VIRTRS_CG_BIN): fake VizRS (TCP), the real Python clients. The browser exits
+// at once, so captures send transparent frames; graphics content is tested
+// with a real Chromium in chromium.test.mjs.
+
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+
+import { blankYuva, readFrames, yuvaSize } from "./helpers.mjs";
+import { runClient, startSidecar } from "./sidecar.mjs";
+
+const CLIENT = fileURLToPath(new URL("../../client/vizrs-etv-client.py", import.meta.url));
+const WRAPPER = fileURLToPath(new URL("../../client/vizrs-ffmpeg.py", import.meta.url));
+
+/** VizRS stand-in: records commands, `STATE` returns `layers`. */
+async function fakeVizrs(layers = []) {
+  const received = [];
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      let index;
+      while ((index = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, index);
+        buffer = buffer.slice(index + 1);
+        received.push(line);
+        socket.write(line === "STATE" ? `OK ${JSON.stringify({ layers })}\n` : "OK {}\n");
+      }
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const close = () => {
+    for (const socket of sockets) socket.destroy();
+    server.close();
+  };
+  return { received, address: `127.0.0.1:${server.address().port}`, close };
+}
+
+/** Sidecar for one test, stopped after it. */
+async function sidecar(t, config, env) {
+  const cg = await startSidecar(config, env);
+  t.after(cg.stop);
+  return cg;
+}
+
+function listen(server) {
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
+}
+
+const item = (path, start, extra = {}) => ({
+  Resolution: { Width: 8, Height: 4 },
+  FrameRate: 25,
+  MediaItem_Path: path,
+  MediaItem_Title: path.split("/").pop().replace(".mp4", ""),
+  MediaItem_Start: start,
+  MediaItem_Stop: start.replace(":00:00", ":30:00"),
+  ...extra,
+});
+
+test("client streams frames paced by the clock, commands reach VizRS once per item", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "secret" },
+    on_clip: "TAKE 4001 headline={title}",
+    lead_seconds: 0.4,
+  });
+  const url = `${cg.url}/etv?channel=1`;
+
+  const stream = await runClient(url, item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), 1000);
+  const frames = readFrames(stream, 8, 4);
+
+  // ~1 s at 25 fps plus 0.4 s lead, never more (paced, not a burst). The
+  // client's start eats into the second, more on a busy host (Chromium tests
+  // run in parallel), hence the low floor.
+  assert.ok(frames.length >= 15 && frames.length <= 36, `frames: ${frames.length}`);
+  assert.ok(frames.every((frame) => frame.every((b) => b === 0)), "commands only: transparent");
+
+  // A second session on the same item (viewer joins, seek) sends nothing again.
+  await runClient(url, item("/m/News.mp4", "2026-10-24T20:00:00+02:00", { MediaItem_StreamSeek: "00:05:00" }), 300);
+  await sleep(100);
+  assert.deepEqual(vizrs.received, ["AUTH secret", "TAKE 4001 headline=News"]);
+  assert.equal((await cg.health()).sessions, 0, "every session ended");
+});
+
+test("render size: config default, per-channel override, one capture per size pair", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    output_url: "http://127.0.0.1:9/output",
+    lead_seconds: 0,
+  }, { VIZRS_RENDER_SIZE: "720p" });
+  const hd = { ...item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), Resolution: { Width: 1920, Height: 1080 } };
+
+  await runClient(`${cg.url}/etv?channel=1`, hd, 400);
+  await runClient(`${cg.url}/etv?channel=2`, hd, 400);
+  await runClient(`${cg.url}/etv?channel=3&render=auto`, hd, 400);
+  await runClient(`${cg.url}/etv?channel=4&render=bogus`, hd, 400);
+
+  const { captures } = await cg.health();
+  assert.deepEqual(captures.map(({ size, render }) => [size, render]), [
+    ["1920x1080", "1280x720"],
+    ["1920x1080", "1920x1080"],
+  ]);
+});
+
+test("client exits quietly when the sidecar is down", async () => {
+  const stream = await runClient("http://127.0.0.1:9/etv", {}, 3000);
+  assert.equal(stream.length, 0);
+});
+
+test("ads take graphics out; the first clip after the break takes them back", async (t) => {
+  const vizrs = await fakeVizrs([{ layer: "main", page: "1001" }, { layer: "logo", page: "3001" }]);
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    on_clip: "UPDATE 2001 t={title}",
+    on_ad: "",
+    ad_match: { path: "/reklamy/" },
+    ad_without_element: false,
+  });
+  const url = `${cg.url}/etv?channel=1`;
+
+  await runClient(url, item("/reklamy/a.mp4", "2026-10-24T20:00:00+02:00"), 300);
+  await runClient(url, item("/reklamy/b.mp4", "2026-10-24T21:00:00+02:00"), 300);
+  await runClient(url, item("/m/film.mp4", "2026-10-24T22:00:00+02:00"), 300);
+  await sleep(200);
+
+  assert.deepEqual(vizrs.received, [
+    "STATE", "OUT main,logo",
+    "STATE", "OUT main,logo",
+    "TAKE 1001,3001", "UPDATE 2001 t=film",
+  ]);
+});
+
+test("an item without the VizRS element is an ad; the next item with it restores", async (t) => {
+  const vizrs = await fakeVizrs([{ layer: "main", page: "1001" }]);
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    on_clip: "UPDATE 2001 t={title}",
+    on_ad: "",
+    ad_without_element: true,
+    gap_grace_ms: 50,
+  });
+  const url = `${cg.url}/etv?channel=1`;
+  const at = (ms) => new Date(Date.now() + ms).toISOString();
+  const clip = (name, start, stop) => ({ ...item(`/m/${name}.mp4`, start), MediaItem_Stop: stop });
+
+  // Overlapping items with the element (b starts before a ends): no ad in between.
+  const a = runClient(url, clip("a", "2026-10-24T20:00:00+02:00", at(0)), 600);
+  await sleep(300);
+  const b = runClient(url, clip("b", "2026-10-24T20:30:00+02:00", at(600)), 600);
+  await Promise.all([a, b]);
+  await sleep(500);
+  assert.deepEqual(vizrs.received, ["UPDATE 2001 t=a", "UPDATE 2001 t=b", "STATE", "OUT main"]);
+
+  await runClient(url, clip("c", "2026-10-24T21:00:00+02:00", at(10000)), 300);
+  await sleep(100);
+  assert.deepEqual(vizrs.received.slice(4), ["TAKE 1001", "UPDATE 2001 t=c"]);
+});
+
+// ffmpeg stand-in: prints its arguments and, for a `pipe:N` input, how many
+// bytes it read (FRAMES frames of FRAME_BYTES) and the first frame in hex.
+const FAKE_FFMPEG = `#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+result = {"args": args}
+for arg in args:
+    if arg.startswith("pipe:") and int(arg[5:]) > 2:
+        fd, want, data = int(arg[5:]), int(os.environ["FRAME_BYTES"]) * int(os.environ["FRAMES"]), b""
+        while len(data) < want:
+            chunk = os.read(fd, want - len(data))
+            if not chunk:
+                break
+            data += chunk
+        result["read"] = len(data)
+        result["first"] = data[: int(os.environ["FRAME_BYTES"])].hex()
+print(json.dumps(result), flush=True)
+`;
+
+/** Runs the wrapper like ErsatzTV runs ffmpeg; resolves with the stand-in's report. */
+function runWrapper(args, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("python3", ["-I", WRAPPER, ...args], { env: { ...process.env, ...env } });
+    const out = [];
+    const err = [];
+    child.stdout.on("data", (chunk) => out.push(chunk));
+    child.stderr.on("data", (chunk) => err.push(chunk));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      try {
+        resolve({ code, stderr: Buffer.concat(err).toString(), ...JSON.parse(Buffer.concat(out).toString()) });
+      } catch (error) {
+        reject(new Error(`${error.message}: ${Buffer.concat(err)}`));
+      }
+    });
+  });
+}
+
+test("ffmpeg overlay: raw frames from the sidecar, the script session stops its packets", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    output_url: "http://127.0.0.1:9/output",
+    on_clip: "TAKE 4001 headline={title}",
+    lead_seconds: 0.4,
+  });
+
+  // ErsatzTV stand-in: the canvas request starts the script element with the item's data.
+  const canvas = { requests: [], packetBytes: 0 };
+  const etv = http.createServer((request, response) => {
+    canvas.requests.push(request.headers);
+    const child = spawn("python3", ["-I", CLIENT, `${cg.url}/etv?channel=1`]);
+    child.stdout.on("data", (chunk) => { canvas.packetBytes += chunk.length; });
+    child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
+    response.writeHead(200);
+    response.flushHeaders();
+    response.on("close", () => child.kill());
+  });
+  const etvPort = await listen(etv);
+  t.after(() => etv.close());
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), "virtrs-ffmpeg-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ffmpeg = path.join(dir, "ffmpeg");
+  writeFileSync(ffmpeg, FAKE_FFMPEG);
+  chmodSync(ffmpeg, 0o755);
+
+  const headers = "x-etv-channel:1\r\nx-etv-offset-ms:0\r\nx-etv-duration-ms:44000\r\nx-etv-frame-rate:25/1\r\n";
+  const args = [
+    "-threads", "1", "-i", "/m/News.mp4",
+    "-protocol_whitelist", "file,http", "-headers", headers, "-t", "44000ms",
+    "-i", `http://127.0.0.1:${etvPort}/internal/graphics/1/28750?exp=1&sig=x`,
+    "-filter_complex", "[1:0]format=yuva420p[g]", "-f", "null", "-",
+  ];
+  const env = { VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "3" };
+
+  const first = await runWrapper(args, env);
+  const pipe = first.args.find((arg) => arg.startsWith("pipe:"));
+  assert.deepEqual(first.args, [
+    "-threads", "1", "-i", "/m/News.mp4",
+    "-t", "44000ms", "-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", "8x4", "-framerate", "25/1", "-i", pipe,
+    "-filter_complex", "[1:0]format=yuva420p[g]", "-f", "null", "-",
+  ]);
+  assert.equal(first.read, 3 * yuvaSize(8, 4));
+  assert.equal(first.first, blankYuva(8, 4).toString("hex"));
+  assert.equal(canvas.requests[0]["x-etv-frame-rate"], "25/1", "the canvas is opened with ErsatzTV's headers");
+
+  // The channel now runs through the overlay: its next script session sends ErsatzTV nothing.
+  await sleep(300);
+  const before = canvas.packetBytes;
+  const second = await runWrapper(args, env);
+  assert.equal(second.read, 3 * yuvaSize(8, 4));
+  await sleep(300);
+  assert.equal(canvas.packetBytes, before);
+  assert.deepEqual(vizrs.received, ["TAKE 4001 headline=News"], "commands once, from the script session");
+
+  // Sidecar down: the original command, unchanged.
+  const fallback = await runWrapper(args, { ...env, VIZRS_CG_URL: "http://127.0.0.1:9" });
+  assert.deepEqual(fallback.args, args);
+  assert.match(fallback.stderr, /ErsatzTV graphics instead/);
+
+  // Calls without the canvas go straight through.
+  assert.deepEqual((await runWrapper(["-version"], env)).args, ["-version"]);
+});
+
+test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS output", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
+  const etv = http.createServer((request, response) => {
+    const child = spawn("python3", ["-I", CLIENT, `${cg.url}/etv?channel=1`]);
+    child.stdout.resume();
+    child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
+    response.writeHead(200);
+    response.flushHeaders();
+    response.on("close", () => child.kill());
+  });
+  const etvPort = await listen(etv);
+  t.after(() => etv.close());
+  const dir = mkdtempSync(path.join(os.tmpdir(), "virtrs-ffmpeg-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ffmpeg = path.join(dir, "ffmpeg");
+  writeFileSync(ffmpeg, FAKE_FFMPEG);
+  chmodSync(ffmpeg, 0o755);
+  const env = {
+    VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50",
+    FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "2",
+  };
+  const hls = ["-g", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"];
+  const filter = "[0:0]scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=x=0:y=0[v_o0]";
+
+  const overlay = await runWrapper([
+    "-i", "/m/News.mp4", "-headers", "x-etv-frame-rate:25/1\r\n",
+    "-i", `http://127.0.0.1:${etvPort}/internal/graphics/1/7?exp=1&sig=x`,
+    "-filter_complex", filter, "-map", "[v_o0]", ...hls,
+  ], env);
+  const pipe = overlay.args.find((arg) => arg.startsWith("pipe:"));
+  assert.deepEqual(overlay.args, [
+    "-i", "/m/News.mp4",
+    "-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", "8x4", "-framerate", "50", "-i", pipe,
+    "-filter_complex", "[0:0]scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay=x=0:y=0[v_o0]",
+    "-map", "[v_o0]", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8",
+  ]);
+  assert.equal(overlay.read, 2 * yuvaSize(8, 4));
+  assert.equal((await cg.health()).captures[0].fps, 50, "the capture follows the overlay's rate");
+
+  // Items without the canvas: only the output rate.
+  assert.deepEqual((await runWrapper(["-i", "/m/Ad.mp4", ...hls], env)).args, ["-i", "/m/Ad.mp4", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"]);
+  // Not a transcode to HLS (the canvas encoder, copies): unchanged.
+  const canvasEncoder = ["-f", "rawvideo", "-i", "pipe:0", "-c:v", "ffv1", "-f", "nut", "pipe:1"];
+  assert.deepEqual((await runWrapper(canvasEncoder, env)).args, canvasEncoder);
+  const copy = ["-i", "/m/News.mp4", "-c", "copy", ...hls];
+  assert.deepEqual((await runWrapper(copy, env)).args, copy);
+});

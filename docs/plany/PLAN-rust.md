@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etapy 0–8 zrobione** – binarka Rusta przechodzi cały zestaw czarnej skrzynki, działa w obrazie Docker z prawdziwym ErsatzTV i VizRS (nakładka ffmpeg, reklamy, restart Chromium) przy ok. połowie CPU i ⅓ pamięci Node. Otwarte: pomiar na Ampere A1. Następny: etap 9 (sprzątanie i dokumentacja).
+> Status (2026-10-25): **etapy 0–9 zrobione na `rust-edit`** – sidecar jest w Ruście w korzeniu repozytorium, kod Node.js usunięty, Node.js zostaje tylko do testów kontraktu i benchmarku. Otwarte: pomiar na Ampere A1 (`bench/`, DOKUMENTACJA §8), scalenie do `main` i wydanie.
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -65,7 +65,7 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | 6 | Nakładka ffmpeg | `/ffmpeg` (oczekiwanie do 10 s, przejęcie sesji), `/ffmpeg/frames` (surowe `yuva420p`, `raiseFps`), wstrzymanie 3 s (`HOLD`), powrót do ErsatzTV po 10 s bez strumienia (`FRAMES_WAIT`), kanały z nakładką w `/health` | ✅ |
 | 7 | Obraz i CI | wieloetapowy `Dockerfile`: binarka budowana na platformie hosta, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`, ok. 40 s zamiast emulacji), obraz `debian:bookworm-slim` + `chromium-headless-shell`; `VIZRS_BROWSER` wskazuje samą przeglądarkę (`/usr/lib/chromium/…`), bo skrypt Debiana w `/usr/bin` uruchamia ją jako dziecko `sh` – zatrzymanie i `PDEATHSIG` trafiały w `sh`; `init: true` w compose zbiera procesy pomocnicze po awarii przeglądarki (wcześniej zombie przy PID 1 – także w obrazie Node); bez zmiennych libvips i Node w nakładce Ampere. `ci.yml` (artefakt binarki) i `release.yml` (archiwa x86_64/arm64, obraz, wydanie) – commit autora 939643b | ✅ |
 | 8 | Odbiór | stos Docker obok działającego (osobny projekt i porty): ErsatzTV z nakładką ffmpeg przejmuje sesję, grafika VizRS (`on_clip` z `{title}`, `{next_title}`) jest w obrazie HLS, przerwa reklamowa zdejmuje i przywraca stronę 4001, zabita przeglądarka wraca po ok. 3,5 s bez zombie, bez sidecara kanał nadaje (nakładka w Pythonie, bez zmian). Benchmark `bench/sidecar.mjs` (tabela niżej). Ampere A1: do zmierzenia | ✅ (amd64) |
-| 9 | Sprzątanie | usunięcie `bin/`, `src/*.js`, `docker/sidecar.Dockerfile`; `rust/` do korzenia; DOKUMENTACJA, README, CLAUDE.md; scalenie do `main`, wersja zgodna z VizRS | |
+| 9 | Sprzątanie | usunięte `bin/`, `src/*.js`, `package-lock.json`, testy jednostkowe JS, `docker/sidecar.Dockerfile` i stary benchmark silników (`bench.mjs`, WPE – decyzja autora; wnioski w DOKUMENTACJI §8); crate w korzeniu (`Cargo.toml`, `src/`, `tests/*.rs`), testy kontraktu w `tests/contract/` (`npm test`, bez zależności), wektory zamrożone w `tests/vectors/`; nowy obraz i compose benchmarku `bench/sidecar.mjs`; DOKUMENTACJA (§1, §4–§8), README, CLAUDE.md, workflow. Scalenie do `main` i numer wersji – decyzja autora | ✅ (bez scalenia) |
 
 ### Wyniki etapu 8 (Xeon E3-1270 v3, 1080p, scena `animated`, 25 s, dwa przebiegi)
 

@@ -31,8 +31,9 @@ Chromium renderuje `/output` w tym samym rozmiarze. Opcja `render_size`
 (`VIZRS_RENDER_SIZE`) albo parametr `render` w adresie elementu
 (`http://cg:7700/etv?channel=1&render=720p`, ma pierwszeństwo) każe
 renderować w innym rozmiarze, a sidecar skaluje widoczne prostokąty do
-rozmiaru kanału (libvips przez `sharp`, filtr Lanczos, z premultiplikacją
-alfy). Skalowane są tylko widoczne prostokąty, nie cała klatka.
+rozmiaru kanału tak jak libvips: przy zmniejszaniu filtr Lanczos3, przy
+powiększaniu bicubic, z premultiplikacją alfy (piksele w ±1 od libvips).
+Skalowane są tylko widoczne prostokąty, nie cała klatka.
 
 | Wartość | Rozmiar renderowania |
 |---|---|
@@ -47,10 +48,9 @@ Pomiar na x86 dla kanału 1080p i animacji ciągłej (przewijany ticker,
 mrugające „Na żywo”), CPU Chromium i sidecara na jedną klatkę na sekundę:
 1080p ok. 7,8%, `720p` ok. 5,6% (−30%), `540p` ok. 4,3% (−45%).
 Błędna wartość trafia do logu, a grafika renderuje się w rozmiarze kanału.
-Bez `sharp` (instalacja bez zależności) opcja jest pomijana.
 Kanały o tym samym rozmiarze i rozmiarze renderowania dzielą jedną przeglądarkę.
 
-Sidecar (Node.js, w obrazie i CI najnowszy – `node:current`; minimum 22):
+Sidecar to jeden plik binarny `virtrs-cg` (Rust) obok bezgłowego Chromium:
 
 | Adres | Co |
 |---|---|
@@ -308,14 +308,18 @@ bazy ustaw `FFmpegProfile.HardwareAcceleration = 0` i `ffmpeg.ffmpeg_path =
 Własne media trzymaj w `media/` (poza gitem) i wskaż je przez
 `MEDIA_DIR=./media`; ścieżki w ErsatzTV zaczynają się od `/media`.
 
-### Wersje ErsatzTV i Node.js
+### Wersje ErsatzTV, Rusta i Node.js
 
 Zasady:
 
 - **ErsatzTV** – zawsze najnowsza wersja z
   [github.com/ErsatzTV/legacy](https://github.com/ErsatzTV/legacy.git);
   compose używa obrazu `ghcr.io/ersatztv/legacy:latest` (amd64 i arm64).
-- **Node.js** – zawsze najnowsza wersja z
+- **Rust** – stabilny; obraz buduje się na `rust:1.97-bookworm`, minimum
+  1.87 (`rust-version` w `Cargo.toml`). Zależności runtime: `png` i `regex`,
+  przypięte w `Cargo.lock`.
+- **Node.js** – tylko do testów kontraktu i benchmarku (§7, §8), bez
+  zależności z npm; zawsze najnowsza wersja z
   [github.com/nodejs/node](https://github.com/nodejs/node.git).
 
 Integrację, testy i obrazy sprawdzamy na tych wersjach; zgłoszenia na
@@ -335,12 +339,13 @@ Obraz sidecara `ghcr.io/sdorpl/virtrs-cg` (amd64 i arm64, zmienna
 (`.github/workflows/release.yml`); pakiet
 w ghcr musi być publiczny albo maszyna zalogowana (`docker login ghcr.io`).
 Bez opublikowanego obrazu dodaj `--build` do `up` – zbuduje go sama A1
-(kilka minut; budowanie krzyżowe przez QEMU na x86 jest dużo wolniejsze).
+(kilka minut). Na x86 binarka arm64 kompiluje się krzyżowo (ok. 40 s), przez
+QEMU idzie tylko instalacja pakietów obrazu.
 Obraz VizRS ma wariant arm64.
 
 Nakładka ogranicza sidecar do 1,5 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
-Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), dopasowuje libvips
-i pulę wątków Node, daje ErsatzTV wyższy priorytet CPU, trzyma `/transcode`
+Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), daje ErsatzTV
+wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
 sprzętowego kodera: w profilu FFmpeg ErsatzTV ustaw **Hardware Acceleration:
 None**, libx264, preset `veryfast` (`superfast` przy kilku kanałach albo
@@ -389,13 +394,19 @@ równoległych sesji NVENC, czyli kanałów transkodowanych naraz.
 
 ## 5. Uruchamianie bez Dockera, konfiguracja
 
-Node 22+ i Chromium (`chromium-headless-shell`, `chromium`, `google-chrome`,
-… w `PATH` – w tej kolejności – albo `VIZRS_BROWSER`). Obraz Dockera używa
-`chromium-headless-shell` (Debian): ten sam silnik bez warstwy interfejsu,
-przy animacji ok. połowa CPU pełnego `chromium`.
+Binarka z archiwum wydania (`VirtRS-CG-<wersja>-linux-x86_64.tar.gz` albo
+`…-linux-arm64`, §7) albo zbudowana ze źródeł (`cargo build --release`,
+wynik w `target/release/virtrs-cg`) i Chromium (`chromium-headless-shell`,
+`chromium`, `google-chrome`, … w `PATH` – w tej kolejności – albo
+`VIZRS_BROWSER`). Obraz Dockera używa `chromium-headless-shell` (Debian): ten
+sam silnik bez warstwy interfejsu, przy animacji ok. połowa CPU pełnego
+`chromium`. W Debianie wskaż samą przeglądarkę,
+`VIZRS_BROWSER=/usr/lib/chromium/chromium-headless-shell` – skrypt
+`/usr/bin/chromium-headless-shell` uruchamia ją jako proces potomny powłoki,
+więc przy zamykaniu sidecara mogłaby zostać osierocona.
 
 ```sh
-node bin/virtrs-cg.js config.json
+virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
 ```
 
 ```json
@@ -423,6 +434,23 @@ Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.
 
+Nieznana opcja w pliku trafia do logu jako ostrzeżenie. Zły typ wartości
+(np. `"no_sandbox": "yes"`) zatrzymuje start z nazwą opcji; liczbę można
+podać także jako tekst (`"lead_seconds": "6"`). `LEAD_SECONDS`, który nie
+jest liczbą, daje ostrzeżenie i zostawia poprzednią wartość.
+
+`ad_match.path` i `ad_match.title` to wyrażenia regularne składni
+[`regex`](https://docs.rs/regex/latest/regex/#syntax), bez rozróżniania
+wielkości liter, także w polskich znakach (`ogłoszenia` pasuje do
+„OGŁOSZENIA”). Nie ma w niej lookahead (`(?=…)`) ani odwołań wstecznych
+(`\1`); `\d` i `\w` obejmują też znaki spoza ASCII. Wzorzec, który się nie
+kompiluje, daje ostrzeżenie przy starcie i niczego nie dopasowuje – klip
+leci wtedy jak zwykły, a sidecar działa dalej.
+
+Daty z danych ErsatzTV (`MediaItem_Start`, `Stop`, EPG) mają offset strefy
+(`2026-10-24T20:00:00.0000000+02:00`); data i czas bez offsetu są czytane
+jako UTC.
+
 ## 6. Awarie
 
 Grafika nigdy nie zatrzymuje playoutu. Komendy idą w tle z limitem 2 s na
@@ -432,6 +460,11 @@ Po awarii przeglądarki grafika jest czyszczona, a Chromium wraca po 3 s.
 Przeglądarka ma 30 s na start i otwarcie `/output` (pierwszy start na zimnej
 maszynie, np. małej VM ARM, potrafi trwać 15–20 s); potem jest restartowana.
 Gdy sidecar jest nieosiągalny, klient kończy pracę i pozycja leci bez grafiki.
+
+Przeglądarka ginie razem z sidecarem, także przy `kill -9`
+(`PR_SET_PDEATHSIG`); `SIGTERM` (`docker stop`) zamyka przeglądarki i usuwa
+ich profile. Procesy pomocnicze zabitej przeglądarki zbiera init kontenera
+(`init: true` w compose); bez niego zostawałyby jako zombie przy PID 1.
 
 Nakładka ffmpeg uruchamia oryginalną komendę ErsatzTV (z płótnem grafiki
 ErsatzTV), gdy sidecar nie odpowiada, nie ma sesji elementu VizRS albo
@@ -446,33 +479,31 @@ nakładkę, ffmpeg dostaje `SIGTERM` (`PR_SET_PDEATHSIG`); sygnały zamknięcia
 ## 7. Testy
 
 ```sh
-npm test
+cargo test                 # moduły i wektory referencyjne, Chromium (pomijany bez przeglądarki)
+cargo build --release
+npm test                   # testy kontraktu na target/release/virtrs-cg
 ```
 
-- `units` – testy jednostkowe modułów `src/`.
-- `integration` – sidecar jako **czarna skrzynka**: osobny proces
-  (`test/sidecar.mjs`) z plikiem konfiguracji, udawany VizRS (TCP), prawdziwe
-  klienty w Pythonie (`client/*.py`). Przeglądarką jest `/bin/false`, więc
-  przechwytywanie istnieje, ale klatki są przezroczyste, jak po awarii
-  Chromium. Testy sprawdzają tylko protokół (`/etv`, `/ffmpeg`,
-  `/ffmpeg/frames`, `/health`) i komendy VizRS.
-- `chromium` – prawdziwe przechwytywanie, także przez proces sidecara
-  (pakiety ETV i klatki `yuva420p`). Bez przeglądarki te testy są pomijane.
-- `vectors` – wektory referencyjne `test/vectors/*.json`: wejścia i dokładne
-  wyniki czystych funkcji (kontekst klipu, komendy, konfiguracja, prostokąty,
-  pakiety, `yuva420p`, PNG, skalowanie z tolerancją ±2). Test pilnuje, żeby
-  zgadzały się z wersją Node.js. Po zamierzonej zmianie zachowania wektory
-  regeneruje `node test/vectors/generate.mjs`.
-
-Testy czarnej skrzynki uruchamiają domyślnie `node bin/virtrs-cg.js`. Inną
-budowę tego samego kontraktu, np. binarkę Rusta w trakcie migracji
-(`docs/plany/PLAN-rust.md`), wskazuje się zmienną `VIRTRS_CG_BIN`:
-
-```sh
-VIRTRS_CG_BIN=rust/target/release/virtrs-cg node --test test/integration.test.mjs test/chromium.test.mjs
-```
-
-Przy `TRACE=1` log sidecara każdego testu trafia na stderr.
+- `cargo test` – testy modułów (`src/*.rs`) oraz `tests/*.rs`:
+  - **wektory referencyjne** `tests/vectors/*.json`: wejścia i dokładne
+    wyniki sidecara Node.js sprzed migracji (kontekst klipu, komendy, daty,
+    reklamy, konfiguracja, `STATE`, prostokąty, pakiety ETV, `yuva420p`,
+    PNG; skalowanie z tolerancją ±2). Generator jest w historii gita
+    (`test/vectors/generate.mjs`, commit 0c54143). Po zamierzonej zmianie
+    zachowania wektor poprawia się ręcznie w tym samym commicie;
+  - **Chromium** (`tests/chromium.rs`): widoczny prostokąt strony,
+    wstrzymanie i wznowienie bez sesji, renderowanie w mniejszym rozmiarze
+    ze skalowaniem, tempo animacji.
+- `npm test` – **kontrakt** (`tests/contract/`, sama biblioteka standardowa
+  Node.js): sidecar jako czarna skrzynka, osobny proces
+  (`tests/contract/sidecar.mjs`) z plikiem konfiguracji, udawany VizRS
+  (TCP), prawdziwe klienty w Pythonie (`client/*.py`). Przeglądarką jest
+  `/bin/false`, więc przechwytywanie istnieje, ale klatki są przezroczyste,
+  jak po awarii Chromium; testy sprawdzają protokół (`/etv`, `/ffmpeg`,
+  `/ffmpeg/frames`, `/health`) i komendy VizRS. Wtapianie przez prawdziwy
+  Chromium (pakiety ETV i `yuva420p`) – `chromium.test.mjs`, bez
+  przeglądarki pomijany. Inną binarkę wskazuje `VIRTRS_CG_BIN`, przy
+  `TRACE=1` log sidecara każdego testu trafia na stderr.
 
 ### Sprzątanie po testach w Dockerze
 
@@ -491,8 +522,9 @@ docker ps --filter volume=<wolumen>    # pusto = wolumen niczyj, można usunąć
 Nie używaj `docker compose down -v`, `docker volume prune` ani `docker
 system prune --volumes` – usuwają dane bez takiego sprawdzenia.
 
-CI (`.github/workflows/ci.yml`) uruchamia testy przy każdym wypchnięciu na
-`main` i `rust-edit` oraz w PR i zostawia binarkę Rusta (Linux x86_64) jako
+CI (`.github/workflows/ci.yml`) przy każdym wypchnięciu na `main` i w PR
+sprawdza `cargo fmt`, `cargo test`, `cargo clippy` (bez ostrzeżeń), buduje
+binarkę, uruchamia `npm test` i zostawia binarkę (Linux x86_64) jako
 artefakt przebiegu.
 
 Wydanie (`.github/workflows/release.yml`) rusza po znaczniku `v*`
@@ -510,68 +542,53 @@ swój znacznik, `:latest` zostaje bez zmian.
 
 ## 8. Benchmark przechwytywania grafiki
 
-`bench/` mierzy na maszynie docelowej, ile kosztuje i jak płynna jest
-grafika renderowana bez GPU. Warianty (`BENCH_ENGINES`):
+`bench/sidecar.mjs` mierzy na maszynie docelowej, ile kosztuje wtapianie
+grafiki bez GPU: binarka sidecara renderuje stronę przez jedną sesję,
+a pomiar obejmuje CPU i pamięć samego procesu sidecara (dekodowanie PNG,
+prostokąty, pakiety albo klatki `yuva420p`; przeglądarka liczy się osobno)
+oraz tempo nowych obrazów. Tryby (`BENCH_MODES`):
 
-- **`chromium`** – dokładnie to, co sidecar: klasa `Capture` z
-  `src/capture.js` (screencast PNG co n-tą klatkę, dekodowanie przez
-  `sharp`, przycinanie) i strumień pakietów z `src/stream.js`,
-- **`chromium-frames`** – prototyp rysowania zsynchronizowanego z klatkami
-  wyjścia (`bench/frames-worker.mjs`): Chromium rysuje tylko na żądanie
-  (`HeadlessExperimental.beginFrame`), raz na slot siatki 25 kl./s, z czasem
-  slotu jako czasem klatki, więc animacje idą dokładnie o jedną klatkę na
-  slot; bez zmiany na stronie nie ma PNG. Kodowanie PNG w Chromium blokuje
-  następną klatkę, dlatego `BENCH_FRAME_PAGES` (domyślnie 2) przeglądarek
-  rysuje sloty na zmianę (karty jednej przeglądarki nie mogą – jej
-  kompozytor pada na nakładających się klatkach). DevTools, dekodowanie
-  i przycinanie działają w wątku roboczym (`worker_threads`),
-- **`wpe`** – WPE WebKit przez element GStreamera `wpevideosrc` (surowe
-  klatki RGBA, bez PNG); odpada (wyniki niżej), zostaje do porównań.
+- **`etv`** – pakiety ETV dla elementu „script” ErsatzTV,
+- **`ffmpeg`** – surowe klatki `yuva420p` dla nakładki ffmpeg
+  (`BENCH_FFMPEG_FPS`, domyślnie 50; sesja skryptu zostaje otwarta, jak
+  w ErsatzTV).
 
-Wszystkie renderują stronę `bench/scene.html`, podobną do grafiki VizRS:
-przezroczyste tło, zegar, logo obracane w 3D (`perspective`), lower third
-z gradientem, `drop-shadow` i `blur`, wysuwany co 5 s, tekst przez
-`EventSource`, ticker na `requestAnimationFrame` ograniczony do klatkażu.
-Scena `static` ma tylko zegar i zmieniany tekst, `animated` – wszystko oraz
-znacznik 4×4 px w lewym górnym rogu, którego kolor koduje krok animacji
-(czas `requestAnimationFrame` / długość klatki). Zamiast sceny można
-zmierzyć prawdziwe `/output` VizRS (`BENCH_URL`, scena `url`; grafika musi
-być na antenie).
-
-Każdy przebieg (rozmiar × scena × wariant) to rozgrzewka i pomiar. Raport
-pod `http://<serwer>:7790/` pokazuje:
+Strona to `bench/scene.html`, podobna do grafiki VizRS: przezroczyste tło,
+zegar, logo obracane w 3D, lower third z gradientem, `drop-shadow`
+i `blur`, wysuwany co 5 s, tekst przez `EventSource`, ticker na
+`requestAnimationFrame` (scena `animated`; `static` ma tylko zegar
+i tekst). Zamiast sceny można zmierzyć prawdziwe `/output` VizRS
+(`BENCH_URL`; grafika musi być na antenie).
 
 | Kolumna | Znaczenie |
 |---|---|
-| nowe klatki/s | zmienione obrazy z widoczną grafiką (animacja przy 25 fps: ok. 25) |
-| ruch na wyjściu | scena `animated`: odsetek klatek wyjścia 25 kl./s, w których animacja poszła dokładnie o jeden krok (ideał 100%), stała albo przeskoczyła – to widać na antenie jako płynność |
-| przerwa p95 / max | odstępy między nowymi klatkami |
-| CPU silnik | procesy przeglądarki albo GStreamera, % jednego rdzenia |
-| CPU node | dekodowanie PNG albo odbiór surowych klatek i przycinanie – praca sidecara |
-| PSS silnika | pamięć procesów silnika (część współdzielona liczona proporcjonalnie) |
-
-oraz po jednej klatce z każdego wariantu na szachownicy, żeby porównać
-wierność obrazu (czcionki, cienie, rozmycie, przezroczystość).
-W `results.json` wariant `chromium-frames` ma też liczniki wątku
-(`frames_worker`: sloty, zrzuty, spóźnione sloty, czas `beginFrame`).
+| `cpu_percent` | CPU procesu sidecara, % jednego rdzenia |
+| `rss_mb` | pamięć procesu sidecara (głównie klatki: historia 500 ms) |
+| `pictures_per_s` | nowe obrazy grafiki na sekundę (animacja przy 25 fps: ok. 25) |
+| `mb_per_s` | strumień do ErsatzTV albo ffmpeg |
 
 Zmienne środowiskowe (wszystkie opcjonalne):
 
 | Zmienna | Domyślnie | Znaczenie |
 |---|---|---|
-| `BENCH_ENGINES` | `chromium,chromium-frames` | warianty (`chromium`, `chromium-frames`, `wpe`) |
-| `BENCH_SCENES` | `static,animated` (+`url` przy `BENCH_URL`) | sceny |
-| `BENCH_URL` | – | adres do zmierzenia, np. `http://vizrs:8088/output?token=…&fps=25` |
-| `BENCH_SIZES` | `1920x1080,1280x720` | rozmiary renderowania, po przecinku (poza compose: `1920x1080`) |
-| `BENCH_FRAME_PAGES` | `2` | przeglądarki `chromium-frames` rysujące sloty na zmianę |
+| `BENCH_MODES` | `etv,ffmpeg` | tryby |
+| `BENCH_SCENE` | `animated` | `animated` albo `static` |
+| `BENCH_URL` | – | adres do zmierzenia, np. `http://vizrs:8088/output?token=…` |
+| `BENCH_SIZE` | `1920x1080` | rozmiar kanału |
 | `BENCH_FPS` | `25` | klatkaż kanału |
+| `BENCH_FFMPEG_FPS` | `50` | klatkaż nakładki ffmpeg |
 | `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
-| `BENCH_DURATION` | `60` | pomiar [s] |
-| `BENCH_PORT` | `7790` | port raportu na hoście |
+| `BENCH_DURATION` | `30` | pomiar [s] |
 
-Z domyślnymi wartościami całość trwa ok. 10 min. Mierz na maszynie
-docelowej i bez innego obciążenia (zatrzymaj na ten czas sidecar, jeśli
-działa na tym samym hoście) – wyniki z różnych maszyn nie są porównywalne.
+Poza Dockerem (Node.js 22+, Chromium w `PATH` albo `VIZRS_BROWSER`):
+
+```sh
+cargo build --release && npm run bench
+```
+
+Mierz na maszynie docelowej i bez innego obciążenia (zatrzymaj na ten czas
+sidecar, jeśli działa na tym samym hoście) – wyniki z różnych maszyn nie są
+porównywalne.
 
 ### Instalacja w Portainerze
 
@@ -584,29 +601,33 @@ np. Ampere A1); pierwszy build trwa kilka minut.
    - Repository reference: `refs/heads/main`
    - Compose path: `bench/docker-compose.yml`
    - (repozytorium jest publiczne – bez uwierzytelniania)
-3. **Environment variables** (opcjonalnie): np. `BENCH_DURATION=120`, a do
+3. **Environment variables** (opcjonalnie): np. `BENCH_DURATION=60`, a do
    pomiaru prawdziwej grafiki `BENCH_URL` z adresem `/output` osiągalnym
    z kontenera (adres hosta, nie `localhost`).
-4. **Deploy the stack**. Postęp: **Containers → virtrs-bench-bench-1 → Logs**.
-5. Raport: `http://<serwer>:7790/` – odświeża się sam, dopóki pomiar trwa.
-   Wyniki zostają też w wolumenie `bench-results` (`results.json`, klatki PNG).
-6. Kolejny pomiar: **Containers → virtrs-bench-bench-1 → Restart**. Po zmianie
-   zmiennych: **Stacks → virtrs-bench → Editor/Environment → Update the stack**.
-7. Po zakończeniu sprzątanie (§7): **Stacks → virtrs-bench → Delete**, potem
-   w **Volumes** usuń `virtrs-bench_bench-results`, a w **Images**
-   `virtrs-cg-bench:local`.
+4. **Deploy the stack**. Wyniki: **Containers → virtrs-bench-bench-1 →
+   Logs** (tabela i linia JSON); kontener kończy pracę po pomiarze.
+5. Kolejny pomiar: **Containers → virtrs-bench-bench-1 → Start**.
+6. Po zakończeniu sprzątanie (§7): **Stacks → virtrs-bench → Delete**, potem
+   w **Images** `virtrs-cg-bench:local`.
 
 Bez Portainera, z katalogu repozytorium:
 
 ```sh
-docker compose -f bench/docker-compose.yml -p virtrs-bench up --build -d
-docker compose -f bench/docker-compose.yml -p virtrs-bench logs -f
+docker compose -f bench/docker-compose.yml -p virtrs-bench up --build
 # sprzątanie
 docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
-docker volume rm virtrs-bench_bench-results
 ```
 
 ### Uwagi i wyniki
+
+- **Sidecar w Ruście wobec Node.js** (Xeon E3-1270 v3, 1080p, scena
+  `animated`, 25 s): tryb `etv` – Rust 28% CPU i 93–96 MB, Node 53–56%
+  i 263–280 MB; tryb `ffmpeg` (50 kl./s) – Rust 79–93% i 161–187 MB, Node
+  111–140% i 351–390 MB; tempo obrazów takie samo (21–38/s).
+- Wyniki niżej pochodzą ze starego benchmarku silników (`bench/bench.mjs`,
+  usunięty przy migracji do Rusta, w historii gita – commit 0c54143):
+  Chromium jak w sidecarze, Chromium zsynchronizowany z klatkami
+  (`chromium-frames`) i WPE WebKit.
 
 - **Ampere A1** (Neoverse-N1, 4 rdzenie, 1080p, 25 fps, 60 s): WPE przy
   animacji robi tylko 12,2 kl./s przy 243% CPU i 366 MB, Chromium 23,4

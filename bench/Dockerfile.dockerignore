@@ -1,0 +1,9 @@
+node_modules
+.git
+*.log
+config.json
+seed
+media
+target
+docs
+tests/vectors

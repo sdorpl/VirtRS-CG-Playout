@@ -5,4 +5,4 @@ config.json
 *.log
 /media/
 .env
-rust/target/
+/target/

@@ -13,6 +13,10 @@ obok niezmienionego ErsatzTV:
   Chromium (bez GPU) i nakładana na obraz w ffmpeg ErsatzTV (nakładka
   ffmpeg) albo przez element grafiki ErsatzTV.
 
+Sidecar to jeden plik binarny w Ruście (`virtrs-cg`) obok bezgłowego Chromium;
+wydania: obraz `ghcr.io/sdorpl/virtrs-cg` (amd64, arm64) i archiwa dla Linuksa
+x86_64 i arm64 (DOKUMENTACJA §4, §7).
+
 ## Rodzina VizRS
 
 | Repozytorium | Rola |

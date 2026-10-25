@@ -34,11 +34,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --locked
-        working-directory: rust
       - name: Paczka
         run: |
           v=${VERSION#v}; d=VirtRS-CG-$v-${{ matrix.name }}; mkdir -p dist/$d
-          cp rust/target/release/virtrs-cg dist/$d/
+          cp target/release/virtrs-cg dist/$d/
           cp -r client etv README.md config.example.json dist/$d/
           cd dist && tar czf $d.tar.gz $d && rm -rf $d && ls -la
       - uses: actions/upload-artifact@v4

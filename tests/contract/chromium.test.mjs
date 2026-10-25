@@ -1,0 +1,72 @@
+// The sidecar burns a local transparent page in with a real headless Chromium
+// (ETV packets and yuva420p frames); skipped without a browser.
+
+import assert from "node:assert/strict";
+import http from "node:http";
+import { test } from "node:test";
+
+import { readFrames, yuvaSize } from "./helpers.mjs";
+import { findBrowser, runClient, startSidecar } from "./sidecar.mjs";
+
+const browser = findBrowser();
+// Without the sandbox as root, and where the host forbids it (CI runners, containers).
+const noSandbox = process.getuid?.() === 0 || process.env.VIZRS_BROWSER_NO_SANDBOX === "1";
+test("sidecar burns the page in: ETV packets and yuva420p frames for ffmpeg", { skip: !browser && "no Chromium", timeout: 120000 }, async (t) => {
+  const page = `<!doctype html><html><body style="margin:0;background:transparent">
+<div style="position:absolute;left:40px;top:100px;width:120px;height:20px;background:rgb(255,0,0)"></div></body></html>`;
+  const server = http.createServer((_, res) => res.end(page));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  const cg = await startSidecar(
+    { vizrs: { address: "127.0.0.1:9", token: "" }, output_url: `http://127.0.0.1:${server.address().port}/`, lead_seconds: 0 },
+    { VIZRS_BROWSER: browser, ...(noSandbox ? { VIZRS_BROWSER_NO_SANDBOX: "1" } : {}) },
+  );
+  t.after(cg.stop);
+  const [width, height] = [320, 180];
+  const data = {
+    Resolution: { Width: width, Height: height },
+    FrameRate: 25,
+    MediaItem_Path: "/m/News.mp4",
+    MediaItem_Start: "2026-10-24T20:00:00+02:00",
+    MediaItem_Stop: "2026-10-24T20:30:00+02:00",
+  };
+
+  // ffmpeg overlay path: take the session of channel 1 over, read raw frames
+  // until a cold browser has drawn the page.
+  const script = runClient(`${cg.url}/etv?channel=1`, data, 90000);
+  const claim = await fetch(`${cg.url}/ffmpeg?channel=1&wait=5000`);
+  assert.equal(claim.status, 200);
+  const { session, width: w, height: h } = await claim.json();
+  assert.deepEqual([w, h], [width, height]);
+
+  const size = yuvaSize(width, height);
+  const center = 110 * width + 100;
+  const alpha = size - width * height;
+  const abort = new AbortController();
+  const frames = await fetch(`${cg.url}/ffmpeg/frames?session=${session}`, { signal: abort.signal });
+  let buffer = Buffer.alloc(0);
+  let drawn = null;
+  const deadline = Date.now() + 60000;
+  for await (const chunk of frames.body) {
+    buffer = Buffer.concat([buffer, chunk]);
+    while (buffer.length >= size) {
+      const frame = buffer.subarray(0, size);
+      buffer = buffer.subarray(size);
+      if (frame[alpha + center] === 255) drawn = frame;
+    }
+    if (drawn || Date.now() > deadline) break;
+  }
+  abort.abort();
+  assert.ok(drawn, "the page reaches the raw frames");
+  // Opaque red, BT.601 below 720 lines; outside the box transparent.
+  assert.equal(drawn[center], 81);
+  assert.equal(drawn[alpha], 0);
+  await script;
+
+  // Script element path on another channel: the same capture, as ETV packets.
+  const stream = await runClient(`${cg.url}/etv?channel=2`, data, 1500);
+  const last = readFrames(stream, width, height).at(-1);
+  assert.deepEqual([...last.subarray(center * 4, center * 4 + 4)], [255, 0, 0, 255]);
+  assert.equal(last[3], 0);
+});

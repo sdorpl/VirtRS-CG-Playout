@@ -1,29 +1,38 @@
-# Capture benchmark: Chromium as the sidecar, frame-locked Chromium, WPE WebKit (GStreamer wpevideosrc).
+# Sidecar benchmark (bench/sidecar.mjs): the Rust binary as in the sidecar
+# image, headless Chromium and Node.js for the measuring script; amd64 and arm64.
 # Build from the repository root: docker build -f bench/Dockerfile .
-# Debian trixie: WPE WebKit 2.48 with the WPE GStreamer plugin; amd64 and arm64.
-FROM node:current-trixie-slim
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       chromium-headless-shell \
-       gstreamer1.0-wpe gstreamer1.0-tools gstreamer1.0-plugins-base \
-       libegl-mesa0 libgles2 libgl1-mesa-dri \
-       fonts-dejavu-core fonts-noto-core \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+FROM --platform=$BUILDPLATFORM rust:1.97-bookworm AS build
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      amd64) echo x86_64-unknown-linux-gnu > /target ;; \
+      arm64) echo aarch64-unknown-linux-gnu > /target \
+             && apt-get update \
+             && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+             && rm -rf /var/lib/apt/lists/* ;; \
+      *) echo "unsupported architecture $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && rustup target add "$(cat /target)"
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
 COPY src src
+RUN cargo build --release --locked --target "$(cat /target)" \
+    && cp "target/$(cat /target)/release/virtrs-cg" /virtrs-cg
+
+FROM node:current-bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium-headless-shell python3 fonts-dejavu-core fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /virtrs-cg /usr/local/bin/virtrs-cg
+WORKDIR /app
+COPY client client
+COPY tests/contract tests/contract
 COPY bench bench
-# A named volume on /results takes over this owner.
-RUN mkdir /results && chown 10001 /results
 
 ENV HOME=/tmp \
-    VIZRS_BROWSER=/usr/bin/chromium-headless-shell \
-    BENCH_RESULTS=/results \
-    PORT=7790
-
+    VIRTRS_CG_BIN=/usr/local/bin/virtrs-cg \
+    VIZRS_BROWSER=/usr/lib/chromium/chromium-headless-shell \
+    VIZRS_BROWSER_NO_SANDBOX=1
 USER 10001
-EXPOSE 7790
-CMD ["node", "bench/bench.mjs"]
+CMD ["node", "bench/sidecar.mjs"]

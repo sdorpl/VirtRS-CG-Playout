@@ -1,6 +1,6 @@
 # VirtRS CG Playout
 
-Sidecar (Node.js – najnowszy, minimum 22 – + bezgłowy Chromium) łączący **ErsatzTV** z silnikiem grafiki **VizRS**: komendy TCP na start klipu,
+Sidecar (jeden plik binarny w Ruście + bezgłowy Chromium) łączący **ErsatzTV** z silnikiem grafiki **VizRS**: komendy TCP na start klipu,
 reklamy bez grafiki i wtapianie `/output` – przez nakładkę ffmpeg (grafika wprost do ffmpeg ErsatzTV) albo element grafiki „script” ErsatzTV. Kod ErsatzTV zostaje niezmieniony.
 
 Rodzina VizRS (repozytoria obok, `../`):
@@ -23,14 +23,14 @@ Język pracy z użytkownikiem i dokumentacji: **polski**. Kod, komentarze i komu
 - **ErsatzTV bez zmian w kodzie**: integracja tylko przez element „script” (`etv/templates/graphics-elements/script/vizrs.yml`), klienta `client/vizrs-etv-client.py` i nakładkę ffmpeg `client/vizrs-ffmpeg.py` ustawioną jako ścieżka FFmpeg (sama biblioteka standardowa Pythona – obraz ErsatzTV nie ma nic więcej). Nakładka zmienia wyłącznie wejście płótna grafiki; każde inne wywołanie i każdy błąd = oryginalna komenda.
 - **Grafika nigdy nie zatrzymuje emisji**: komendy w tle z limitami czasu, błędy tylko do logu, awaria Chromium = czyste klatki i restart, brak sidecara = klip bez grafiki.
 - **Bez GPU na ścieżce grafiki**: Chromium renderuje programowo; docelowo także Oracle Cloud Ampere A1 (arm64) – pamiętaj o budżecie CPU. Obraz buduje się na amd64 i arm64.
-- **Mało zależności**: jedyna zależność runtime to `sharp` (wersja przypięta). Nowej nie dodawaj bez potrzeby.
-- **Gdzie co opisywać**: README tylko wprowadza i odsyła; opis działania, opcje i zmienne środowiskowe tylko w `docs/DOKUMENTACJA.md`. Nowa opcja = `src/config.js` + `config.example.json` (gdy dotyczy) + `docker-compose.yml` + DOKUMENTACJA §5 + test.
+- **Mało zależności**: zależności runtime to tylko `png` i `regex` (bez domyślnych funkcji; wersje w `Cargo.lock`, budowa z `--locked`). Nowej nie dodawaj bez potrzeby – JSON, HTTP, base64, DevTools i skalowanie są własne. Testy kontraktu w Node.js – tylko biblioteka standardowa.
+- **Gdzie co opisywać**: README tylko wprowadza i odsyła; opis działania, opcje i zmienne środowiskowe tylko w `docs/DOKUMENTACJA.md`. Nowa opcja = `src/config.rs` + `config.example.json` (gdy dotyczy) + `docker-compose.yml` + DOKUMENTACJA §5 + test.
 
 ## Uruchamianie
 
 ```bash
 docker compose up -d                       # VizRS :8788, sidecar :7700, ErsatzTV :8409
-node bin/virtrs-cg.js config.json          # bez Dockera (Node 22+, Chromium w PATH albo VIZRS_BROWSER)
+cargo run --release -- config.json         # bez Dockera (Rust 1.87+, Chromium w PATH albo VIZRS_BROWSER)
 ```
 
 Nakładki: `docker-compose.ampere.yml` (Oracle Ampere A1), `docker-compose.nvidia.yml` (NVENC w ErsatzTV).
@@ -38,11 +38,12 @@ Nakładki: `docker-compose.ampere.yml` (Oracle Ampere A1), `docker-compose.nvidi
 ## Testy (bramka przed commitem)
 
 ```bash
-npm test                                   # node --test test/*.test.mjs
-(cd rust && cargo test)                    # crate Rusta (gałąź rust-edit)
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
+cargo test                                 # moduły, wektory tests/vectors/, Chromium (pomijany bez przeglądarki)
+cargo build --release && npm test          # kontrakt: binarka jako czarna skrzynka (tests/contract/)
 ```
 
-`units` (szablony, pakiety, konfiguracja), `integration` (sidecar jako proces – czarna skrzynka, `VIRTRS_CG_BIN` wskazuje inną budowę; udawany VizRS i klienty Pythona), `chromium` (prawdziwe przechwytywanie; pomijane bez przeglądarki), `vectors` (wektory referencyjne `test/vectors/*.json` dla Rusta; po zamierzonej zmianie zachowania `node test/vectors/generate.mjs`).
+Wektory `tests/vectors/*.json` to zachowanie sidecara Node.js sprzed migracji (generator w historii gita, commit 0c54143); po zamierzonej zmianie zachowania popraw wektor w tym samym commicie. Testy kontraktu (udawany VizRS, klienty Pythona, `VIRTRS_CG_BIN` wskazuje inną binarkę) obowiązują każdą zmianę protokołu.
 
 Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu (kontenery, obrazy, wolumeny, pliki), ale **dane działających instancji tego projektu zostawiaj** – bez `down -v` i `volume prune`. Szczegóły: DOKUMENTACJA §7.
 
@@ -50,29 +51,29 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 
 | Ścieżka | Rola |
 |---|---|
-| `bin/virtrs-cg.js` | start: konfiguracja, serwer, zamykanie |
-| `src/config.js` | domyślne opcje, plik JSON, zmienne środowiskowe |
-| `src/server.js` | HTTP: `POST /etv?channel=N` (strumień pakietów), `GET /ffmpeg`, `GET /ffmpeg/frames` (nakładka ffmpeg), `GET /health`; przechwytywanie na rozmiar, zdarzenia na kanał |
-| `src/template.js` | kontekst klipu z danych szablonu ErsatzTV, symbole `{title}`, `{next_*}`…, wykrywanie reklam |
-| `src/vizrs.js` | klient TCP VizRS (`AUTH`, `STATE`, komendy), kolejka zdarzeń kanału, zdejmowanie/przywracanie stron przy reklamach |
-| `src/capture.js` | bezgłowy Chromium (DevTools screencast) renderujący `/output`, restart po awarii |
-| `src/png.js`, `src/packets.js`, `src/stream.js` | dekodowanie PNG (sharp), pakiety ETV (`Rectangles`/`Repeat`), tempo strumienia i `lead_seconds` |
+| `src/main.rs` | start: konfiguracja, serwer, `SIGTERM` (zamyka przeglądarki) |
+| `src/config.rs` | domyślne opcje, plik JSON, zmienne środowiskowe |
+| `src/server.rs` | HTTP: `POST /etv?channel=N` (strumień pakietów), `GET /ffmpeg`, `GET /ffmpeg/frames` (nakładka ffmpeg), `GET /health`; przechwytywanie na rozmiar, przejmowanie sesji |
+| `src/http.rs`, `src/json.rs` | własny minimalny HTTP/1.1 (strumienie chunked jak w Node; HTTP/1.0 dla nakładki) i JSON |
+| `src/template.rs`, `src/time.rs` | kontekst klipu z danych szablonu ErsatzTV, symbole `{title}`, `{next_*}`…, wykrywanie reklam (`regex`), daty ISO |
+| `src/vizrs.rs` | klient TCP VizRS (`AUTH`, `STATE`, komendy), zdarzenia kanału w kolejności, zdejmowanie/przywracanie stron przy reklamach |
+| `src/capture.rs`, `src/devtools.rs`, `src/sys.rs` | bezgłowy Chromium (screencast DevTools przez `--remote-debugging-pipe`), restart po awarii, `PR_SET_PDEATHSIG`, sygnały |
+| `src/frames.rs`, `src/png.rs`, `src/rects.rs`, `src/scale.rs` | historia klatek, dekodowanie PNG, widoczne prostokąty, skalowanie jak libvips |
+| `src/packets.rs`, `src/stream.rs`, `src/yuva.rs` | pakiety ETV (`Rectangles`/`Repeat`), tempo strumienia i `lead_seconds`, klatki `yuva420p` dla nakładki ffmpeg |
 | `client/vizrs-etv-client.py` | klient w kontenerze ErsatzTV: stdin → sidecar → stdout |
 | `client/vizrs-ffmpeg.py` | nakładka ffmpeg ErsatzTV: płótno grafiki zastąpione klatkami `yuva420p` z sidecara (DOKUMENTACJA §1) |
-| `src/yuva.js` | klatki `yuva420p` dla nakładki ffmpeg |
 | `etv/templates/…/vizrs.yml` | definicja elementu grafiki „VizRS” dla ErsatzTV |
-| `Dockerfile` | obraz sidecara (używany przez compose) |
-| `docker/sidecar.Dockerfile` | starsza wersja obrazu, nieużywana przez compose |
-| `test/` | testy `node --test` |
+| `Dockerfile` | obraz sidecara: binarka (arm64 krzyżowo) + `chromium-headless-shell` |
+| `tests/*.rs`, `tests/vectors/` | testy Rusta, wektory referencyjne |
+| `tests/contract/` | testy kontraktu w Node.js (`npm test`) |
 | `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; `init.sh` kopiuje je do pustych wolumenów (DOKUMENTACJA §4) |
-| `bench/` | benchmark przechwytywania: sidecar, Chromium zsynchronizowany z klatkami, WPE (osobny obraz i compose, DOKUMENTACJA §8) |
-| `rust/` | migracja sidecara do Rusta, gałąź `rust-edit` (plan i stan: `docs/plany/PLAN-rust.md`); do scalenia używany jest Node.js |
-| `docs/plany/` | plany prac |
-| `.github/workflows/ci.yml` | testy, binarka Rusta jako artefakt |
+| `bench/` | benchmark sidecara (`sidecar.mjs`, scena `scene.html`, obraz i compose, DOKUMENTACJA §8) |
+| `docs/plany/` | plany prac (`PLAN-rust.md` – migracja z Node.js) |
+| `.github/workflows/ci.yml` | testy, binarka jako artefakt |
 | `.github/workflows/release.yml` | po znaczniku `v*`: archiwa Linux x86_64/arm64, obraz amd64 + arm64 do ghcr, wydanie GitHub |
 
 ## Commity
 
 - Jedna spójna zmiana = jeden commit, po polsku, opisowo. Tylko zielone stany.
-- Pliki dodawaj jawnie (`git add ścieżka`). Nie commituj `config.json`, `media/` (własne media; testowe są w `seed/media/`), zrzutów PNG ani logów. W `seed/` nigdy sekretów ErsatzTV (`*-secrets.json`, `data-protection`) ani tokenów.
+- Pliki dodawaj jawnie (`git add ścieżka`). Nie commituj `config.json`, `target/`, `media/` (własne media; testowe są w `seed/media/`), zrzutów PNG ani logów. W `seed/` nigdy sekretów ErsatzTV (`*-secrets.json`, `data-protection`) ani tokenów.
 - Commit i push tylko na prośbę użytkownika.

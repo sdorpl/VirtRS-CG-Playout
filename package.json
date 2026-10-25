@@ -1,20 +1,14 @@
 {
-  "name": "virtrs-cg-playout",
+  "name": "virtrs-cg-playout-tests",
   "version": "2.0.6",
   "private": true,
-  "description": "VizRS graphics for ErsatzTV channels: commands on clip start and burn-in of /output through the ErsatzTV script graphics element",
+  "description": "Contract tests of the VirtRS CG sidecar (Rust binary) as a black box: Node.js standard library only",
   "type": "module",
   "engines": {
     "node": ">=22"
   },
-  "bin": {
-    "virtrs-cg": "bin/virtrs-cg.js"
-  },
   "scripts": {
-    "start": "node bin/virtrs-cg.js",
-    "test": "node --test test/*.test.mjs"
-  },
-  "dependencies": {
-    "sharp": "0.34.4"
+    "test": "node --test \"tests/contract/*.test.mjs\"",
+    "bench": "node bench/sidecar.mjs"
   }
 }
