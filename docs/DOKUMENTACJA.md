@@ -403,22 +403,27 @@ Służy do tego tablica `shows` w pliku konfiguracyjnym:
 - Jeśli audycja nie pasuje do żadnego wpisu z `shows`, stosowane są ustawienia
   globalne.
 
-### Osobne elementy grafiki w ErsatzTV (`take=<ID>`)
+### Osobne elementy grafiki w ErsatzTV (`page=<ID>` / `take=<ID>`) i synchronizacja (`virtrs-cg sync`)
 
 Drugim sposobem – analogicznym do watermarków w ErsatzTV – jest dodanie
 poszczególnych grafik VizRS jako osobnych elementów graficznych **script**
 w ErsatzTV (pliki `.yml` w katalogu `etv/templates/graphics-elements/script/`).
-W adresie URL elementu podaje się numer strony `take=<ID>` oraz opcjonalnie
-wartości pól `fields=...`:
+Każdy taki plik odpowiada zaimportowanej stronie z VizRS CG System:
+- format nazwy elementu: `[Nazwa strony] (ID)`, np. `Ticker (3001)`
+- adres URL z parametrem strony: `http://cg:7700/etv?channel=1&page=3001` (lub opcjonalnie `take=...` z wartościami pól `fields=...`).
 
-- `http://cg:7700/etv?channel=1&take=3001` (np. VizRS - Ticker)
-- `http://cg:7700/etv?channel=1&take=4001&fields=headline={title}|sub=Potem:+{next_title}+o+{next_start}` (np. VizRS - Belka)
+Do automatycznej synchronizacji szablonów stron z VizRS CG System służy polecenie:
 
-Każdy taki plik pojawia się jako osobna pozycja w menu ErsatzTV
-(**Schedules → pozycja → Graphics Elements**). Dzięki temu w harmonogramie
-można dla każdej audycji zaznaczyć dokładnie te elementy grafiki, które mają się
-wyświetlić (np. audycja 1: Belka + Ticker, audycja 2: sama Belka).
+```sh
+virtrs-cg sync [--url http://vizrs:8088] [--token <TOKEN>] [--channel 1] [--output-dir <DIR>]
+# albo z pliku projektu show.json:
+virtrs-cg sync --file seed/vizrs-data/show.json --output-dir etv/templates/graphics-elements/script
+```
 
+Skrypt odpytuje VizRS (`GET /api/show`), parsuje wszystkie strony i generuje
+gotowe pliki `.yml` (`page-<ID>.yml`). Każda strona pojawia się jako osobna
+pozycja w menu ErsatzTV (**Schedules → pozycja → Graphics Elements**),
+co pozwala zaznaczyć dowolną kombinację grafik dla każdej audycji z osobna.
 
 ## 4. Uruchamianie w Dockerze
 

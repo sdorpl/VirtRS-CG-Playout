@@ -14,7 +14,85 @@ fn main() -> ExitCode {
     sys::block_stop_signals();
     log::set_debug(std::env::var("DEBUG").as_deref() == Ok("1"));
 
-    let file = std::env::args_os().nth(1).or_else(|| std::env::var_os("CONFIG")).map(PathBuf::from);
+    let mut args = std::env::args_os().skip(1);
+    let first = args.next();
+
+    // virtrs-cg sync [--output-dir <DIR>] [--channel <CH>] [--url <VIZRS_HTTP>] [--token <TOKEN>] [--cg-url <URL>]
+    if first.as_deref().and_then(|s| s.to_str()) == Some("sync") {
+        let mut output_dir = PathBuf::from("etv/templates/graphics-elements/script");
+        let mut channel = "1".to_string();
+        let mut vizrs_url = std::env::var("VIZRS_HTTP_URL").unwrap_or_else(|_| "http://vizrs:8088".into());
+        let mut token = std::env::var("VIZRS_TOKEN").unwrap_or_default();
+        let mut cg_url = std::env::var("VIZRS_CG_URL").unwrap_or_else(|_| "http://cg:7700".into());
+        let mut show_file: Option<PathBuf> = None;
+
+        while let Some(arg) = args.next() {
+            let s = arg.to_string_lossy();
+            match s.as_ref() {
+                "--output-dir" | "-o" => {
+                    if let Some(val) = args.next() {
+                        output_dir = PathBuf::from(val);
+                    }
+                }
+                "--channel" | "-c" => {
+                    if let Some(val) = args.next() {
+                        channel = val.to_string_lossy().into_owned();
+                    }
+                }
+                "--url" | "-u" => {
+                    if let Some(val) = args.next() {
+                        vizrs_url = val.to_string_lossy().into_owned();
+                    }
+                }
+                "--token" | "-t" => {
+                    if let Some(val) = args.next() {
+                        token = val.to_string_lossy().into_owned();
+                    }
+                }
+                "--cg-url" => {
+                    if let Some(val) = args.next() {
+                        cg_url = val.to_string_lossy().into_owned();
+                    }
+                }
+                "--file" | "-f" => {
+                    if let Some(val) = args.next() {
+                        show_file = Some(PathBuf::from(val));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let show_json = match show_file {
+            Some(path) => match std::fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(e) => {
+                    error!("read {}: {e}", path.display());
+                    return ExitCode::FAILURE;
+                }
+            },
+            None => match virtrs_cg::sync::fetch_show(&vizrs_url, &token) {
+                Ok(content) => content,
+                Err(e) => {
+                    error!("fetch from {vizrs_url}: {e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+        };
+
+        match virtrs_cg::sync::sync_templates(&show_json, &output_dir, &channel, &cg_url, true) {
+            Ok(count) => {
+                info!("synced {count} pages to {}", output_dir.display());
+                return ExitCode::SUCCESS;
+            }
+            Err(e) => {
+                error!("sync templates: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    let file = first.or_else(|| std::env::var_os("CONFIG")).map(PathBuf::from);
     let config = match Config::load(file.as_deref()) {
         Ok((config, warnings)) => {
             for warning in warnings {

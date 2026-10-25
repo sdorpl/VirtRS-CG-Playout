@@ -413,7 +413,7 @@ impl Server {
         // Commands go out in the background; frames start at once.
         let custom_commands = if let Some(cmd) = request.param("cmd").or_else(|| request.param("command")) {
             Some(vec![cmd.to_owned()])
-        } else if let Some(take) = request.param("take") {
+        } else if let Some(take) = request.param("page").or_else(|| request.param("take")) {
             let fields = request.param("fields").map(|f| format!(" {f}")).unwrap_or_default();
             Some(vec![format!("TAKE {take}{fields}")])
         } else {

@@ -21,6 +21,7 @@ pub mod rects;
 pub mod scale;
 pub mod server;
 pub mod stream;
+pub mod sync;
 pub mod sys;
 pub mod template;
 pub mod time;
