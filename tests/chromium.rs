@@ -3,7 +3,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,13 @@ fn serve(page: &'static str) -> String {
     url
 }
 
+/// One browser at a time: cold starts of several at once on a small CI runner
+/// take longer than the first DevTools call may wait.
+fn serial() -> MutexGuard<'static, ()> {
+    static SERIAL: Mutex<()> = Mutex::new(());
+    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
     let Some(browser) = find_browser() else {
         eprintln!("no Chromium: skipped");
@@ -50,7 +57,7 @@ fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> 
 }
 
 fn until(what: &str, check: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let deadline = Instant::now() + Duration::from_secs(90);
     while !check() {
         assert!(Instant::now() < deadline, "timeout: {what}");
         thread::sleep(Duration::from_millis(50));
@@ -67,6 +74,7 @@ fn boxes(capture: &Capture) -> Vec<(u32, u32, u32, u32)> {
 
 #[test]
 fn chromium_capture_gives_the_visible_box_of_a_transparent_page() {
+    let _serial = serial();
     let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
     // A cold browser may first send a half-painted frame; the picture must settle on the page.
     until("the red box", || boxes(&capture) == [(40, 300, 400, 60)]);
@@ -76,6 +84,7 @@ fn chromium_capture_gives_the_visible_box_of_a_transparent_page() {
 
 #[test]
 fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
+    let _serial = serial();
     let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
     capture.acquire();
     until("a first frame", || !capture.current().rects.is_empty());
@@ -93,6 +102,7 @@ fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
 
 #[test]
 fn chromium_capture_renders_smaller_and_scales_to_the_channel() {
+    let _serial = serial();
     // Proportional layout, like VizRS scaling its 1920x1080 stage to the viewport.
     const SCALED: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
 <div style="position:absolute;left:10%;top:80%;width:50%;height:10%;background:rgb(255,0,0)"></div></body></html>"#;
@@ -114,6 +124,7 @@ fn chromium_capture_renders_smaller_and_scales_to_the_channel() {
 /// holding back the screencast acks), so new pictures keep coming.
 #[test]
 fn chromium_capture_follows_an_animation_at_the_channel_rate() {
+    let _serial = serial();
     const ANIMATED: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
 <div id="box" style="position:absolute;top:100px;width:80px;height:40px;background:rgb(0,0,255)"></div>
 <script>const box = document.getElementById("box");
