@@ -14,6 +14,7 @@ services:
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb
     environment:
+      TZ: Europe/Warsaw
       BENCH_SIZE: ${BENCH_SIZE:-1920x1080}
       BENCH_MODES: ${BENCH_MODES:-etv,ffmpeg}
       BENCH_SCENE: ${BENCH_SCENE:-animated}

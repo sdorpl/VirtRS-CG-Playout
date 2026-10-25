@@ -31,7 +31,7 @@ RUN cargo build --release --locked --target "$(cat /target)" \
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium-headless-shell fonts-dejavu-core fonts-noto-core \
+    && apt-get install -y --no-install-recommends chromium-headless-shell fonts-dejavu-core fonts-noto-core tzdata \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /virtrs-cg /usr/local/bin/virtrs-cg
 WORKDIR /app
@@ -41,6 +41,7 @@ COPY etv etv
 # browser binary itself, not Debian's /usr/bin wrapper: the wrapper runs it as
 # a child of sh, so stopping and the parent-death signal would only reach sh.
 ENV HOME=/tmp \
+    TZ=Europe/Warsaw \
     VIZRS_BROWSER=/usr/lib/chromium/chromium-headless-shell \
     VIZRS_BROWSER_NO_SANDBOX=1 \
     LISTEN=0.0.0.0:7700

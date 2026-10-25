@@ -22,7 +22,7 @@ RUN cargo build --release --locked --target "$(cat /target)" \
 
 FROM node:current-bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium-headless-shell fonts-dejavu-core fonts-noto-core \
+    && apt-get install -y --no-install-recommends chromium-headless-shell fonts-dejavu-core fonts-noto-core tzdata \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /virtrs-cg /usr/local/bin/virtrs-cg
 WORKDIR /app
@@ -30,6 +30,7 @@ COPY tests/contract tests/contract
 COPY bench bench
 
 ENV HOME=/tmp \
+    TZ=Europe/Warsaw \
     VIRTRS_CG_BIN=/usr/local/bin/virtrs-cg \
     VIZRS_BROWSER=/usr/lib/chromium/chromium-headless-shell \
     VIZRS_BROWSER_NO_SANDBOX=1
