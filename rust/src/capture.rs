@@ -464,21 +464,30 @@ impl Capture {
         crate::info!("burn-in {}: capturing {}", self.key(), self.options.url);
 
         // A screenshot of the final state when the screencast went quiet.
+        let shooting = Arc::new(AtomicBool::new(false));
         let mut settle_at = (step > 1).then(|| Instant::now() + SETTLE);
         loop {
             let wait = settle_at.map_or(Duration::from_secs(3600), |at| at.saturating_duration_since(Instant::now()));
             match incoming.recv_timeout(wait) {
                 Err(RecvTimeoutError::Timeout) => {
                     settle_at = None;
-                    if self.state().active {
-                        match call("Page.captureScreenshot", json::object([("format", "png".into())])) {
-                            Ok(shot) => {
-                                if let Some(data) = shot.get("data").and_then(Value::as_str) {
-                                    self.push_png(data.to_owned(), Instant::now());
+                    // On its own thread, as the Node.js build awaited it: the loop keeps
+                    // acking screencast frames meanwhile, one shot at a time.
+                    if self.state().active && !shooting.swap(true, Ordering::Relaxed) {
+                        let (capture, devtools, session, shooting) =
+                            (Arc::clone(self), Arc::clone(devtools), session.clone(), Arc::clone(&shooting));
+                        let _ = thread::Builder::new().name("screenshot".into()).spawn(move || {
+                            let params = json::object([("format", "png".into())]);
+                            match devtools.call("Page.captureScreenshot", params, Some(&session), CALL_TIMEOUT) {
+                                Ok(shot) => {
+                                    if let Some(data) = shot.get("data").and_then(Value::as_str) {
+                                        capture.push_png(data.to_owned(), Instant::now());
+                                    }
                                 }
+                                Err(error) => crate::warn!("burn-in {}: {error}", capture.key()),
                             }
-                            Err(error) => crate::warn!("burn-in {}: {error}", self.key()),
-                        }
+                            shooting.store(false, Ordering::Relaxed);
+                        });
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err("browser exited".into()),

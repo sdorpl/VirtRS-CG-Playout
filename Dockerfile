@@ -32,9 +32,11 @@ WORKDIR /app
 COPY client client
 COPY etv etv
 
-# Chromium needs a writable HOME (crashpad) for the unprivileged user.
+# Chromium needs a writable HOME (crashpad) for the unprivileged user. The
+# browser binary itself, not Debian's /usr/bin wrapper: the wrapper runs it as
+# a child of sh, so stopping and the parent-death signal would only reach sh.
 ENV HOME=/tmp \
-    VIZRS_BROWSER=/usr/bin/chromium-headless-shell \
+    VIZRS_BROWSER=/usr/lib/chromium/chromium-headless-shell \
     VIZRS_BROWSER_NO_SANDBOX=1 \
     LISTEN=0.0.0.0:7700
 

@@ -108,3 +108,24 @@ fn chromium_capture_renders_smaller_and_scales_to_the_channel() {
     assert_eq!(capture.key(), "640x360 (render 320x180)");
     capture.stop();
 }
+
+/// An animation at the channel rate: the screencast takes every second frame
+/// at 25 fps (and screenshots the final state after 150 ms of quiet, without
+/// holding back the screencast acks), so new pictures keep coming.
+#[test]
+fn chromium_capture_follows_an_animation_at_the_channel_rate() {
+    const ANIMATED: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
+<div id="box" style="position:absolute;top:100px;width:80px;height:40px;background:rgb(0,0,255)"></div>
+<script>const box = document.getElementById("box");
+(function step(t) { box.style.left = (t / 10 % 500) + "px"; requestAnimationFrame(step); })(0);</script>
+</body></html>"#;
+    let Some(capture) = capture(serve(ANIMATED), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
+    until("a first frame", || !capture.current().rects.is_empty());
+    thread::sleep(Duration::from_secs(1));
+    let seq = capture.current().seq;
+    thread::sleep(Duration::from_secs(2));
+    let rate = (capture.current().seq - seq) as f64 / 2.0;
+    capture.stop();
+    // Chromium at 60 Hz / 2 = 30, minus what a busy test host drops.
+    assert!(rate >= 12.0, "{rate} pictures per second");
+}

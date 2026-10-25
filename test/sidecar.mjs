@@ -115,5 +115,5 @@ export async function startSidecar(config = {}, env = {}) {
     }
   }
 
-  return { url, port, health, logs, stop };
+  return { url, port, pid: child.pid, health, logs, stop };
 }

@@ -44,6 +44,8 @@ services:
   cg:
     build: .
     restart: unless-stopped
+    # A minimal init as PID 1 reaps the helper processes of a crashed browser.
+    init: true
     depends_on:
       - vizrs
     environment:

@@ -26,9 +26,6 @@ services:
     environment:
       # Chromium: software raster on fewer threads.
       VIZRS_BROWSER_ARGS: ${VIZRS_BROWSER_ARGS:---num-raster-threads=2 --disable-smooth-scrolling}
-      # libvips (sharp) and the Node thread pool sized to the CPU cap.
-      VIPS_CONCURRENCY: ${VIPS_CONCURRENCY:-2}
-      UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE:-2}
       # A1 cores are slower per thread than x86: a little more player buffer.
       LEAD_SECONDS: ${LEAD_SECONDS:-5}
 
