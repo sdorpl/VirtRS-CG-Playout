@@ -1,6 +1,6 @@
 {
   "name": "virtrs-cg-playout-tests",
-  "version": "2.0.8",
+  "version": "2.1.0",
   "private": true,
   "description": "Contract tests of the VirtRS CG sidecar (Rust binary) as a black box: Node.js standard library only",
   "type": "module",
