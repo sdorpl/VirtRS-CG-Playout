@@ -4,7 +4,7 @@
 //                         body: ErsatzTV template data (JSON from the script
 //                         element's stdin); reply: endless ETV packet stream
 //   GET  /ffmpeg?channel=1[&wait=2000]
-//                         the ffmpeg overlay (client/vizrs-ffmpeg.py) takes over
+//                         the ffmpeg overlay (vizrs-ffmpeg) takes over
 //                         a script session of the channel: its packets
 //                         stop, the reply gives the session, size and rate
 //   GET  /ffmpeg/frames?session=N[&fps=25/1]

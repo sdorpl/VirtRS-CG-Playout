@@ -12,7 +12,7 @@
 ## 1. Jak to działa
 
 ```
-ErsatzTV ── element grafiki „script” ──► vizrs-etv-client.py ──HTTP──► virtrs-cg (sidecar)
+ErsatzTV ── element grafiki „script” ──► vizrs-etv-client ──HTTP──► virtrs-cg (sidecar)
   ▲  stdin: dane szablonu (JSON)                                         │  TCP 6100 ─► VizRS
   └──────── stdout: pakiety grafiki ETV ◄────────────────────────────────┘  Chromium ◄─ /output
 ```
@@ -20,9 +20,12 @@ ErsatzTV ── element grafiki „script” ──► vizrs-etv-client.py ─�
 ErsatzTV uruchamia element „script” dla każdej pozycji playoutu, podaje na
 stdin dane szablonu (ścieżka, tytuł, start/stop, wpisy EPG, rozdzielczość,
 klatkaż) i nakłada surowe klatki czytane ze stdout (`format: packet`).
-Klient w Pythonie (sama biblioteka standardowa) tylko przekazuje dane w obie
-strony, więc w sidecarze działa jedna przeglądarka na rozmiar kanału (i rozmiar
-renderowania, niżej), także między pozycjami.
+Klient `vizrs-etv-client` ([src/etv_client.rs](../src/etv_client.rs)) tylko
+przekazuje dane w obie strony (`POST /etv` po HTTP/1.0, pakiety jako surowe
+bajty). To statyczna binarka (musl) budowana w obrazie `seed` (§4), więc
+w kontenerze ErsatzTV na amd64 i arm64 nie potrzeba Pythona ani niczego
+innego. Przeglądarka działa więc w sidecarze, jedna na rozmiar kanału
+(i rozmiar renderowania, niżej), także między pozycjami.
 
 ### Rozdzielczość warstwy grafiki
 
@@ -118,20 +121,25 @@ sidecar (równe 25 kl./s), ani główny ffmpeg (ok. 5× z grafiką z pliku) tego
 nie ograniczają, a `render_size` nie pomaga, bo płótno ErsatzTV zawsze ma
 rozmiar kanału.
 
-Nakładka [vizrs-ffmpeg.py](../client/vizrs-ffmpeg.py) omija ten łańcuch, tak
-jak VizRS ffPlayout System mieszał grafikę we własnym ffmpeg. W ErsatzTV
-ustawia się ją jako ścieżkę FFmpeg (**Settings → FFmpeg → FFmpeg Path** =
-`/vizrs/vizrs-ffmpeg.py`); kod ErsatzTV zostaje bez zmian.
+Nakładka `vizrs-ffmpeg` ([src/overlay.rs](../src/overlay.rs)) omija ten
+łańcuch, tak jak VizRS ffPlayout System mieszał grafikę we własnym ffmpeg. To
+też statyczna binarka (musl), więc działa w obrazie ErsatzTV na amd64
+i arm64 bez względu na jego glibc; `seed` kładzie ją do `/vizrs` (§4). W ErsatzTV ustawia się ją jako ścieżkę FFmpeg
+(**Settings → FFmpeg → FFmpeg Path** = `/vizrs/vizrs-ffmpeg`); kod ErsatzTV
+zostaje bez zmian. Dawna ścieżka `/vizrs/vizrs-ffmpeg.py` (nakładka
+w Pythonie do wersji 2.1.2) nadal działa: `seed` zostawia pod nią skrypt
+`sh` uruchamiający binarkę.
 
 ```
-ErsatzTV ── ffmpeg ──► vizrs-ffmpeg.py ── -i pipe:N (yuva420p) ◄── GET /ffmpeg/frames ── sidecar
+ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄── GET /ffmpeg/frames ── sidecar
               │            └─ GET /internal/graphics/… (płótno: start elementu „script”, dane pozycji)
               └─ każde inne wywołanie: prawdziwy ffmpeg bez zmian
 ```
 
 1. Wywołanie bez wejścia płótna grafiki (`-i http://…/internal/graphics/<kanał>/<pozycja>`)
    idzie do prawdziwego ffmpeg bez zmian (`exec`). Płótno z parametrem
-   `region` (same watermarki, bez elementu VizRS) też.
+   `region` (same watermarki, bez elementu VizRS) też, podobnie płótno po
+   `https` (ErsatzTV podaje `http://localhost`).
 2. Nakładka sama otwiera płótno z nagłówkami ErsatzTV i odczytuje je do
    końca. ErsatzTV uruchamia więc element „script” jak zwykle: klient
    przekazuje dane pozycji, a komendy, reklamy i `{next_*}` działają bez zmian.
@@ -276,30 +284,29 @@ media testowe z wolumenu `seed-media` albo `MEDIA_DIR`). Stos nie montuje
 Portainerze wdrażającym stos z GitHuba (**Stacks → Add stack → Repository**).
 Usługa `seed` (niżej) kopiuje
 [vizrs.yml](../etv/templates/graphics-elements/script/vizrs.yml) do
-`/config/templates/graphics-elements/script/` ErsatzTV, a klientów
-z `client/` do wolumenu `vizrs-client`, montowanego w ErsatzTV jako `/vizrs`.
+`/config/templates/graphics-elements/script/` ErsatzTV, a programy
+`vizrs-etv-client` i `vizrs-ffmpeg` do wolumenu `vizrs-client`, montowanego
+w ErsatzTV jako `/vizrs`.
 W ErsatzTV dodaj element **VizRS** do pozycji harmonogramu
 (**Schedules → pozycja → Graphics Elements**) albo do **Deco** przypisanego
 do playoutu i zresetuj playout – bez tego ErsatzTV nie uruchamia skryptu.
 Przy kilku kanałach skopiuj element z `channel=2`, … w URL.
 
-W `/vizrs` jest też [nakładka ffmpeg](../client/vizrs-ffmpeg.py) (§1); compose
-ustawia ErsatzTV `VIZRS_CG_URL=http://cg:7700`. Baza startowa
-(`seed/`) ma już ścieżkę FFmpeg `/vizrs/vizrs-ffmpeg.py`. W istniejącej
-instancji ustaw ją w **Settings → FFmpeg → FFmpeg Path**. Powrót do ścieżki
+W `/vizrs` jest też nakładka ffmpeg `vizrs-ffmpeg` (§1), zbudowana w obrazie
+`seed` dla architektury stosu; compose ustawia ErsatzTV
+`VIZRS_CG_URL=http://cg:7700`. Baza startowa (`seed/`) ma już ścieżkę FFmpeg
+`/vizrs/vizrs-ffmpeg`. W istniejącej instancji ustaw ją w **Settings → FFmpeg
+→ FFmpeg Path** (stara `/vizrs/vizrs-ffmpeg.py` też działa). Powrót do ścieżki
 grafiki ErsatzTV: `/usr/local/bin/ffmpeg` albo `VIZRS_CG_URL=` (puste).
 
-Klienty w `/vizrs` potrzebują `python3`. Obraz ErsatzTV dla amd64 go ma,
-dla arm64 (np. Ampere A1) nie – bez niego ErsatzTV nie uruchamia ani elementu,
-ani nakładki, kanał leci bez grafiki, a `/health` sidecara pokazuje
-`"sessions":0`. Dlatego compose nadpisuje `entrypoint` ErsatzTV: gdy brak
-`python3`, instaluje go z apt i dopiero potem uruchamia `./ErsatzTV` – raz na
-kontener, więc przy tworzeniu kontenera potrzebny jest internet, a pierwszy
-start trwa dłużej (w logu `vizrs: installing python3`). Nieudana instalacja
-nie zatrzymuje ErsatzTV (`vizrs: python3 install failed…`), kanały lecą wtedy
-bez grafiki. Mody linuxservera (`DOCKER_MODS`) tu nie działają – obraz
-startuje `./ErsatzTV` bez `/init`. Sprawdzenie:
-`docker compose exec ersatztv python3 --version`.
+Programy w `/vizrs` to statyczne binarki zbudowane dla architektury stosu:
+obraz ErsatzTV nie potrzebuje Pythona ani dodatkowych pakietów (do wersji
+2.1.2 klienci byli w Pythonie, a compose doinstalowywał `python3` w obrazie
+arm64). Element skopiowany ze starego `vizrs.yml` (`command: python3`,
+`/vizrs/vizrs-etv-client.py`) działa dalej tam, gdzie obraz ma `python3`
+(amd64): `seed` zostawia pod tą ścieżką skrypt uruchamiający binarkę. Na
+arm64 zmień w kopii `command` na `/vizrs/vizrs-etv-client`, a z `args` usuń
+ścieżkę `.py`.
 
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 Ustawienia stałe dla danej maszyny (nazwa projektu, nakładki, porty, tokeny)
@@ -314,11 +321,12 @@ Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
 
 Pierwszy start stosu dostaje gotową konfigurację instancji wzorcowej. Usługa
 `seed` to mały obraz budowany z repozytorium ([seed/Dockerfile](../seed/Dockerfile):
-`seed/`, `client/`, `vizrs.yml`); przy każdym starcie stosu kopiuje dane
-startowe do **pustych** wolumenów i kończy pracę, a VizRS i ErsatzTV startują
+`seed/`, `vizrs.yml` oraz `vizrs-etv-client` i `vizrs-ffmpeg` kompilowane
+w etapie budowy – na x86 krzyżowo dla arm64, na A1 natywnie); przy każdym
+starcie stosu kopiuje dane startowe do **pustych** wolumenów i kończy pracę, a VizRS i ErsatzTV startują
 po niej. Wolumen z danymi zostaje nietknięty (w logu `seed: … present, left
 alone`), więc `docker compose up -d` na działającej instancji niczego nie
-nadpisuje. Klientów ErsatzTV i `vizrs.yml` `seed` podmienia zawsze – nowa
+nadpisuje. Programy ErsatzTV i `vizrs.yml` `seed` podmienia zawsze – nowa
 wersja repozytorium przynosi je po `docker compose up -d --build` (w
 Portainerze: **Pull and redeploy**). Pusty katalog `vizrs.yml`, który
 zostawiało w wolumenie starsze compose (montowało plik z hosta), `seed`
@@ -329,7 +337,7 @@ zastępuje plikiem.
 | `seed/vizrs-data/` | show „Newsroom INFO24” (`shows/newsroom-info24.json`, aktywny), `show.json`, tła z `assets/` | wolumen `vizrs-data` (`/data` VizRS) |
 | `seed/ersatztv-config/ersatztv.sqlite3` | baza ErsatzTV: kanał 1 z elementem **VizRS**, harmonogram, biblioteka `/media`, profil FFmpeg 1080p x264, ścieżka FFmpeg = nakładka (§1) | wolumen `ersatztv-config` (`/config`) |
 | `seed/media/` | odcinki testowe i reklama (`reklamy/` – bez grafiki) | wolumen `seed-media` (`/media` ErsatzTV, gdy brak `MEDIA_DIR`) |
-| `client/`, `etv/…/vizrs.yml` | klienci ErsatzTV i element grafiki „VizRS” (zawsze nadpisywane) | wolumen `vizrs-client` (`/vizrs`), `/config/templates/graphics-elements/script/` |
+| `vizrs-etv-client`, `vizrs-ffmpeg`, `etv/…/vizrs.yml` | klient elementu i nakładka ffmpeg (binarki z etapu budowy) oraz element grafiki „VizRS” (zawsze nadpisywane) | wolumen `vizrs-client` (`/vizrs`), `/config/templates/graphics-elements/script/` |
 
 Bez sekretów: nie ma tu plików `*-secrets.json`, kluczy `data-protection`,
 logów, cache ani indeksu wyszukiwania (ErsatzTV buduje go przy pierwszym
@@ -342,7 +350,7 @@ Odświeżenie danych startowych z działającej instancji: zatrzymaj ErsatzTV
 (`docker compose stop ersatztv`, baza bez otwartego WAL), skopiuj z wolumenów
 `show.json`, `shows/`, `assets/` i `ersatztv.sqlite3` do `seed/`, w kopii
 bazy ustaw `FFmpegProfile.HardwareAcceleration = 0` i `ffmpeg.ffmpeg_path =
-/vizrs/vizrs-ffmpeg.py` w `ConfigElement`, usuń wpis
+/vizrs/vizrs-ffmpeg` w `ConfigElement`, usuń wpis
 `search_index.version` z `ConfigElement`, potem `docker compose start ersatztv`.
 Własne media trzymaj w `media/` (poza gitem) i wskaż je przez
 `MEDIA_DIR=./media` (z klonu repozytorium) albo ścieżką bezwzględną na
@@ -380,7 +388,10 @@ Obraz sidecara `ghcr.io/sdorpl/virtrs-cg` (amd64 i arm64, zmienna
 (`.github/workflows/release.yml`); pakiet
 w ghcr musi być publiczny albo maszyna zalogowana (`docker login ghcr.io`).
 Bez opublikowanego obrazu dodaj `--build` do `up` – zbuduje go sama A1
-(kilka minut). Na x86 binarka arm64 kompiluje się krzyżowo (ok. 40 s), przez
+(kilka minut). Klient elementu i nakładka ffmpeg (`vizrs-etv-client`,
+`vizrs-ffmpeg`, §1) powstają zawsze przy budowie obrazu `seed`: na A1
+natywnie dla arm64, statycznie (musl), więc działają w obrazie ErsatzTV arm64
+bez dodatkowych pakietów. Na x86 binarka arm64 kompiluje się krzyżowo (ok. 40 s), przez
 QEMU idzie tylko instalacja pakietów obrazu.
 Obraz VizRS ma wariant arm64.
 
@@ -465,7 +476,9 @@ wstawia `fps` przed filtrem nakładania. Sidecar nie potrzebuje GPU.
 
 Binarka z archiwum wydania (`VirtRS-CG-<wersja>-linux-x86_64.tar.gz` albo
 `…-linux-arm64`, §7) albo zbudowana ze źródeł (`cargo build --release`,
-wynik w `target/release/virtrs-cg`) i Chromium (`chromium-headless-shell`,
+wynik w `target/release/virtrs-cg`, programy ErsatzTV w
+`target/release/vizrs-etv-client` i `vizrs-ffmpeg`; statycznie: `--bin
+vizrs-etv-client --bin vizrs-ffmpeg --target <arch>-unknown-linux-musl`) i Chromium (`chromium-headless-shell`,
 `chromium`, `google-chrome`, … w `PATH` – w tej kolejności – albo
 `VIZRS_BROWSER`). Obraz Dockera używa `chromium-headless-shell` (Debian): ten
 sam silnik bez warstwy interfejsu, przy animacji ok. połowa CPU pełnego
@@ -560,7 +573,7 @@ nakładkę, ffmpeg dostaje `SIGTERM` (`PR_SET_PDEATHSIG`); sygnały zamknięcia
 ```sh
 cargo test                 # moduły i wektory referencyjne, Chromium (pomijany bez przeglądarki)
 cargo build --release
-npm test                   # testy kontraktu na target/release/virtrs-cg
+npm test                   # testy kontraktu na target/release/virtrs-cg, vizrs-etv-client i vizrs-ffmpeg
 ```
 
 - `cargo test` – testy modułów (`src/*.rs`) oraz `tests/*.rs`:
@@ -576,7 +589,10 @@ npm test                   # testy kontraktu na target/release/virtrs-cg
 - `npm test` – **kontrakt** (`tests/contract/`, sama biblioteka standardowa
   Node.js): sidecar jako czarna skrzynka, osobny proces
   (`tests/contract/sidecar.mjs`) z plikiem konfiguracji, udawany VizRS
-  (TCP), prawdziwe klienty w Pythonie (`client/*.py`). Przeglądarką jest
+  (TCP), prawdziwy klient elementu (`target/release/vizrs-etv-client`, inna
+  binarka: `VIZRS_ETV_CLIENT_BIN`) i nakładka ffmpeg
+  (`target/release/vizrs-ffmpeg`, `VIZRS_FFMPEG_BIN`) z udawanym ffmpeg
+  (skrypt Node.js). Przeglądarką jest
   `/bin/false`, więc przechwytywanie istnieje, ale klatki są przezroczyste,
   jak po awarii Chromium; testy sprawdzają protokół (`/etv`, `/ffmpeg`,
   `/ffmpeg/frames`, `/health`) i komendy VizRS. Wtapianie przez prawdziwy
@@ -611,8 +627,8 @@ Wydanie (`.github/workflows/release.yml`) rusza po znaczniku `v*`
 → Run workflow, z wersją; powstaje wtedy szkic wydania). Buduje:
 
 - archiwa `VirtRS-CG-<wersja>-linux-x86_64.tar.gz` i `…-linux-arm64.tar.gz`
-  (binarka `virtrs-cg`, `client/`, `etv/`, `config.example.json`), arm64
-  natywnie na runnerze arm,
+  (binarka `virtrs-cg`, `client/` z `vizrs-etv-client` i `vizrs-ffmpeg` –
+  statycznymi, musl –, `etv/`, `config.example.json`), arm64 natywnie na runnerze arm,
 - obraz `ghcr.io/<właściciel>/virtrs-cg:<wersja>` i `:latest` (amd64 i arm64),
 - wydanie na GitHubie z archiwami i `SHA256SUMS.txt`.
 

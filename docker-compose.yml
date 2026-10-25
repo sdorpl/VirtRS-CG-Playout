@@ -77,18 +77,6 @@ services:
   ersatztv:
     image: ghcr.io/ersatztv/legacy:latest
     restart: unless-stopped
-    # The VizRS clients in /vizrs need python3, which the arm64 image lacks:
-    # apt installs it once per container (needs internet then). A failed
-    # install only leaves the channel without graphics.
-    entrypoint:
-      - sh
-      - -c
-      - |
-        command -v python3 >/dev/null || {
-          echo "vizrs: installing python3"
-          apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3 >/dev/null
-        } || echo "vizrs: python3 install failed; channels run without VizRS graphics"
-        exec ./ErsatzTV
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -96,7 +84,7 @@ services:
         condition: service_started
     environment:
       TZ: ${TZ:-Europe/Warsaw}
-      # ffmpeg overlay (FFmpeg path /vizrs/vizrs-ffmpeg.py in ErsatzTV): ffmpeg takes
+      # ffmpeg overlay (FFmpeg path /vizrs/vizrs-ffmpeg in ErsatzTV): ffmpeg takes
       # the graphics straight from the sidecar. Empty = plain ffmpeg.
       VIZRS_CG_URL: ${VIZRS_CG_URL-http://cg:7700}
       # Channel frame rate forced by the overlay, e.g. 50; empty = the media's rate.

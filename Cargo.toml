@@ -10,6 +10,14 @@ publish = false
 name = "virtrs-cg"
 path = "src/main.rs"
 
+[[bin]]
+name = "vizrs-etv-client"
+path = "src/bin/vizrs-etv-client.rs"
+
+[[bin]]
+name = "vizrs-ffmpeg"
+path = "src/bin/vizrs-ffmpeg.rs"
+
 [dependencies]
 png = "0.18.1"
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }

@@ -20,7 +20,7 @@ Język pracy z użytkownikiem i dokumentacji: **polski**. Kod, komentarze i komu
 
 - **Z VizRS tylko przez protokół**: TCP 6100 (`AUTH`, `STATE`, `TAKE`, `OUT`, …) i strona `/output`. Nie kopiuj kodu między repozytoriami rodziny (różne licencje; ffPlayout jest GPL-3.0). Wyjątek (zgoda autora, 2026-10-25): wolno przenosić kod z modułów VizRS w ffPlayout napisanych wyłącznie przez autora (sdorpl) – `crates/app/src/utils/vizrs.rs`, `vizrs_capture.rs`, `crates/engine/src/compositor/graphics.rs` – sprawdź `git log` pliku. Kodu upstream ffplayout (inni autorzy) nadal nie.
 - **Wzorzec VizRS ffPlayout System (archiwum)**: opcje (`on_clip`, `on_ad`, `output_url`, adres/token), symbole zastępcze i zachowanie reklam pochodzą z ffPlayout i zostają zgodne, żeby szablony komend dało się przenieść. ffPlayout nie jest już rozwijany: nowe funkcje projektuj tutaj, niczego tam nie dopasowuj (tabela w DOKUMENTACJA §2 to mapa pojęć).
-- **ErsatzTV bez zmian w kodzie**: integracja tylko przez element „script” (`etv/templates/graphics-elements/script/vizrs.yml`), klienta `client/vizrs-etv-client.py` i nakładkę ffmpeg `client/vizrs-ffmpeg.py` ustawioną jako ścieżka FFmpeg (sama biblioteka standardowa Pythona – obraz ErsatzTV nie ma nic więcej). Nakładka zmienia wyłącznie wejście płótna grafiki; każde inne wywołanie i każdy błąd = oryginalna komenda.
+- **ErsatzTV bez zmian w kodzie**: integracja tylko przez element „script” (`etv/templates/graphics-elements/script/vizrs.yml`) z klientem `vizrs-etv-client` i nakładkę ffmpeg `vizrs-ffmpeg` ustawioną jako ścieżka FFmpeg – obie to statyczne binarki musl z tego crate'a, budowane w obrazie `seed` na amd64 i arm64 (obraz ErsatzTV nie ma Pythona na arm64 i niczego nie doinstalowujemy). Nakładka zmienia wyłącznie wejście płótna grafiki; każde inne wywołanie i każdy błąd = oryginalna komenda.
 - **Grafika nigdy nie zatrzymuje emisji**: komendy w tle z limitami czasu, błędy tylko do logu, awaria Chromium = czyste klatki i restart, brak sidecara = klip bez grafiki.
 - **Bez GPU na ścieżce grafiki**: Chromium renderuje programowo; docelowo także Oracle Cloud Ampere A1 (arm64) – pamiętaj o budżecie CPU. Obraz buduje się na amd64 i arm64.
 - **Mało zależności**: zależności runtime to tylko `png` i `regex` (bez domyślnych funkcji; wersje w `Cargo.lock`, budowa z `--locked`). Nowej nie dodawaj bez potrzeby – JSON, HTTP, base64, DevTools i skalowanie są własne. Testy kontraktu w Node.js – tylko biblioteka standardowa.
@@ -43,7 +43,7 @@ cargo test                                 # moduły, wektory tests/vectors/, Ch
 cargo build --release && npm test          # kontrakt: binarka jako czarna skrzynka (tests/contract/)
 ```
 
-Wektory `tests/vectors/*.json` to zachowanie sidecara Node.js sprzed migracji (generator w historii gita, commit 0c54143); po zamierzonej zmianie zachowania popraw wektor w tym samym commicie. Testy kontraktu (udawany VizRS, klienty Pythona, `VIRTRS_CG_BIN` wskazuje inną binarkę) obowiązują każdą zmianę protokołu.
+Wektory `tests/vectors/*.json` to zachowanie sidecara Node.js sprzed migracji (generator w historii gita, commit 0c54143); po zamierzonej zmianie zachowania popraw wektor w tym samym commicie. Testy kontraktu (udawany VizRS, klient `vizrs-etv-client`, nakładka `vizrs-ffmpeg`; `VIRTRS_CG_BIN`/`VIZRS_ETV_CLIENT_BIN`/`VIZRS_FFMPEG_BIN` wskazują inne binarki) obowiązują każdą zmianę protokołu.
 
 Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu (kontenery, obrazy, wolumeny, pliki), ale **dane działających instancji tego projektu zostawiaj** – bez `down -v` i `volume prune`. Szczegóły: DOKUMENTACJA §7.
 
@@ -57,16 +57,17 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 | `src/http.rs`, `src/json.rs` | własny minimalny HTTP/1.1 (strumienie chunked jak w Node; HTTP/1.0 dla nakładki) i JSON |
 | `src/template.rs`, `src/time.rs` | kontekst klipu z danych szablonu ErsatzTV, symbole `{title}`, `{next_*}`…, wykrywanie reklam (`regex`), daty ISO |
 | `src/vizrs.rs` | klient TCP VizRS (`AUTH`, `STATE`, komendy), zdarzenia kanału w kolejności, zdejmowanie/przywracanie stron przy reklamach |
-| `src/capture.rs`, `src/devtools.rs`, `src/sys.rs` | bezgłowy Chromium (screencast DevTools przez `--remote-debugging-pipe`), restart po awarii, `PR_SET_PDEATHSIG`, sygnały |
+| `src/capture.rs`, `src/devtools.rs`, `src/sys.rs` | bezgłowy Chromium (screencast DevTools przez `--remote-debugging-pipe`), restart po awarii, `PR_SET_PDEATHSIG`, sygnały (też dla nakładki) |
 | `src/frames.rs`, `src/png.rs`, `src/rects.rs`, `src/scale.rs` | historia klatek, dekodowanie PNG, widoczne prostokąty, skalowanie jak libvips |
 | `src/packets.rs`, `src/stream.rs`, `src/yuva.rs` | pakiety ETV (`Rectangles`/`Repeat`), tempo strumienia i `lead_seconds`, klatki `yuva420p` dla nakładki ffmpeg |
-| `client/vizrs-etv-client.py` | klient w kontenerze ErsatzTV: stdin → sidecar → stdout |
-| `client/vizrs-ffmpeg.py` | nakładka ffmpeg ErsatzTV: płótno grafiki zastąpione klatkami `yuva420p` z sidecara (DOKUMENTACJA §1) |
+| `src/etv_client.rs`, `src/bin/vizrs-etv-client.rs` | klient elementu „script” w kontenerze ErsatzTV: stdin → sidecar → stdout |
+| `src/net.rs` | wspólny klient HTTP programów ErsatzTV (URL, połączenia z limitami czasu) |
+| `src/overlay.rs`, `src/bin/vizrs-ffmpeg.rs` | nakładka ffmpeg ErsatzTV (binarka `vizrs-ffmpeg`): płótno grafiki zastąpione klatkami `yuva420p` z sidecara (DOKUMENTACJA §1) |
 | `etv/templates/…/vizrs.yml` | definicja elementu grafiki „VizRS” dla ErsatzTV |
 | `Dockerfile` | obraz sidecara: binarka (arm64 krzyżowo) + `chromium-headless-shell` |
 | `tests/*.rs`, `tests/vectors/` | testy Rusta, wektory referencyjne |
 | `tests/contract/` | testy kontraktu w Node.js (`npm test`) |
-| `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; obraz `seed/Dockerfile` (z `client/` i `vizrs.yml`) – `init.sh` kopiuje je do wolumenów, stos bez plików z hosta (Portainer z GitHuba; DOKUMENTACJA §4) |
+| `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; obraz `seed/Dockerfile` (z `vizrs.yml` oraz `vizrs-etv-client` i `vizrs-ffmpeg` kompilowanymi w etapie budowy) – `init.sh` kopiuje je do wolumenów, stos bez plików z hosta (Portainer z GitHuba; DOKUMENTACJA §4) |
 | `bench/` | benchmark sidecara (`sidecar.mjs`, scena `scene.html`, obraz i compose, DOKUMENTACJA §8) |
 | `docs/plany/` | plany prac (`PLAN-rust.md` – migracja z Node.js) |
 | `.github/workflows/ci.yml` | testy, binarka jako artefakt |

@@ -1,6 +1,6 @@
 name: Release
 # Wydanie po wypchnięciu znacznika v* (np. v2.0.6) albo ręcznie (Actions → Release → Run workflow).
-#   binarka virtrs-cg (Rust) z client/ i etv/: Linux x86_64 i arm64 (.tar.gz)
+#   binarka virtrs-cg (Rust) z client/ (vizrs-etv-client i vizrs-ffmpeg, statyczne musl) i etv/: Linux x86_64 i arm64 (.tar.gz)
 #   obraz Docker ghcr.io/<właściciel>/virtrs-cg:<wersja> i :latest (amd64 + arm64)
 #   wydanie na GitHubie z sumami SHA256SUMS.txt (ręcznie: szkic)
 # Wersja z łącznikiem (v2.1.0-rc1) = wydanie wstępne, bez przesuwania :latest.
@@ -27,18 +27,24 @@ jobs:
       matrix:
         include:
           # ubuntu-22.04: starsza glibc = binarka działa na większej liczbie dystrybucji
-          - { os: ubuntu-22.04, name: linux-x86_64 }
-          - { os: ubuntu-22.04-arm, name: linux-arm64 }
+          # programy ErsatzTV statycznie (musl): działają w obrazie ErsatzTV niezależnie od jego glibc
+          - { os: ubuntu-22.04, name: linux-x86_64, musl: x86_64-unknown-linux-musl }
+          - { os: ubuntu-22.04-arm, name: linux-arm64, musl: aarch64-unknown-linux-musl }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --locked
+        with:
+          targets: ${{ matrix.musl }}
+      - run: cargo build --release --locked --bin virtrs-cg
+      - run: cargo build --release --locked --bin vizrs-etv-client --bin vizrs-ffmpeg --target ${{ matrix.musl }}
       - name: Paczka
         run: |
           v=${VERSION#v}; d=VirtRS-CG-$v-${{ matrix.name }}; mkdir -p dist/$d
           cp target/release/virtrs-cg dist/$d/
-          cp -r client etv README.md config.example.json dist/$d/
+          cp -r etv README.md config.example.json dist/$d/
+          mkdir dist/$d/client
+          cp target/${{ matrix.musl }}/release/vizrs-etv-client target/${{ matrix.musl }}/release/vizrs-ffmpeg dist/$d/client/
           cd dist && tar czf $d.tar.gz $d && rm -rf $d && ls -la
       - uses: actions/upload-artifact@v4
         with:
@@ -94,4 +100,4 @@ jobs:
           files: dist/*
           body: |
             **Docker (amd64 / arm64):** `ghcr.io/${{ github.repository_owner }}/virtrs-cg:${{ env.VERSION }}` – stos: `docker compose pull && docker compose up -d` (docs/DOKUMENTACJA.md §4).
-            **Linux x86_64 / arm64:** archiwum z `virtrs-cg` (wymaga Chromium w PATH albo `VIZRS_BROWSER`), klientami ErsatzTV (`client/`) i elementem grafiki (`etv/`).
+            **Linux x86_64 / arm64:** archiwum z `virtrs-cg` (wymaga Chromium w PATH albo `VIZRS_BROWSER`), programami ErsatzTV (`client/`: klient elementu `vizrs-etv-client` i nakładka ffmpeg `vizrs-ffmpeg`, statyczne) i elementem grafiki (`etv/`).

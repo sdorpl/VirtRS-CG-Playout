@@ -22,11 +22,10 @@ RUN cargo build --release --locked --target "$(cat /target)" \
 
 FROM node:current-bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium-headless-shell python3 fonts-dejavu-core fonts-noto-core \
+    && apt-get install -y --no-install-recommends chromium-headless-shell fonts-dejavu-core fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /virtrs-cg /usr/local/bin/virtrs-cg
 WORKDIR /app
-COPY client client
 COPY tests/contract tests/contract
 COPY bench bench
 

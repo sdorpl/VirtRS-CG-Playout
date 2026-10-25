@@ -1,5 +1,5 @@
 // Graphics as raw yuva420p frames for ffmpeg (ErsatzTV with the ffmpeg
-// overlay, client/vizrs-ffmpeg.py): planes Y, U, V, A, limited range, straight
+// overlay, src/overlay.rs): planes Y, U, V, A, limited range, straight
 // alpha as ffmpeg's overlay filters expect. Transparent areas are Y 16,
 // U/V 128, A 0. HD uses BT.709, smaller frames BT.601. The arithmetic follows
 // the former Node.js sidecar step by step (doubles, truncation), so frames match

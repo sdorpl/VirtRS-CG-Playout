@@ -11,7 +11,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const RELEASE_BIN = fileURLToPath(new URL("../../target/release/virtrs-cg", import.meta.url));
-const CLIENT = fileURLToPath(new URL("../../client/vizrs-etv-client.py", import.meta.url));
+/** The ErsatzTV script client: target/release/vizrs-etv-client or VIZRS_ETV_CLIENT_BIN. */
+export const CLIENT = process.env.VIZRS_ETV_CLIENT_BIN || fileURLToPath(new URL("../../target/release/vizrs-etv-client", import.meta.url));
 const BROWSERS = ["chromium-headless-shell", "chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
 const START_TIMEOUT = 15000;
 
@@ -40,7 +41,7 @@ export function findBrowser(env = process.env) {
 /** Runs the ErsatzTV script client like ErsatzTV does, for `ms`, and returns its stdout. */
 export function runClient(url, data, ms) {
   return new Promise((resolve, reject) => {
-    const child = spawn("python3", ["-I", CLIENT, url]);
+    const child = spawn(CLIENT, [url]);
     const out = [];
     child.stdout.on("data", (chunk) => out.push(chunk));
     child.on("error", reject);

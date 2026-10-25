@@ -2,7 +2,7 @@
 # Every start of the stack (the image of seed/Dockerfile): copies the reference
 # instance into empty volumes – the VizRS show with its backgrounds, the
 # ErsatzTV channel database and the test media. Volumes that already hold data
-# are left alone. The ErsatzTV clients and the graphics element are ours and
+# are left alone. The ErsatzTV programs and the graphics element are ours and
 # are always replaced, so a new version of the stack brings them along.
 set -eu
 
@@ -32,6 +32,12 @@ fi
 
 rm -rf /vizrs-client/*
 cp -R /seed/client/. /vizrs-client/
+# Instances set up before 2.1.3 (Python clients) have the FFmpeg path
+# /vizrs/vizrs-ffmpeg.py and maybe copies of the element running
+# `python3 /vizrs/vizrs-etv-client.py`: both stay, starting the binaries.
+printf '#!/bin/sh\nexec "$(dirname "$0")/vizrs-ffmpeg" "$@"\n' > /vizrs-client/vizrs-ffmpeg.py
+printf 'import os, sys\nos.execv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "vizrs-etv-client"), sys.argv)\n' > /vizrs-client/vizrs-etv-client.py
+chmod 755 /vizrs-client/*
 mkdir -p /ersatztv-config/templates/graphics-elements/script
 # An older stack bind-mounted vizrs.yml from the host; without the file there
 # Docker left an empty directory of that name in the volume.

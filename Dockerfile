@@ -35,7 +35,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /virtrs-cg /usr/local/bin/virtrs-cg
 WORKDIR /app
-COPY client client
 COPY etv etv
 
 # Chromium needs a writable HOME (crashpad) for the unprivileged user. The

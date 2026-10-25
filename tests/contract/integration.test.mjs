@@ -1,5 +1,6 @@
 // Sidecar end to end as a black box (sidecar.mjs: target/release/virtrs-cg or
-// VIRTRS_CG_BIN): fake VizRS (TCP), the real Python clients. The browser exits
+// VIRTRS_CG_BIN): fake VizRS (TCP), the real script client (sidecar.mjs) and
+// ffmpeg overlay (target/release/vizrs-ffmpeg or VIZRS_FFMPEG_BIN). The browser exits
 // at once, so captures send transparent frames; graphics content is tested
 // with a real Chromium in chromium.test.mjs.
 
@@ -15,10 +16,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import { blankYuva, readFrames, yuvaSize } from "./helpers.mjs";
-import { runClient, startSidecar } from "./sidecar.mjs";
+import { CLIENT, runClient, startSidecar } from "./sidecar.mjs";
 
-const CLIENT = fileURLToPath(new URL("../../client/vizrs-etv-client.py", import.meta.url));
-const WRAPPER = fileURLToPath(new URL("../../client/vizrs-ffmpeg.py", import.meta.url));
+const WRAPPER = process.env.VIZRS_FFMPEG_BIN || fileURLToPath(new URL("../../target/release/vizrs-ffmpeg", import.meta.url));
 
 /** VizRS stand-in: records commands, `STATE` returns `layers`. */
 async function fakeVizrs(layers = []) {
@@ -175,27 +175,32 @@ test("an item without the VizRS element is an ad; the next item with it restores
 
 // ffmpeg stand-in: prints its arguments and, for a `pipe:N` input, how many
 // bytes it read (FRAMES frames of FRAME_BYTES) and the first frame in hex.
-const FAKE_FFMPEG = `#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[1:]
-result = {"args": args}
-for arg in args:
-    if arg.startswith("pipe:") and int(arg[5:]) > 2:
-        fd, want, data = int(arg[5:]), int(os.environ["FRAME_BYTES"]) * int(os.environ["FRAMES"]), b""
-        while len(data) < want:
-            chunk = os.read(fd, want - len(data))
-            if not chunk:
-                break
-            data += chunk
-        result["read"] = len(data)
-        result["first"] = data[: int(os.environ["FRAME_BYTES"])].hex()
-print(json.dumps(result), flush=True)
+const FAKE_FFMPEG = `#!/usr/bin/env node
+const { readSync } = require("node:fs");
+const args = process.argv.slice(2);
+const result = { args };
+for (const arg of args) {
+  const fd = arg.startsWith("pipe:") ? Number(arg.slice(5)) : -1;
+  if (fd <= 2) continue;
+  const frame = Number(process.env.FRAME_BYTES);
+  const data = Buffer.alloc(frame * Number(process.env.FRAMES));
+  let read = 0;
+  while (read < data.length) {
+    let n;
+    try { n = readSync(fd, data, read, data.length - read, null); } catch (e) { if (e.code === "EAGAIN") continue; throw e; }
+    if (n === 0) break;
+    read += n;
+  }
+  result.read = read;
+  result.first = data.subarray(0, Math.min(frame, read)).toString("hex");
+}
+process.stdout.write(JSON.stringify(result) + "\\n");
 `;
 
 /** Runs the wrapper like ErsatzTV runs ffmpeg; resolves with the stand-in's report. */
 function runWrapper(args, env) {
   return new Promise((resolve, reject) => {
-    const child = spawn("python3", ["-I", WRAPPER, ...args], { env: { ...process.env, ...env } });
+    const child = spawn(WRAPPER, args, { env: { ...process.env, ...env } });
     const out = [];
     const err = [];
     child.stdout.on("data", (chunk) => out.push(chunk));
@@ -225,7 +230,7 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
   const canvas = { requests: [], packetBytes: 0 };
   const etv = http.createServer((request, response) => {
     canvas.requests.push(request.headers);
-    const child = spawn("python3", ["-I", CLIENT, `${cg.url}/etv?channel=1`]);
+    const child = spawn(CLIENT, [`${cg.url}/etv?channel=1`]);
     child.stdout.on("data", (chunk) => { canvas.packetBytes += chunk.length; });
     child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
     response.writeHead(200);
@@ -284,7 +289,7 @@ test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS out
   t.after(vizrs.close);
   const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
   const etv = http.createServer((request, response) => {
-    const child = spawn("python3", ["-I", CLIENT, `${cg.url}/etv?channel=1`]);
+    const child = spawn(CLIENT, [`${cg.url}/etv?channel=1`]);
     child.stdout.resume();
     child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
     response.writeHead(200);
@@ -334,7 +339,7 @@ test("ffmpeg overlay with hardware acceleration: ErsatzTV's NVIDIA and VAAPI gra
   t.after(vizrs.close);
   const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
   const etv = http.createServer((request, response) => {
-    const child = spawn("python3", ["-I", CLIENT, `${cg.url}/etv?channel=1`]);
+    const child = spawn(CLIENT, [`${cg.url}/etv?channel=1`]);
     child.stdout.resume();
     child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
     response.writeHead(200);

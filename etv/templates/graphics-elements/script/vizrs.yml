@@ -5,9 +5,8 @@
 # "&render=720p" renders the graphics at 720p and scales them to the channel
 # (less CPU for animations, softer text); default: the channel size.
 name: VizRS
-command: python3
+command: /vizrs/vizrs-etv-client
 args:
-  - /vizrs/vizrs-etv-client.py
   - http://cg:7700/etv?channel=1
 z_index: 100
 # Current and next programmes from the guide: {next_title}, {next_start}.
