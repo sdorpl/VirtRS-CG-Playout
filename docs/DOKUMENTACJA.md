@@ -271,16 +271,20 @@ docker compose up -d
 ```
 
 uruchamia VizRS (`:8788`), sidecar (`:7700`, `/health`) i ErsatzTV (`:8409`,
-media z `./seed/media` albo `MEDIA_DIR`). Compose montuje
+media testowe z wolumenu `seed-media` albo `MEDIA_DIR`). Stos nie montuje
+żadnych plików z hosta, więc działa tak samo z klonu repozytorium i w
+Portainerze wdrażającym stos z GitHuba (**Stacks → Add stack → Repository**).
+Usługa `seed` (niżej) kopiuje
 [vizrs.yml](../etv/templates/graphics-elements/script/vizrs.yml) do
-`/config/templates/graphics-elements/script/`, a klienta do `/vizrs`.
+`/config/templates/graphics-elements/script/` ErsatzTV, a klientów
+z `client/` do wolumenu `vizrs-client`, montowanego w ErsatzTV jako `/vizrs`.
 W ErsatzTV dodaj element **VizRS** do pozycji harmonogramu
 (**Schedules → pozycja → Graphics Elements**) albo do **Deco** przypisanego
 do playoutu i zresetuj playout – bez tego ErsatzTV nie uruchamia skryptu.
 Przy kilku kanałach skopiuj element z `channel=2`, … w URL.
 
-Compose montuje też [nakładkę ffmpeg](../client/vizrs-ffmpeg.py) (§1) do
-`/vizrs` i ustawia ErsatzTV `VIZRS_CG_URL=http://cg:7700`. Baza startowa
+W `/vizrs` jest też [nakładka ffmpeg](../client/vizrs-ffmpeg.py) (§1); compose
+ustawia ErsatzTV `VIZRS_CG_URL=http://cg:7700`. Baza startowa
 (`seed/`) ma już ścieżkę FFmpeg `/vizrs/vizrs-ffmpeg.py`. W istniejącej
 instancji ustaw ją w **Settings → FFmpeg → FFmpeg Path**. Powrót do ścieżki
 grafiki ErsatzTV: `/usr/local/bin/ffmpeg` albo `VIZRS_CG_URL=` (puste).
@@ -296,17 +300,22 @@ Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
 
 ### Dane startowe (`seed/`)
 
-Pierwszy start stosu (także w Portainerze z repozytorium) dostaje gotową
-konfigurację instancji wzorcowej: usługa `seed` kopiuje `seed/` do **pustych**
-wolumenów i kończy pracę, a VizRS i ErsatzTV startują po niej. Wolumen
-z danymi zostaje nietknięty (w logu `seed: … present, left alone`), więc
-`docker compose up -d` na działającej instancji niczego nie nadpisuje.
+Pierwszy start stosu dostaje gotową konfigurację instancji wzorcowej. Usługa
+`seed` to mały obraz budowany z repozytorium ([seed/Dockerfile](../seed/Dockerfile):
+`seed/`, `client/`, `vizrs.yml`); przy każdym starcie stosu kopiuje dane
+startowe do **pustych** wolumenów i kończy pracę, a VizRS i ErsatzTV startują
+po niej. Wolumen z danymi zostaje nietknięty (w logu `seed: … present, left
+alone`), więc `docker compose up -d` na działającej instancji niczego nie
+nadpisuje. Klientów ErsatzTV i `vizrs.yml` `seed` podmienia zawsze – nowa
+wersja repozytorium przynosi je po `docker compose up -d --build` (w
+Portainerze: **Pull and redeploy**).
 
 | Katalog | Zawartość | Trafia do |
 |---|---|---|
 | `seed/vizrs-data/` | show „Newsroom INFO24” (`shows/newsroom-info24.json`, aktywny), `show.json`, tła z `assets/` | wolumen `vizrs-data` (`/data` VizRS) |
 | `seed/ersatztv-config/ersatztv.sqlite3` | baza ErsatzTV: kanał 1 z elementem **VizRS**, harmonogram, biblioteka `/media`, profil FFmpeg 1080p x264, ścieżka FFmpeg = nakładka (§1) | wolumen `ersatztv-config` (`/config`) |
-| `seed/media/` | odcinki testowe i reklama (`reklamy/` – bez grafiki) | montowany jako `/media` (domyślne `MEDIA_DIR`) |
+| `seed/media/` | odcinki testowe i reklama (`reklamy/` – bez grafiki) | wolumen `seed-media` (`/media` ErsatzTV, gdy brak `MEDIA_DIR`) |
+| `client/`, `etv/…/vizrs.yml` | klienci ErsatzTV i element grafiki „VizRS” (zawsze nadpisywane) | wolumen `vizrs-client` (`/vizrs`), `/config/templates/graphics-elements/script/` |
 
 Bez sekretów: nie ma tu plików `*-secrets.json`, kluczy `data-protection`,
 logów, cache ani indeksu wyszukiwania (ErsatzTV buduje go przy pierwszym
@@ -322,7 +331,9 @@ bazy ustaw `FFmpegProfile.HardwareAcceleration = 0` i `ffmpeg.ffmpeg_path =
 /vizrs/vizrs-ffmpeg.py` w `ConfigElement`, usuń wpis
 `search_index.version` z `ConfigElement`, potem `docker compose start ersatztv`.
 Własne media trzymaj w `media/` (poza gitem) i wskaż je przez
-`MEDIA_DIR=./media`; ścieżki w ErsatzTV zaczynają się od `/media`.
+`MEDIA_DIR=./media` (z klonu repozytorium) albo ścieżką bezwzględną na
+hoście, np. `MEDIA_DIR=/srv/media` (Portainer: ścieżka względna wskazywałaby
+katalog wewnątrz Portainera); ścieżki w ErsatzTV zaczynają się od `/media`.
 
 ### Wersje ErsatzTV, Rusta i Node.js
 

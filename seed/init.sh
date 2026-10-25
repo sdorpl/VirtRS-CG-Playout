@@ -1,7 +1,9 @@
 #!/bin/sh
-# First start of the stack: copies the reference instance (seed/) into empty
-# volumes – the VizRS show with its backgrounds and the ErsatzTV channel
-# database. Volumes that already hold data are left alone.
+# Every start of the stack (the image of seed/Dockerfile): copies the reference
+# instance into empty volumes – the VizRS show with its backgrounds, the
+# ErsatzTV channel database and the test media. Volumes that already hold data
+# are left alone. The ErsatzTV clients and the graphics element are ours and
+# are always replaced, so a new version of the stack brings them along.
 set -eu
 
 # A new volume created here belongs to root; VizRS runs as 10001.
@@ -20,3 +22,16 @@ else
   cp /seed/ersatztv-config/ersatztv.sqlite3 /ersatztv-config/
   echo "seed: ErsatzTV channel database copied"
 fi
+
+if [ -n "$(ls -A /media)" ]; then
+  echo "seed: test media present, left alone"
+else
+  cp -R /seed/media/. /media/
+  echo "seed: test media copied"
+fi
+
+rm -rf /vizrs-client/*
+cp -R /seed/client/. /vizrs-client/
+mkdir -p /ersatztv-config/templates/graphics-elements/script
+cp /seed/vizrs.yml /ersatztv-config/templates/graphics-elements/script/vizrs.yml
+echo "seed: ErsatzTV clients and the VizRS graphics element updated"

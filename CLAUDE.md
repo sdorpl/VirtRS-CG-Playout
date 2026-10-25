@@ -66,7 +66,7 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 | `Dockerfile` | obraz sidecara: binarka (arm64 krzyżowo) + `chromium-headless-shell` |
 | `tests/*.rs`, `tests/vectors/` | testy Rusta, wektory referencyjne |
 | `tests/contract/` | testy kontraktu w Node.js (`npm test`) |
-| `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; `init.sh` kopiuje je do pustych wolumenów (DOKUMENTACJA §4) |
+| `seed/` | dane startowe stosu: show VizRS, baza ErsatzTV (kanał 1), media testowe; obraz `seed/Dockerfile` (z `client/` i `vizrs.yml`) – `init.sh` kopiuje je do wolumenów, stos bez plików z hosta (Portainer z GitHuba; DOKUMENTACJA §4) |
 | `bench/` | benchmark sidecara (`sidecar.mjs`, scena `scene.html`, obraz i compose, DOKUMENTACJA §8) |
 | `docs/plany/` | plany prac (`PLAN-rust.md` – migracja z Node.js) |
 | `.github/workflows/ci.yml` | testy, binarka jako artefakt |

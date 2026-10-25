@@ -16,16 +16,20 @@ x-tokens: &tokens
   VIZRS_OUTPUT_TOKEN: ${VIZRS_OUTPUT_TOKEN:-vizrs-output-change-me}
 
 services:
-  # Copies seed/ into empty volumes, then exits; volumes with data stay untouched.
+  # Copies seed/ into empty volumes and the ErsatzTV clients into theirs, then
+  # exits; volumes with data stay untouched. Built from the repository, so the
+  # stack needs no files on the host (Portainer: deploy from Git).
   seed:
-    image: ghcr.io/ersatztv/legacy:latest
+    build:
+      context: .
+      dockerfile: seed/Dockerfile
     restart: "no"
     user: "0:0"
-    entrypoint: ["sh", "/seed/init.sh"]
     volumes:
-      - ./seed:/seed:ro
       - vizrs-data:/vizrs-data
       - ersatztv-config:/ersatztv-config
+      - vizrs-client:/vizrs-client
+      - seed-media:/media
 
   vizrs:
     image: ghcr.io/sdorpl/vizrs:latest
@@ -86,11 +90,12 @@ services:
       # Channel frame rate forced by the overlay, e.g. 50; empty = the media's rate.
       VIZRS_FFMPEG_FPS: ${VIZRS_FFMPEG_FPS:-}
     volumes:
+      # Holds templates/…/script/vizrs.yml, written by seed.
       - ersatztv-config:/config
-      - ./etv/templates/graphics-elements/script/vizrs.yml:/config/templates/graphics-elements/script/vizrs.yml:ro
-      - ./client:/vizrs:ro
-      # Test videos of the seeded channel; your own: MEDIA_DIR (paths in ErsatzTV start with /media).
-      - ${MEDIA_DIR:-./seed/media}:/media:ro
+      - vizrs-client:/vizrs:ro
+      # Test videos of the seeded channel; your own: MEDIA_DIR, a host path
+      # (paths in ErsatzTV start with /media).
+      - ${MEDIA_DIR:-seed-media}:/media:ro
     tmpfs:
       - /transcode
     ports:
@@ -99,3 +104,5 @@ services:
 volumes:
   vizrs-data:
   ersatztv-config:
+  vizrs-client:
+  seed-media:

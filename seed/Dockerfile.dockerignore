@@ -1,0 +1,12 @@
+node_modules
+.git
+*.log
+config.json
+media
+target
+docs
+tests
+bench
+src
+seed/**/*-secrets.json
+seed/**/data-protection
