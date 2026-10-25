@@ -1,6 +1,6 @@
 # PLAN: płynność animacji grafiki (ticker)
 
-> Status (2026-10-25): **etapy 1–4 zrobione** – miara równych kroków w benchmarku, tryb `capture_mode: frames` (domyślnie wyłączony), pomiary na x86 (§4), dokumentacja. Otwarte: pomiar na Ampere A1 i ewentualne włączenie `frames` w `docker-compose.ampere.yml`. Etap 5 nie podjęty (warunek niespełniony).
+> Status (2026-10-25): **etapy 1–4 i 6 zrobione** (6: obszar grafiki, gałąź `lzejsza-grafika`) – miara równych kroków w benchmarku, tryb `capture_mode: frames` (domyślnie wyłączony), pomiary na x86 (§4), dokumentacja. Otwarte: pomiar na Ampere A1 i ewentualne włączenie `frames` w `docker-compose.ampere.yml`. Etap 5 nie podjęty (warunek niespełniony).
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) §1 (Płynność animacji, Klatkaż kanału), §8 (benchmark).
 
 ## 0. Cel
@@ -113,3 +113,19 @@ Wnioski:
 Decyzja (etap 3): **domyślnie `screencast`**. Powody: `frames` wymaga `chromium-headless-shell` (z innym Chromium tylko powrót do screencastu po restarcie przeglądarki) i bez dobranego `max_fps`/`render_size` na zbyt wolnym hoście bywa gorszy; Ampere A1 nie został zmierzony. Zalecenie w DOKUMENTACJI §1 i §4: `frames` przy renderowaniu, które host rysuje w czasie klatki – sprawdzić benchmarkiem na maszynie docelowej. Na A1 nakładka `docker-compose.ampere.yml` ma już render 720p i `max_fps` 25, czyli warunki, w których `frames` wypadł najlepiej; włączenie po pomiarze na A1.
 
 Możliwe dalsze kroki: kilka przeglądarek rysujących na przemian (stary `frames-worker.mjs` miał `pages`), żeby PNG kodowały się równolegle przy 50 kl./s; automatyczne obniżanie tempa (co druga klatka), gdy host nie nadąża.
+
+## 5. Etap 6: obszar grafiki (`area`)
+
+Cel: lżejsze wstrzykiwanie grafiki do ErsatzTV – nie cały ekran kanału, tylko część zajęta przez grafikę (np. pasek z tickerem `1920x140+0+930`).
+
+Co powstało (`src/area.rs`, `src/capture.rs`, `src/yuva.rs`, `src/server.rs`, `src/overlay.rs`):
+
+- `area` / `VIZRS_AREA` / `&area=` w adresie elementu, zapis `SZERxWYS+X+Y`, wyrównany do parzystych pikseli;
+- Chromium rysuje tylko obszar (`Emulation.setDeviceMetricsOverride` z `viewport`; strona dalej układa się w pełnym rozmiarze), zrzut stanu końcowego z `clip` – screencast przy `viewport` nie wysyła klatki statycznej strony, więc zrzut idzie zawsze, także przy 50 kl./s;
+- PNG, dekodowanie i `yuva420p` w rozmiarze obszaru; pakiety ETV we współrzędnych kanału;
+- nakładka ffmpeg: `/ffmpeg?…&area=1` tylko wtedy, gdy umie ustawić grafikę (`x=`, `y=` w nakładaniu wejścia płótna; nie przy skalowaniu grafiki ani opcjach pozycyjnych), klatki obszaru i `overlay…=x=X:y=Y`; stara nakładka (bez `area=1`) dostaje pełne klatki;
+- benchmark: `BENCH_AREA` (znacznik kroku w rogu obszaru).
+
+Wynik (DOKUMENTACJA §1, §8): z `frames` 96–99,5% równych kroków na kanale 1080p przy 25 i 50 kl./s (cały kanał: 0–38%), CPU przeglądarki ok. 2,5× mniejsze, sidecar w trybie nakładki ok. 4× mniej CPU i 8× mniej danych. Koszt: grafika poza obszarem jest obcinana.
+
+Dalej: kilka obszarów na kanał (np. logo w rogu i pasek) – osobne wejścia ffmpeg albo osobne strony; obszar wykrywany automatycznie z widocznych prostokątów.

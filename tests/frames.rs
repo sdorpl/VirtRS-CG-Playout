@@ -8,7 +8,7 @@ use virtrs_cg::packets::Rect;
 use virtrs_cg::png::decode_png;
 use virtrs_cg::rects::visible_rects;
 use virtrs_cg::scale::{render_size, scale_rects};
-use virtrs_cg::yuva::{yuva_frame, yuva_size};
+use virtrs_cg::yuva::{yuva_area, yuva_frame, yuva_size};
 
 use common::{assert_bytes, base64, num, paint, vectors};
 
@@ -62,6 +62,41 @@ fn yuva_frames_match_node() {
         assert_eq!(yuva_size(width, height), num(case, "size") as usize, "{name}");
         assert_bytes(&yuva_frame(&rects, width, height), case.get("frame").unwrap(), &name);
     }
+}
+
+/// A frame of a graphics area (even position) is that part of the channel's
+/// frame, plane by plane, also for rectangles that reach out of it.
+#[test]
+fn yuva_of_an_area_is_the_part_of_the_whole_frame() {
+    let (width, height) = (40u32, 30u32);
+    let rect = |x: u32, y: u32, w: u32, h: u32, seed: u32| Rect {
+        x,
+        y,
+        w,
+        h,
+        pixels: (0..w * h * 4).map(|i| ((i * 37 + seed * 11) % 256) as u8).collect(),
+    };
+    let rects = [rect(3, 5, 11, 9, 1), rect(17, 13, 20, 15, 2), rect(0, 0, 4, 3, 3)];
+    let whole = yuva_frame(&rects, width, height);
+    let (ax, ay, aw, ah) = (8u32, 6u32, 22u32, 18u32);
+    let part = yuva_area(&rects, (ax, ay, aw, ah), false);
+    assert_eq!(part.len(), yuva_size(aw, ah));
+
+    // Planes: Y and A full size, U and V halved.
+    let planes = |w: u32, h: u32| {
+        let (luma, chroma) = ((w * h) as usize, (w.div_ceil(2) * h.div_ceil(2)) as usize);
+        [(0, w, 1), (luma, w.div_ceil(2), 2), (luma + chroma, w.div_ceil(2), 2), (luma + 2 * chroma, w, 1)]
+    };
+    for ((whole_at, whole_w, sub), (part_at, part_w, _)) in planes(width, height).into_iter().zip(planes(aw, ah)) {
+        for row in 0..ah / sub {
+            for col in 0..aw / sub {
+                let expected = whole[whole_at + ((ay / sub + row) * whole_w + ax / sub + col) as usize];
+                assert_eq!(part[part_at + (row * part_w + col) as usize], expected, "plane at {part_at}, {col},{row}");
+            }
+        }
+    }
+    // Outside every rectangle: transparent.
+    assert_eq!(yuva_area(&rects, (0, 20, 2, 2), true)[..4], [16, 16, 16, 16]);
 }
 
 #[test]

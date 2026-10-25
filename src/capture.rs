@@ -6,6 +6,8 @@
 // is decoded only when a session shows it. In the `frames` mode Chromium draws
 // only when asked (`HeadlessExperimental.beginFrame`), once per frame of the
 // channel, with that frame's time: animations advance one step per output frame.
+// With a graphics area Chromium draws only that part of the page (a DevTools
+// viewport; the page still lays out at full size), so PNGs are its size.
 
 use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
@@ -17,6 +19,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::area::Area;
 use crate::devtools::{DevTools, Incoming};
 use crate::frames::{Decode, Frame, History, Source};
 use crate::json::{self, Value};
@@ -130,6 +133,8 @@ pub struct CaptureOptions {
     /// Size of the frames (the channel).
     pub out_width: u32,
     pub out_height: u32,
+    /// Graphics area of the channel (`area`): only it is drawn; None = all.
+    pub area: Option<Area>,
     pub fps: f64,
     /// Capture rate limit (`max_fps`); 0 = the channel rate.
     pub max_fps: f64,
@@ -215,8 +220,17 @@ impl Capture {
         format!("{}x{}", self.options.width, self.options.height)
     }
 
+    /// Graphics area of the channel, if any.
+    pub fn area(&self) -> Option<Area> {
+        self.options.area
+    }
+
     pub fn key(&self) -> String {
-        if self.size() == self.render() { self.size() } else { format!("{} (render {})", self.size(), self.render()) }
+        let mut key = if self.size() == self.render() { self.size() } else { format!("{} (render {})", self.size(), self.render()) };
+        if let Some(area) = self.area() {
+            key.push_str(&format!(" area {}", area.geometry()));
+        }
+        key
     }
 
     pub fn status(&self) -> &'static str {
@@ -479,15 +493,24 @@ impl Capture {
         let call = |method: &str, params: Value| devtools.call(method, params, Some(&session), CALL_TIMEOUT);
         let (width, height) = (u64::from(self.options.width), u64::from(self.options.height));
 
-        call(
-            "Emulation.setDeviceMetricsOverride",
-            json::object([
-                ("width", width.into()),
-                ("height", height.into()),
-                ("deviceScaleFactor", 1u64.into()),
-                ("mobile", false.into()),
-            ]),
-        )?;
+        let mut metrics = json::object([
+            ("width", width.into()),
+            ("height", height.into()),
+            ("deviceScaleFactor", 1u64.into()),
+            ("mobile", false.into()),
+        ]);
+        // A graphics area: the page lays out at full size, Chromium draws only the area.
+        if let (Some(clip), Value::Object(members)) = (clip(&self.options), &mut metrics) {
+            let viewport = json::object([
+                ("x", u64::from(clip.x).into()),
+                ("y", u64::from(clip.y).into()),
+                ("width", u64::from(clip.w).into()),
+                ("height", u64::from(clip.h).into()),
+                ("scale", 1u64.into()),
+            ]);
+            members.push(("viewport".into(), viewport));
+        }
+        call("Emulation.setDeviceMetricsOverride", metrics)?;
         // Transparency only through DevTools: `--default-background-color` crashes current renderers.
         let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
         call("Emulation.setDefaultBackgroundColorOverride", json::object([("color", transparent)]))?;
@@ -525,7 +548,10 @@ impl Capture {
 
         // A screenshot of the final state when the screencast went quiet.
         let shooting = Arc::new(AtomicBool::new(false));
-        let mut settle_at = (step > 1).then(|| Instant::now() + SETTLE);
+        // With a graphics area a static page gets no screencast frame at all: always a screenshot.
+        let area = clip(&self.options);
+        let settles = |step: u32| step > 1 || (step > 0 && area.is_some());
+        let mut settle_at = settles(step).then(|| Instant::now() + SETTLE);
         loop {
             let wait = settle_at.map_or(Duration::from_secs(3600), |at| at.saturating_duration_since(Instant::now()));
             match incoming.recv_timeout(wait) {
@@ -537,7 +563,17 @@ impl Capture {
                         let (capture, devtools, session, shooting) =
                             (Arc::clone(self), Arc::clone(devtools), session.clone(), Arc::clone(&shooting));
                         let _ = thread::Builder::new().name("screenshot".into()).spawn(move || {
-                            let params = json::object([("format", "png".into())]);
+                            let mut params = json::object([("format", "png".into())]);
+                            if let (Some(area), Value::Object(members)) = (area, &mut params) {
+                                let clip = json::object([
+                                    ("x", u64::from(area.x).into()),
+                                    ("y", u64::from(area.y).into()),
+                                    ("width", u64::from(area.w).into()),
+                                    ("height", u64::from(area.h).into()),
+                                    ("scale", 1u64.into()),
+                                ]);
+                                members.push(("clip".into(), clip));
+                            }
                             match devtools.call("Page.captureScreenshot", params, Some(&session), CALL_TIMEOUT) {
                                 Ok(shot) => {
                                     if let Some(data) = shot.get("data").and_then(Value::as_str) {
@@ -556,7 +592,7 @@ impl Capture {
                         Ok(n) => step = n,
                         Err(error) => crate::warn!("burn-in {}: {error}", self.key()),
                     }
-                    settle_at = (on && step > 1).then(|| Instant::now() + SETTLE);
+                    settle_at = (on && settles(step)).then(|| Instant::now() + SETTLE);
                 }
                 Ok(Control::DevTools(Incoming::Closed)) => return Err("browser exited".into()),
                 Ok(Control::DevTools(Incoming::Event(event))) => {
@@ -571,7 +607,7 @@ impl Capture {
                                 let timestamp = params.get("metadata").and_then(|m| m.get("timestamp")).and_then(Value::as_f64);
                                 self.push_png(data, drawn_at(timestamp));
                             }
-                            settle_at = (step > 1 && self.state().active).then(|| Instant::now() + SETTLE);
+                            settle_at = (settles(step) && self.state().active).then(|| Instant::now() + SETTLE);
                         }
                         "Inspector.targetCrashed" | "Target.targetCrashed" | "Target.detachedFromTarget" => {
                             return Err(format!("page closed ({method})"));
@@ -696,7 +732,7 @@ impl Capture {
         };
         let o = &self.options;
         match png_size(&png) {
-            Some(size) if size == (o.width, o.height) => self.history.set_png(png, at, &self.decode),
+            Some(size) if size == drawn_size(o) => self.history.set_png(png, at, &self.decode),
             Some((w, h)) => crate::warn!("burn-in {}: frame {w}x{h} skipped", self.key()),
             None => crate::warn!("burn-in {}: not a PNG", self.key()),
         }
@@ -710,20 +746,36 @@ fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     Some((number(16), number(20)))
 }
 
-/// Visible rectangles of a capture's PNG at the channel size.
+/// The graphics area at the render size: the part of the page Chromium draws.
+fn clip(options: &CaptureOptions) -> Option<Area> {
+    options.area.map(|area| area.scaled((options.out_width, options.out_height), (options.width, options.height)))
+}
+
+/// Size of the PNGs: the page, or its graphics area, at the render size.
+fn drawn_size(options: &CaptureOptions) -> (u32, u32) {
+    clip(options).map_or((options.width, options.height), |clip| (clip.w, clip.h))
+}
+
+/// Visible rectangles of a capture's PNG at the channel size, in channel coordinates.
 fn decoder(options: &CaptureOptions) -> Arc<Decode> {
-    let (width, height, out_width, out_height) = (options.width, options.height, options.out_width, options.out_height);
+    let (width, height) = drawn_size(options);
+    // The PNG covers the area (or the channel) at the render size.
+    let (ox, oy, out_width, out_height) = options.area.map_or((0, 0, options.out_width, options.out_height), |a| (a.x, a.y, a.w, a.h));
     Arc::new(move |png: &[u8]| {
         let picture = decode_png(png)?;
         if (picture.width, picture.height) != (width, height) {
             return Err(format!("frame {}x{} skipped", picture.width, picture.height));
         }
         let boxes = visible_rects(&picture.rgba, width, height);
-        Ok(if (width, height) != (out_width, out_height) {
+        let mut rects = if (width, height) != (out_width, out_height) {
             scale_rects(&picture.rgba, width, height, &boxes, out_width, out_height)
         } else {
             boxes.into_iter().map(|(x, y, w, h)| Rect { x, y, w, h, pixels: crop(&picture.rgba, width, (x, y, w, h)) }).collect()
-        })
+        };
+        for rect in &mut rects {
+            (rect.x, rect.y) = (rect.x + ox, rect.y + oy);
+        }
+        Ok(rects)
     })
 }
 

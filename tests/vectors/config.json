@@ -15,6 +15,7 @@
   "ad_without_element": true,
   "lead_seconds": 4,
   "render_size": "",
+  "area": "",
   "max_fps": 0,
   "capture_mode": "screencast",
   "browser": "",
@@ -41,6 +42,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "",
@@ -71,6 +73,7 @@
     "ad_without_element": true,
     "lead_seconds": 1,
     "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "",
@@ -102,6 +105,7 @@
     "ad_without_element": false,
     "lead_seconds": 4,
     "render_size": "720p",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "",
@@ -137,6 +141,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "",
@@ -174,6 +179,7 @@
     "ad_without_element": true,
     "lead_seconds": 2.5,
     "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "",
@@ -219,6 +225,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "/usr/bin/chromium",
@@ -249,6 +256,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "area": "",
     "max_fps": 25,
     "capture_mode": "screencast",
     "browser": "",
@@ -279,6 +287,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "frames",
     "browser": "",
@@ -309,6 +318,67 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "area": "",
+    "max_fps": 0,
+    "capture_mode": "screencast",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": {
+    "area": "1920x140+0+940"
+   },
+   "env": {},
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "area": "1920x140+0+940",
+    "max_fps": 0,
+    "capture_mode": "screencast",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": {
+    "area": "1920x140+0+940"
+   },
+   "env": {
+    "VIZRS_AREA": ""
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "area": "",
     "max_fps": 0,
     "capture_mode": "screencast",
     "browser": "",

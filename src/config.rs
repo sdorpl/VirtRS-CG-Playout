@@ -34,6 +34,8 @@ pub struct Config {
     pub lead_seconds: f64,
     /// Size Chromium renders /output at: "" = channel size, "720p", "1280x720".
     pub render_size: String,
+    /// Graphics area of the channel: "" = all of it, "1920x140+0+940" = only that part.
+    pub area: String,
     /// Upper limit of the capture rate, e.g. 25 on small ARM hosts; 0 = the channel rate.
     pub max_fps: f64,
     /// How Chromium's pictures are taken: "screencast" (default) or "frames" (begin frames).
@@ -58,6 +60,7 @@ impl Default for Config {
             ad_without_element: true,
             lead_seconds: 4.0,
             render_size: String::new(),
+            area: String::new(),
             max_fps: 0.0,
             capture_mode: "screencast".into(),
             browser: String::new(),
@@ -129,6 +132,7 @@ impl Config {
                     "ad_without_element" => config.ad_without_element = boolean(value, key)?,
                     "lead_seconds" => config.lead_seconds = number(value, key)?,
                     "render_size" => config.render_size = string(value, key)?,
+                    "area" => config.area = string(value, key)?,
                     "max_fps" => config.max_fps = number(value, key)?,
                     "capture_mode" => config.capture_mode = string(value, key)?,
                     "browser" => config.browser = string(value, key)?,
@@ -179,6 +183,9 @@ impl Config {
         if let Some(v) = env("VIZRS_RENDER_SIZE") {
             config.render_size = v;
         }
+        if let Some(v) = env("VIZRS_AREA") {
+            config.area = v;
+        }
         if let Some(v) = env("VIZRS_MAX_FPS").filter(|v| !v.is_empty()) {
             match v.trim().parse() {
                 Ok(fps) => config.max_fps = fps,
@@ -225,6 +232,7 @@ impl Config {
             ("ad_without_element", self.ad_without_element.into()),
             ("lead_seconds", self.lead_seconds.into()),
             ("render_size", self.render_size.as_str().into()),
+            ("area", self.area.as_str().into()),
             ("max_fps", self.max_fps.into()),
             ("capture_mode", self.capture_mode.as_str().into()),
             ("browser", self.browser.as_str().into()),

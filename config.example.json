@@ -8,6 +8,7 @@
   "ad_without_element": true,
   "lead_seconds": 6,
   "render_size": "",
+  "area": "",
   "max_fps": 0,
   "capture_mode": "screencast"
 }

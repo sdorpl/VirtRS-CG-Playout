@@ -1,14 +1,17 @@
 // HTTP side of the sidecar.
 //
-//   POST /etv?channel=1[&render=720p]
+//   POST /etv?channel=1[&render=720p][&area=1920x140+0+940]
 //                         body: ErsatzTV template data (JSON from the script
 //                         element's stdin); reply: endless ETV packet stream
-//   GET  /ffmpeg?channel=1[&wait=2000]
+//   GET  /ffmpeg?channel=1[&wait=2000][&area=1]
 //                         the ffmpeg overlay (vizrs-ffmpeg) takes over
 //                         a script session of the channel: its packets
-//                         stop, the reply gives the session, size and rate
-//   GET  /ffmpeg/frames?session=N[&fps=25/1]
-//                         raw yuva420p frames of that session for ffmpeg
+//                         stop, the reply gives the session, size and rate;
+//                         with area=1 (the overlay can place the graphics)
+//                         the size and position x, y of the graphics area
+//   GET  /ffmpeg/frames?session=N[&fps=25/1][&area=1]
+//                         raw yuva420p frames of that session for ffmpeg:
+//                         the channel, or with area=1 its graphics area
 //   GET  /health          captures and sessions
 
 use std::collections::{BTreeMap, HashMap};
@@ -20,6 +23,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
+use crate::area::Area;
 use crate::capture::{Capture, CaptureMode, CaptureOptions, IDLE, find_browser};
 use crate::config::Config;
 use crate::frames::{Empty, Source};
@@ -158,8 +162,8 @@ impl Server {
         Arc::clone(events)
     }
 
-    /// One capture per channel size and render size, shared by the channels that have both.
-    fn capture_for(&self, width: u32, height: u32, fps: f64, spec: &str) -> Graphics {
+    /// One capture per channel size, render size and graphics area, shared by the channels that have them.
+    fn capture_for(&self, width: u32, height: u32, fps: f64, spec: &str, area: &str) -> Graphics {
         if self.config.output_url.is_empty() || width == 0 || height == 0 {
             return Graphics::Empty;
         }
@@ -171,7 +175,11 @@ impl Server {
             crate::warn!("{error}; using the screencast");
             CaptureMode::Screencast
         });
-        let key = format!("{width}x{height}/{rw}x{rh}");
+        let area = Area::parse(area, width, height).unwrap_or_else(|error| {
+            crate::warn!("{error}; using the whole channel");
+            None
+        });
+        let key = format!("{width}x{height}/{rw}x{rh}/{}", area.map_or_else(String::new, Area::geometry));
         let mut sessions = lock(&self.sessions);
         if let Some((_, capture)) = sessions.captures.iter().find(|(k, _)| *k == key) {
             return Graphics::Capture(Arc::clone(capture));
@@ -182,6 +190,7 @@ impl Server {
             height: rh,
             out_width: width,
             out_height: height,
+            area,
             fps,
             max_fps: self.config.max_fps,
             mode,
@@ -205,6 +214,7 @@ impl Server {
                 json::object([
                     ("size", c.size().into()),
                     ("render", c.render().into()),
+                    ("area", c.area().map_or(Value::Null, |a| a.geometry().into())),
                     ("fps", c.fps().into()),
                     ("mode", c.mode().name().into()),
                     ("status", c.status().into()),
@@ -309,12 +319,18 @@ impl Server {
         };
 
         crate::info!("channel {channel}: ffmpeg overlay took over the graphics of {}", script.ctx.title);
-        let reply = json::object([
+        // Frames of the graphics area only for an overlay that places them (area=1).
+        let (x, y, width, height) = frame_part(&script, request.param("area") == Some("1"));
+        let mut reply = json::object([
             ("session", script.id.into()),
-            ("width", u64::from(script.ctx.width).into()),
-            ("height", u64::from(script.ctx.height).into()),
+            ("width", u64::from(width).into()),
+            ("height", u64::from(height).into()),
             ("fps", script.fps.into()),
         ]);
+        if let (true, Value::Object(members)) = (request.param("area") == Some("1"), &mut reply) {
+            members.push(("x".into(), u64::from(x).into()));
+            members.push(("y".into(), u64::from(y).into()));
+        }
         http::respond(&mut stream, 200, Some("application/json"), reply.to_string().as_bytes())
     }
 
@@ -337,7 +353,8 @@ impl Server {
         let control = Control::new(false);
         watch_close(&stream, &control);
         if let Ok(mut out) = http::Stream::start(stream, request) {
-            let format = Format::Yuva { width: script.ctx.width, height: script.ctx.height };
+            let (x, y, width, height) = frame_part(&script, request.param("area") == Some("1"));
+            let format = Format::Yuva { x, y, width, height, hd: script.ctx.height >= 720 };
             stream::stream_frames(
                 &*capture,
                 &mut out,
@@ -378,7 +395,8 @@ impl Server {
         events.session(&ctx);
 
         let spec = request.param("render").unwrap_or(&self.config.render_size).to_owned();
-        let capture = match self.capture_for(ctx.width, ctx.height, fps, &spec) {
+        let area = request.param("area").unwrap_or(&self.config.area).to_owned();
+        let capture = match self.capture_for(ctx.width, ctx.height, fps, &spec, &area) {
             Graphics::Capture(capture) => Some(capture),
             Graphics::Empty => None,
         };
@@ -436,6 +454,16 @@ impl Server {
             capture.release();
         }
         events.ended(&ctx);
+    }
+}
+
+/// The part of the channel a session's raw frames carry: its graphics area
+/// when the overlay places it (`area`), else the whole channel.
+fn frame_part(script: &Script, area: bool) -> (u32, u32, u32, u32) {
+    let whole = (0, 0, script.ctx.width, script.ctx.height);
+    match script.capture.as_ref().and_then(|c| c.area()) {
+        Some(a) if area => (a.x, a.y, a.w, a.h),
+        _ => whole,
     }
 }
 

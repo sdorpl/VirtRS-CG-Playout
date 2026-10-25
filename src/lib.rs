@@ -4,6 +4,7 @@
 
 pub mod log;
 
+pub mod area;
 pub mod base64;
 pub mod capture;
 pub mod config;

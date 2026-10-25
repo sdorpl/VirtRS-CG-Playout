@@ -107,6 +107,48 @@ fn overlay_filter() -> &'static Regex {
     OVERLAY.get_or_init(|| Regex::new(r"\[([^\]]+)\]\[([^\]]+)\](overlay\w*)").expect("overlay pattern"))
 }
 
+/// The filter with the graphics of input `input` (the canvas) overlaid at
+/// `x`, `y`: their frames are the graphics area, not the whole channel. None
+/// when that cannot be done safely: no overlay of that input, positional
+/// overlay options, or the graphics resized on the way.
+pub fn placed(filter: &str, input: usize, x: u32, y: u32) -> Option<String> {
+    let inputs = [format!("[{input}]"), format!("[{input}:0]"), format!("[{input}:v]"), format!("[{input}:v:0]")];
+    // The chain that prepares the graphics, `[1:0]format=yuva420p[v_s0]`, if any.
+    let chain = filter.split(';').find(|chain| inputs.iter().any(|label| chain.starts_with(label.as_str())));
+    let label = match chain {
+        Some(chain) if chain.contains("scale") => return None,
+        Some(chain) => chain.rsplit_once('[').filter(|(_, l)| l.ends_with(']'))?.1.trim_end_matches(']').to_owned(),
+        None => inputs.iter().find(|label| filter.contains(label.as_str()))?.trim_matches(['[', ']']).to_owned(),
+    };
+    let pattern = format!(r"\[([^\]]+)\]\[{}\](overlay\w*)(=[^\[,;]*)?", regex::escape(&label));
+    let found = Regex::new(&pattern).ok()?.captures(filter)?;
+    let mut options = Vec::new();
+    for option in found.get(3).map_or("", |m| &m.as_str()[1..]).split(':').filter(|o| !o.is_empty()) {
+        let (name, _) = option.split_once('=')?;
+        if name != "x" && name != "y" {
+            options.push(option.to_owned());
+        }
+    }
+    options.extend([format!("x={x}"), format!("y={y}")]);
+    let whole = found.get(0)?;
+    let replaced = format!("[{}][{label}]{}={}", &found[1], &found[2], options.join(":"));
+    Some(format!("{}{replaced}{}", &filter[..whole.start()], &filter[whole.end()..]))
+}
+
+/// `args` with the canvas input (`-i` number `input`) overlaid at `x`, `y`.
+pub fn with_position(args: &[OsString], input: usize, x: u32, y: u32) -> Option<Vec<OsString>> {
+    let i = (0..args.len().saturating_sub(1)).find(|&i| args[i] == "-filter_complex")?;
+    let filter = placed(args[i + 1].to_str()?, input, x, y)?;
+    let mut out = args.to_vec();
+    out[i + 1] = filter.into();
+    Some(out)
+}
+
+/// Number of the input `-i` at `index` among the inputs of `args`.
+pub fn input_number(args: &[OsString], index: usize) -> usize {
+    (0..index).filter(|&i| args[i] == "-i").count()
+}
+
 /// A transcode to HLS at `fps`: `fps` before the overlay, `-r` on the output.
 pub fn with_rate(args: Vec<OsString>, fps: &str) -> Vec<OsString> {
     let hls = (0..args.len()).find(|&i| pair(&args, i, "-f", "hls"));
@@ -190,6 +232,8 @@ pub struct Frames {
     pub width: u32,
     pub height: u32,
     pub rate: String,
+    /// Position of the frames in the channel (the graphics area); None = the whole channel.
+    pub position: Option<(u32, u32)>,
 }
 
 /// The command with the canvas input replaced by raw frames from `pipe:<fd>`.
@@ -209,6 +253,10 @@ pub fn overlay_args(args: &[OsString], canvas: &Canvas, fd: i32, frames: &Frames
     let raw = ["-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", &size, "-framerate", &frames.rate, "-i", &format!("pipe:{fd}")];
     out.extend(raw.iter().map(OsString::from));
     out.extend_from_slice(&args[canvas.index + 2..]);
+    // Frames of a graphics area: overlaid at its place (checked by `with_position` beforehand).
+    if let Some((x, y)) = frames.position.filter(|&p| p != (0, 0)) {
+        out = with_position(&out, input_number(args, canvas.index), x, y).unwrap_or(out);
+    }
     with_rate(out, fps)
 }
 
@@ -303,9 +351,12 @@ fn open_frames(sidecar: &str, path: &str) -> io::Result<TcpStream> {
     Ok(stream)
 }
 
-/// The sidecar's session for the canvas channel and its frame stream.
-fn take_over(settings: &Settings, channel: &str, header_rate: &str) -> io::Result<(Frames, TcpStream)> {
-    let path = format!("/ffmpeg?channel={}&wait={CLAIM_WAIT_MS}", quote_plus(channel));
+/// The sidecar's session for the canvas channel and its frame stream. With
+/// `place` (the command can overlay the graphics anywhere) the frames are
+/// those of the graphics area, if the channel has one.
+fn take_over(settings: &Settings, channel: &str, header_rate: &str, place: bool) -> io::Result<(Frames, TcpStream)> {
+    let area = if place { "&area=1" } else { "" };
+    let path = format!("/ffmpeg?channel={}&wait={CLAIM_WAIT_MS}{area}", quote_plus(channel));
     let (status, body) = sidecar_get(&settings.sidecar, &path)?;
     if status != "200" {
         return Err(error(format!("no VizRS session on channel {channel} ({status})")));
@@ -322,8 +373,9 @@ fn take_over(settings: &Settings, channel: &str, header_rate: &str) -> io::Resul
         Value::String(text) => text.clone(),
         other => other.to_string(),
     };
-    let frames = Frames { width: size("width")?, height: size("height")?, rate };
-    let path = format!("/ffmpeg/frames?session={}&fps={}", quote_plus(&session), quote_plus(&frames.rate));
+    let position = if place { Some((size("x")?, size("y")?)) } else { None };
+    let frames = Frames { width: size("width")?, height: size("height")?, rate, position };
+    let path = format!("/ffmpeg/frames?session={}&fps={}{area}", quote_plus(&session), quote_plus(&frames.rate));
     Ok((frames, open_frames(&settings.sidecar, &path)?))
 }
 
@@ -343,7 +395,8 @@ pub fn run(settings: &Settings, args: Vec<OsString>) -> i32 {
     let rate = headers.iter().find(|(name, _)| name == "x-etv-frame-rate").map_or("", |(_, v)| v.as_str()).to_owned();
     let drain = Drain::start(args[canvas.index + 1].to_string_lossy().into_owned(), headers);
 
-    let (frames, socket) = match take_over(settings, &canvas.channel, &rate) {
+    let place = with_position(&args, input_number(&args, canvas.index), 2, 2).is_some();
+    let (frames, socket) = match take_over(settings, &canvas.channel, &rate, place) {
         Ok(taken) => taken,
         Err(e) => {
             log(format_args!("{e}; ErsatzTV graphics instead"));
@@ -434,6 +487,44 @@ mod tests {
         assert_eq!(with_rate(hls.clone(), ""), hls);
         let copy = args(&["-i", "a", "-c:v", "copy", "-f", "hls", "o"]);
         assert_eq!(with_rate(copy.clone(), "50"), copy);
+    }
+
+    #[test]
+    fn graphics_placed_at_the_area() {
+        // ErsatzTV's software, NVIDIA and VAAPI graphs, the canvas as input 1.
+        let cases = [
+            ("[0:0]scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=x=0:y=0[v_o0]", "[v_m0][v_s0]overlay=x=10:y=940[v_o0]"),
+            (
+                "[1:0]format=yuva420p,hwupload_cuda[v_s0];[v_m0][v_s0]overlay_cuda=x=0:y=0[v_o0]",
+                "[v_m0][v_s0]overlay_cuda=x=10:y=940[v_o0]",
+            ),
+            (
+                "[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=format=0,format=nv12|vaapi,hwupload[v_o0]",
+                "[v_m0][v_s0]overlay=format=0:x=10:y=940,format",
+            ),
+            ("[1:0]format=yuva420p,hwupload[v_s0];[v_m0][v_s0]overlay_vaapi[v_o0]", "[v_m0][v_s0]overlay_vaapi=x=10:y=940[v_o0]"),
+            ("[0][1]overlay", "[0][1]overlay=x=10:y=940"),
+            // A watermark (input 2) overlaid first: only the graphics move.
+            (
+                "[0:0][2:0]overlay=x=5:y=5[w];[1:0]format=yuva420p[g];[w][g]overlay[o]",
+                "[0:0][2:0]overlay=x=5:y=5[w];[1:0]format=yuva420p[g];[w][g]overlay=x=10:y=940[o]",
+            ),
+        ];
+        for (filter, expected) in cases {
+            let placed = placed(filter, 1, 10, 940).unwrap();
+            assert!(placed.contains(expected), "{placed}");
+            assert_eq!(placed.matches("overlay").count(), filter.matches("overlay").count());
+        }
+        // Positional options, graphics scaled to the channel, no overlay of the canvas: not placed.
+        assert_eq!(placed("[0][1]overlay=5:5", 1, 10, 940), None);
+        assert_eq!(placed("[1:0]scale=1920:1080,format=yuva420p[g];[0][g]overlay", 1, 10, 940), None);
+        assert_eq!(placed("[0]scale=8:4[v]", 1, 10, 940), None);
+        assert_eq!(placed("[0][2]overlay", 1, 10, 940), None);
+
+        let list = args(&["-i", "a", "-i", "http://x/internal/graphics/1/7", "-filter_complex", "[0][1]overlay[o]", "-f", "hls", "o"]);
+        assert_eq!(input_number(&list, 2), 1);
+        assert_eq!(with_position(&list, 1, 2, 4).unwrap()[5], "[0][1]overlay=x=2:y=4[o]");
+        assert_eq!(with_position(&args(&["-i", "a", "-f", "null", "-"]), 1, 2, 4), None);
     }
 
     #[test]

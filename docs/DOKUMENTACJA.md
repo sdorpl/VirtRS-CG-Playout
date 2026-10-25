@@ -55,16 +55,51 @@ Pomiar na x86 dla kanału 1080p i animacji ciągłej (przewijany ticker,
 mrugające „Na żywo”), CPU Chromium i sidecara na jedną klatkę na sekundę:
 1080p ok. 7,8%, `720p` ok. 5,6% (−30%), `540p` ok. 4,3% (−45%).
 Błędna wartość trafia do logu, a grafika renderuje się w rozmiarze kanału.
-Kanały o tym samym rozmiarze i rozmiarze renderowania dzielą jedną przeglądarkę.
+Kanały o tym samym rozmiarze, rozmiarze renderowania i obszarze grafiki
+(niżej) dzielą jedną przeglądarkę.
+
+### Obszar grafiki (`area`)
+
+Grafika zwykle zajmuje mały kawałek ekranu (pasek z tickerem, logo w rogu),
+a mimo to Chromium co klatkę rysuje i koduje do PNG cały ekran kanału, sidecar
+dekoduje cały PNG, a nakładka ffmpeg (niżej) dostaje i nakłada pełną klatkę
+`yuva420p` (1080p: ok. 5 MB). Opcja `area` (`VIZRS_AREA`) albo parametr
+`area` w adresie elementu (`http://cg:7700/etv?channel=1&area=1920x140+0+930`,
+ma pierwszeństwo) podaje obszar grafiki w pikselach kanału, w zapisie
+`SZERxWYS+X+Y` (w adresie `+` może być też zakodowany jako `%2B`):
+
+- Chromium rysuje tylko ten obszar strony (DevTools `viewport`; strona dalej
+  układa się w pełnym rozmiarze, więc `/output` VizRS nie wymaga zmian), a PNG
+  ma rozmiar obszaru (w rozmiarze renderowania, gdy jest `render_size`);
+- sidecar dekoduje i skaluje tylko obszar; pakiety ETV mają współrzędne
+  kanału, więc element „script” działa bez zmian;
+- nakładka ffmpeg dostaje klatki w rozmiarze obszaru i nakłada je w jego
+  miejscu (`overlay=x=X:y=Y`, Nakładka ffmpeg, niżej).
+
+Wszystko poza obszarem jest obcinane – grafika, która ma się pokazać gdzie
+indziej (lower third wyżej, logo w drugim rogu), musi się w nim mieścić albo
+mieć osobny kanał lub element. Pozycja i rozmiar są wyrównywane do parzystych
+pikseli (podpróbkowanie chrominancji 4:2:0) i przycinane do kanału; puste albo
+`full` = cały kanał. Błędna wartość trafia do logu, a grafika idzie z całego
+kanału.
+
+Pomiar (§8, Xeon 2,8 GHz, 4 vCPU, kanał 1080p, przewijany ticker, obszar
+`1920x140+0+930`): z `capture_mode: frames` 96–99,5% klatek z równym krokiem
+także przy 50 kl./s (cała klatka: 0–38%), CPU przeglądarki 45% zamiast 118%
+(85% przy 50 kl./s), sidecar w trybie nakładki 19% zamiast 73% CPU i 17 MB/s
+zamiast 131 MB/s surowych klatek. Screencast też zyskuje (20–41% zamiast
+4–10%), ale równy ruch daje dopiero połączenie z `frames`. `render_size`
+mniejszy od kanału nic tu już nie dodaje: obszar jest mały, a skalowanie
+podnosi CPU sidecara (38–45%). Tabela: §8.
 
 Sidecar to jeden plik binarny `virtrs-cg` (Rust) obok bezgłowego Chromium:
 
 | Adres | Co |
 |---|---|
-| `POST /etv?channel=1[&render=720p]` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV; `render` – rozmiar renderowania grafiki (§1) |
-| `GET /ffmpeg?channel=1[&wait=2000]` | nakładka ffmpeg przejmuje wolną sesję elementu kanału; odpowiedź: `session`, `width`, `height`, `fps` (404 = brak sesji) |
-| `GET /ffmpeg/frames?session=N[&fps=25/1]` | surowe klatki `yuva420p` przejętej sesji dla ffmpeg (Nakładka ffmpeg, niżej) |
-| `GET /health` | liczba sesji, stan przechwytywania (`size` kanału, `render`, `fps`, `mode`: `screencast` albo `frames`, `status`: `capturing`, `paused`, `restarting`…, `seq`) i kanały z nakładką ffmpeg (`overlay`) |
+| `POST /etv?channel=1[&render=720p][&area=1920x140+0+930]` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV; `render` – rozmiar renderowania grafiki, `area` – obszar grafiki (§1) |
+| `GET /ffmpeg?channel=1[&wait=2000][&area=1]` | nakładka ffmpeg przejmuje wolną sesję elementu kanału; odpowiedź: `session`, `width`, `height`, `fps` (404 = brak sesji); z `area=1` (nakładka umie ustawić grafikę) rozmiar i położenie `x`, `y` obszaru grafiki |
+| `GET /ffmpeg/frames?session=N[&fps=25/1][&area=1]` | surowe klatki `yuva420p` przejętej sesji dla ffmpeg, z `area=1` w rozmiarze obszaru grafiki (Nakładka ffmpeg, niżej) |
+| `GET /health` | liczba sesji, stan przechwytywania (`size` kanału, `render`, `area`, `fps`, `mode`: `screencast` albo `frames`, `status`: `capturing`, `paused`, `restarting`…, `seq`) i kanały z nakładką ffmpeg (`overlay`) |
 
 Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje klatkę
 dopiero wtedy, gdy któraś sesja ją pokazuje (klatki, których żadna klatka
@@ -167,7 +202,12 @@ ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄─
    ErsatzTV czeka na następny pakiet, nie zużywając CPU.
 4. ffmpeg czyta wejście grafiki z gniazda `GET /ffmpeg/frames` przekazanego
    jako `pipe:N`. Są to surowe klatki `yuva420p` w rozmiarze kanału,
-   w tempie kanału z `lead_seconds` zapasu (§1). Opcje płótna (`-headers`,
+   w tempie kanału z `lead_seconds` zapasu (§1). Gdy kanał ma obszar grafiki
+   (§1), klatki mają jego rozmiar, a nakładka ustawia jego położenie
+   w filtrze nakładania grafiki (`x=`, `y=` w `overlay`, `overlay_cuda`,
+   `overlay_vaapi`…; inne opcje zostają). Jeśli w grafie tego zrobić się nie
+   da (grafika skalowana po drodze, opcje pozycyjne, brak nakładania wejścia
+   płótna), nakładka prosi o pełne klatki i nie zmienia filtra. Opcje płótna (`-headers`,
    `-protocol_whitelist`, kodek, format) znikają, a `-t` i reszta komendy
    zostają, łącznie z filtrami sprzętowymi i filtrem nakładania ErsatzTV
    (`overlay`, `overlay_cuda` przy NVENC, `overlay_vaapi` itd., §4).
@@ -559,6 +599,7 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "ad_without_element": true,
   "lead_seconds": 4,
   "render_size": "",
+  "area": "",
   "max_fps": 0,
   "capture_mode": "screencast"
 }
@@ -570,7 +611,8 @@ Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 `VIZRS_TOKEN`, `VIZRS_OUTPUT_URL`, `VIZRS_ON_CLIP`, `VIZRS_ON_AD`
 (`\n` rozdziela linie), `VIZRS_AD_PATH`, `VIZRS_AD_TITLE`, `VIZRS_AD_WITHOUT_ELEMENT=0`
 (wyłącza reklamę po braku elementu), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
-(`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_MAX_FPS`
+(`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_AREA` (obszar
+grafiki `SZERxWYS+X+Y`, np. `1920x140+0+930`, puste = cały kanał; §1), `VIZRS_MAX_FPS`
 (górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
 kanału), `VIZRS_CAPTURE_MODE` (`screencast` albo `frames`, niżej),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
@@ -741,7 +783,7 @@ klatkażu raz na kilka (np. 50 kl./s przy `25`: równo = krok co drugą klatkę)
 
 | Kolumna | Znaczenie |
 |---|---|
-| `render`, `fps`, `capture`, `max_fps` | rozmiar renderowania, klatkaż wyjścia trybu, tryb przechwytywania (`/health`), `max_fps` |
+| `render`, `area`, `fps`, `capture`, `max_fps` | rozmiar renderowania, obszar grafiki, klatkaż wyjścia trybu, tryb przechwytywania (`/health`), `max_fps` |
 | `cpu_percent` | CPU procesu sidecara, % jednego rdzenia |
 | `browser_cpu_percent` | CPU przeglądarki (procesy potomne sidecara), % jednego rdzenia |
 | `rss_mb` | pamięć procesu sidecara (głównie klatki: historia PNG na `lead_seconds` + 1,6 s i obrazy pokazywane przez sesje) |
@@ -762,6 +804,7 @@ Zmienne środowiskowe (wszystkie opcjonalne):
 | `BENCH_CAPTURE` | `screencast` | `capture_mode` sidecara (`frames`, §5) |
 | `BENCH_MAX_FPS` | `0` | `max_fps` sidecara |
 | `BENCH_RENDER` | – | `render_size` sidecara, np. `720p` |
+| `BENCH_AREA` | – | `area` sidecara, np. `1920x140+0+930` (pasek z tickerem sceny); znacznik kroku trafia w lewy górny róg obszaru |
 | `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
 | `BENCH_DURATION` | `30` | pomiar [s] |
 
@@ -819,6 +862,22 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
   | 1080p25 | `etv` | 10% / 47% / 43%, 152% | 41% / 30% / 29%, 118% (17,5 obrazu/s) |
   | 1080p25, render 720p | `etv` | 64% / 14% / 22%, 145% | 93% / 3% / 3%, 97% |
   | 1080p25, render 720p | `ffmpeg` | 30% / 32% / 38%, 131% | 87% / 4% / 9%, 95% |
+
+- **Obszar grafiki** (`BENCH_AREA=1920x140+0+930`, ten sam host, kanał
+  1080p, render 1080p; równo / stoi / przeskok, CPU sidecara / przeglądarki,
+  strumień):
+
+  | Tryb sidecara | `capture_mode` | cały kanał | obszar |
+  |---|---|---|---|
+  | `etv` 25 | `screencast` | 4 / 50 / 47, 21% / 149%, 18 MB/s | 15 / 39 / 46, 5% / 62%, 12 MB/s |
+  | `ffmpeg` 25 | `screencast` | 10 / 48 / 41, 71% / 153%, 131 MB/s | 20 / 39 / 41, 18% / 63%, 17 MB/s |
+  | `ffmpeg` 50 | `screencast` | 9 / 39 / 53, 89% / 197%, 162 MB/s | 41 / 26 / 32, 34% / 127%, 34 MB/s |
+  | `etv` 25 | `frames` | 35 / 34 / 32, 27% / 118%, 23 MB/s | 99,5 / 0,3 / 0,3, 7% / 45%, 17 MB/s |
+  | `ffmpeg` 25 | `frames` | 38 / 32 / 30, 73% / 119%, 131 MB/s | 98 / 2 / 1, 19% / 45%, 17 MB/s |
+  | `ffmpeg` 50 | `frames` | 0 / 66 / 34, 99% / 116%, 184 MB/s | 96,5 / 2 / 2, 34% / 85%, 34 MB/s |
+
+  Z renderem 720p obszar daje te same 99,5% (`frames`), ale CPU sidecara
+  rośnie do 38–45% przez skalowanie.
 
   Ten host nie rysuje 1080p w pełnym rozmiarze w 25 kl./s ani 720p w 50
   kl./s; tam oba tryby są słabe, a `frames` przy 50/60 kl./s bez `max_fps`

@@ -43,12 +43,19 @@ fn trunc(x: f64) -> u8 {
 
 /// One yuva420p frame of `width`x`height` from visible rectangles of RGBA.
 pub fn yuva_frame(rects: &[Rect], width: u32, height: u32) -> Arc<[u8]> {
+    yuva_area(rects, (0, 0, width, height), height >= 720)
+}
+
+/// One yuva420p frame of the part `(x, y, width, height)` of a picture
+/// (its graphics area): rectangles in picture coordinates, cut to the part.
+/// `hd` = BT.709 (a channel of 720 lines or more), else BT.601.
+pub fn yuva_area(rects: &[Rect], (ox, oy, width, height): (u32, u32, u32, u32), hd: bool) -> Arc<[u8]> {
     if rects.is_empty() {
         return blank(width, height);
     }
 
     let mut out = blank(width, height).to_vec();
-    let [ky, ku, kv] = if height >= 720 { BT709 } else { BT601 };
+    let [ky, ku, kv] = if hd { BT709 } else { BT601 };
     let w = width as usize;
     let cw = w.div_ceil(2);
     let ch = (height as usize).div_ceil(2);
@@ -57,13 +64,23 @@ pub fn yuva_frame(rects: &[Rect], width: u32, height: u32) -> Arc<[u8]> {
     let a_off = v_off + cw * ch;
 
     for rect in rects {
-        let (x, y, rw, rh) = (rect.x as usize, rect.y as usize, rect.w as usize, rect.h as usize);
+        // The rectangle in frame coordinates, cut to the frame.
+        let (rx, ry) = (i64::from(rect.x) - i64::from(ox), i64::from(rect.y) - i64::from(oy));
+        let (x0, y0) = (rx.max(0), ry.max(0));
+        let (x1, y1) = ((rx + i64::from(rect.w)).min(i64::from(width)), (ry + i64::from(rect.h)).min(i64::from(height)));
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let (x, y, rw, rh) = (x0 as usize, y0 as usize, (x1 - x0) as usize, (y1 - y0) as usize);
+        // Offsets of the cut part inside the rectangle's pixels.
+        let (sx, sy, stride) = ((x0 - rx) as usize, (y0 - ry) as usize, rect.w as usize);
+        let pixel = |row: usize, col: usize| ((row + sy) * stride + col + sx) * 4;
         let pixels = &rect.pixels;
 
         for row in 0..rh {
             let line = (y + row) * w + x;
             for col in 0..rw {
-                let i = (row * rw + col) * 4;
+                let i = pixel(row, col);
                 let a = pixels[i + 3];
                 if a == 0 {
                     continue;
@@ -82,7 +99,7 @@ pub fn yuva_frame(rects: &[Rect], width: u32, height: u32) -> Arc<[u8]> {
                     let Some(row) = (by * 2 + dy).checked_sub(y).filter(|&r| r < rh) else { continue };
                     for dx in 0..2 {
                         let Some(col) = (bx * 2 + dx).checked_sub(x).filter(|&c| c < rw) else { continue };
-                        let i = (row * rw + col) * 4;
+                        let i = pixel(row, col);
                         let a = f64::from(pixels[i + 3]);
                         if a == 0.0 {
                             continue;

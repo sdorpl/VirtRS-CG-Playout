@@ -85,8 +85,10 @@ impl Control {
 pub enum Format {
     /// ETV packets: a picture once, then one `Repeat` for any run of the same picture.
     Packets,
-    /// Raw yuva420p of `width`x`height`: every output frame carries the whole picture.
-    Yuva { width: u32, height: u32 },
+    /// Raw yuva420p of the part `width`x`height` at `x`, `y` (the channel, or
+    /// its graphics area): every output frame carries the whole part. `hd` =
+    /// BT.709 (the channel has 720 lines or more).
+    Yuva { x: u32, y: u32, width: u32, height: u32, hd: bool },
 }
 
 pub struct Options {
@@ -150,9 +152,9 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         let due = ((elapsed / frame_s).floor() + 1.0 + lead as f64).max(0.0) as u64;
         while sent < due {
             let frame = frame_at(base, sent);
-            let written = if let Format::Yuva { width, height } = options.format {
+            let written = if let Format::Yuva { x, y, width, height, hd } = options.format {
                 sent += 1;
-                out.write_all(&frame.picture().yuva(width, height))
+                out.write_all(&frame.picture().yuva((x, y, width, height), hd))
             } else if sent_seq != Some(frame.seq) {
                 sent_seq = Some(frame.seq);
                 sent += 1;
@@ -237,7 +239,7 @@ mod tests {
         let sent = stream_frames(
             &history,
             &mut out,
-            &Options { fps: 25.0, lead_seconds: 0.2, format: Format::Yuva { width: 4, height: 2 }, air: None },
+            &Options { fps: 25.0, lead_seconds: 0.2, format: Format::Yuva { x: 0, y: 0, width: 4, height: 2, hd: false }, air: None },
             &control,
         );
         timer.join().unwrap();

@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use virtrs_cg::area::Area;
 use virtrs_cg::capture::{Capture, CaptureMode, CaptureOptions, find_browser};
 use virtrs_cg::frames::Source;
 
@@ -41,6 +42,17 @@ fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> 
 }
 
 fn capture_in(mode: CaptureMode, url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
+    capture_area(mode, url, render, out, None, idle)
+}
+
+fn capture_area(
+    mode: CaptureMode,
+    url: String,
+    render: (u32, u32),
+    out: (u32, u32),
+    area: Option<Area>,
+    idle: Duration,
+) -> Option<Arc<Capture>> {
     let Some(browser) = find_browser() else {
         eprintln!("no Chromium: skipped");
         return None;
@@ -53,6 +65,7 @@ fn capture_in(mode: CaptureMode, url: String, render: (u32, u32), out: (u32, u32
         height: render.1,
         out_width: out.0,
         out_height: out.1,
+        area,
         fps: 25.0,
         max_fps: 0.0,
         mode,
@@ -209,4 +222,32 @@ fn chromium_frames_capture_draws_on_the_frame_grid_of_the_channel() {
     capture.stop();
     assert!(rate >= 12.0, "{rate} pictures per second");
     assert!(one * 10 >= steps * 7, "{one} of {steps} pictures one step after the one before");
+}
+
+/// A graphics area: Chromium draws only that part, the rectangles keep the
+/// channel's coordinates, graphics outside it are cut off; also rendered smaller.
+#[test]
+fn chromium_capture_of_a_graphics_area() {
+    let _serial = serial();
+    // A box inside the bottom strip, one above it, a static page.
+    const STRIP: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
+<div style="position:absolute;left:10%;top:85%;width:25%;height:10%;background:rgb(255,0,0)"></div>
+<div style="position:absolute;left:50%;top:10%;width:20%;height:20%;background:rgb(0,0,255)"></div></body></html>"#;
+    let area = Area { x: 0, y: 280, w: 640, h: 80 };
+    for (mode, render) in [(CaptureMode::Screencast, (640, 360)), (CaptureMode::Frames, (640, 360)), (CaptureMode::Screencast, (320, 180))]
+    {
+        let url = serve(STRIP);
+        let Some(capture) = capture_area(mode, url, render, (640, 360), Some(area), Duration::from_secs(30)) else { return };
+        // Red box 64,306 160x36 of the channel; at half size scaled with a margin.
+        let expected = if render == (640, 360) { vec![(64, 306, 160, 36)] } else { vec![(56, 298, 176, 52)] };
+        until("the box of the area", || boxes(&capture) == expected);
+        let rect = &capture.current().picture().rects[0];
+        let middle = (((rect.h >> 1) * rect.w + (rect.w >> 1)) * 4) as usize;
+        assert_eq!(&rect.pixels[middle..middle + 4], &[255, 0, 0, 255], "{}", mode.name());
+        // Still the area after a while (no full-page picture from a screenshot).
+        thread::sleep(Duration::from_millis(600));
+        assert_eq!(boxes(&capture), expected, "{} {render:?}", mode.name());
+        assert!(capture.key().ends_with("area 640x80+0+280"), "{}", capture.key());
+        capture.stop();
+    }
 }

@@ -9,17 +9,20 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use crate::packets::{Rect, picture_packet};
-use crate::yuva::yuva_frame;
+use crate::yuva::yuva_area;
 
 /// Turns the PNG of a capture into visible rectangles at the channel size.
 pub type Decode = dyn Fn(&[u8]) -> Result<Vec<Rect>, String> + Send + Sync;
+
+/// Part of a picture as a yuva420p frame and its colour matrix.
+type Part = ((u32, u32, u32, u32), bool);
 
 /// A decoded picture; built once, shared by the sessions of the same size.
 #[derive(Debug)]
 pub struct Picture {
     pub rects: Vec<Rect>,
     packet: OnceLock<Vec<u8>>,
-    yuva: OnceLock<(u32, u32, Arc<[u8]>)>,
+    yuva: OnceLock<(Part, Arc<[u8]>)>,
 }
 
 impl Picture {
@@ -32,10 +35,11 @@ impl Picture {
         self.packet.get_or_init(|| picture_packet(&self.rects))
     }
 
-    /// The picture as one yuva420p frame of `width`x`height`.
-    pub fn yuva(&self, width: u32, height: u32) -> Arc<[u8]> {
-        let (w, h, data) = self.yuva.get_or_init(|| (width, height, yuva_frame(&self.rects, width, height)));
-        if (*w, *h) == (width, height) { Arc::clone(data) } else { yuva_frame(&self.rects, width, height) }
+    /// The part `(x, y, width, height)` of the picture (the channel, or its
+    /// graphics area) as one yuva420p frame; `hd` = BT.709.
+    pub fn yuva(&self, part: (u32, u32, u32, u32), hd: bool) -> Arc<[u8]> {
+        let (cached, data) = self.yuva.get_or_init(|| ((part, hd), yuva_area(&self.rects, part, hd)));
+        if *cached == (part, hd) { Arc::clone(data) } else { yuva_area(&self.rects, part, hd) }
     }
 }
 

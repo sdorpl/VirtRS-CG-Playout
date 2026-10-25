@@ -25,3 +25,4 @@ services:
       BENCH_CAPTURE: ${BENCH_CAPTURE:-screencast}
       BENCH_MAX_FPS: ${BENCH_MAX_FPS:-0}
       BENCH_RENDER: ${BENCH_RENDER:-}
+      BENCH_AREA: ${BENCH_AREA:-}

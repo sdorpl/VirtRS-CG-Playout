@@ -34,6 +34,9 @@ const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
 const RENDER = env.BENCH_RENDER || "";
 const CAPTURE = env.BENCH_CAPTURE || "screencast";
 const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
+// Graphics area (WxH+X+Y): the marker goes to its top-left corner, ffmpeg asks for its frames.
+const AREA = env.BENCH_AREA || "";
+const [AX, AY] = (/^\d+x\d+\+(\d+)\+(\d+)$/.exec(AREA) ?? [0, 0, 0]).slice(1).map(Number);
 const CLK_TCK = 100;
 const HEADER = 11;
 
@@ -79,7 +82,8 @@ function descendantsCpu(pid) {
  */
 function markerPoints(render) {
   const [rw, rh] = render.split("x").map(Number);
-  return Array.from({ length: 16 }, (_, bit) => [Math.floor(((8 * bit + 4) * WIDTH) / rw), Math.floor((4 * HEIGHT) / rh)]);
+  const [bx, by] = [Math.round((AX / WIDTH) * rw), Math.round((AY / HEIGHT) * rh)];
+  return Array.from({ length: 16 }, (_, bit) => [Math.floor(((bx + 8 * bit + 4) * WIDTH) / rw), Math.floor(((by + 4) * HEIGHT) / rh)]);
 }
 
 /** Animation step from 16 [white, opaque] samples, or null without the marker. */
@@ -132,14 +136,15 @@ function packetSteps(points, push) {
   };
 }
 
-/** Steps of raw yuva420p frames: luma and alpha of the marker cells in each frame. */
-function yuvaSteps(points, push) {
-  const cw = Math.ceil(WIDTH / 2);
-  const ch = Math.ceil(HEIGHT / 2);
-  const size = WIDTH * HEIGHT * 2 + cw * ch * 2;
-  const alpha = WIDTH * HEIGHT + 2 * cw * ch;
+/** Steps of raw yuva420p frames of `part` (x, y, w, h): luma and alpha of the marker cells in each frame. */
+function yuvaSteps(points, push, [px, py, pw, ph]) {
+  const cw = Math.ceil(pw / 2);
+  const ch = Math.ceil(ph / 2);
+  const size = pw * ph * 2 + cw * ch * 2;
+  const alpha = pw * ph + 2 * cw * ch;
   // Byte offsets in a frame, in order: luma of each cell, then its alpha.
-  const wanted = points.flatMap(([x, y]) => [y * WIDTH + x, alpha + y * WIDTH + x]).map((at, i) => ({ at, i })).sort((a, b) => a.at - b.at);
+  const local = points.map(([x, y]) => [x - px, y - py]);
+  const wanted = local.flatMap(([x, y]) => [y * pw + x, alpha + y * pw + x]).map((at, i) => ({ at, i })).sort((a, b) => a.at - b.at);
   let position = 0;
   let values = [];
   return (chunk) => {
@@ -204,7 +209,7 @@ const server = http.createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 // BENCH_URL: the real VizRS /output instead of the scene (graphics must be on air).
 // The scene steps at the rate of the mode's output frames.
-const sceneUrl = (fps) => env.BENCH_URL || `http://127.0.0.1:${server.address().port}/scene.html?scene=${SCENE}&fps=${fps}`;
+const sceneUrl = (fps) => env.BENCH_URL || `http://127.0.0.1:${server.address().port}/scene.html?scene=${SCENE}&fps=${fps}&mx=${AX / WIDTH}&my=${AY / HEIGHT}`;
 
 const browser = findBrowser();
 if (!browser) throw new Error("no Chromium (set VIZRS_BROWSER)");
@@ -222,22 +227,27 @@ async function run(mode) {
       render_size: RENDER,
       capture_mode: CAPTURE,
       max_fps: MAX_FPS,
+      area: AREA,
     },
     { VIZRS_BROWSER: browser, VIZRS_BROWSER_NO_SANDBOX: "1" },
   );
   const script = await fetch(`${cg.url}/etv?channel=1`, { method: "POST", body: JSON.stringify(data) });
-  const points = markerPoints((await cg.health()).captures[0]?.render ?? `${WIDTH}x${HEIGHT}`);
+  const started = (await cg.health()).captures[0] ?? {};
+  const points = markerPoints(started.render ?? `${WIDTH}x${HEIGHT}`);
+  // The frames ffmpeg gets: the graphics area (area=1), or the channel.
+  const [aw, ah, ax, ay] = started.area ? started.area.split(/[x+]/).map(Number) : [WIDTH, HEIGHT, 0, 0];
   const probe = { steps: null };
   const readers = [script.body.getReader()];
   let bytes = 0;
   // The overlay takes the session over; the script session stays open (and silent), as in ErsatzTV.
   if (mode === "ffmpeg") {
-    const claim = await (await fetch(`${cg.url}/ffmpeg?channel=1&wait=5000`)).json();
-    const frames = await fetch(`${cg.url}/ffmpeg/frames?session=${claim.session}&fps=${FFMPEG_FPS}`);
+    const claim = await (await fetch(`${cg.url}/ffmpeg?channel=1&wait=5000&area=1`)).json();
+    const frames = await fetch(`${cg.url}/ffmpeg/frames?session=${claim.session}&fps=${FFMPEG_FPS}&area=1`);
     readers.push(frames.body.getReader());
   }
   // Steps of the stream ErsatzTV or ffmpeg reads (the last one), kept during the measurement.
-  const parse = (mode === "ffmpeg" ? yuvaSteps : packetSteps)(points, (step) => probe.steps?.push(step));
+  const push = (step) => probe.steps?.push(step);
+  const parse = mode === "ffmpeg" ? yuvaSteps(points, push, [ax, ay, aw, ah]) : packetSteps(points, push);
   const drain = Promise.all(readers.map(async (reader, index) => {
     for (;;) {
       const { done, value } = await reader.read();
@@ -267,6 +277,7 @@ async function run(mode) {
     mode,
     size: `${WIDTH}x${HEIGHT}`,
     render: capture.render,
+    area: capture.area ?? "",
     fps,
     capture: capture.mode,
     max_fps: MAX_FPS,
