@@ -5,3 +5,5 @@ test
 config.json
 seed
 media
+rust/target
+bench
