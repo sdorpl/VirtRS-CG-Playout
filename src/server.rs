@@ -183,6 +183,7 @@ impl Server {
             no_sandbox: self.config.no_sandbox,
             extra_args: self.config.browser_args.clone(),
             idle: IDLE,
+            history: stream::history(self.config.lead_seconds),
         });
         sessions.captures.push((key, Arc::clone(&capture)));
         Graphics::Capture(capture)
@@ -330,7 +331,12 @@ impl Server {
         watch_close(&stream, &control);
         if let Ok(mut out) = http::Stream::start(stream, request) {
             let format = Format::Yuva { width: script.ctx.width, height: script.ctx.height };
-            stream::stream_frames(&*capture, &mut out, &Options { fps, lead_seconds: self.config.lead_seconds, format }, &control);
+            stream::stream_frames(
+                &*capture,
+                &mut out,
+                &Options { fps, lead_seconds: self.config.lead_seconds, format, air: script.ctx.air_ms() },
+                &control,
+            );
         }
         capture.release();
         // The transcode is over: the script ends with it, as without the overlay.
@@ -410,7 +416,7 @@ impl Server {
                 Some(capture) => &**capture,
                 None => &self.empty,
             };
-            let options = Options { fps, lead_seconds: self.config.lead_seconds, format: Format::Packets };
+            let options = Options { fps, lead_seconds: self.config.lead_seconds, format: Format::Packets, air: ctx.air_ms() };
             stream::stream_frames(source, &mut out, &options, &control);
             let _ = out.finish();
 

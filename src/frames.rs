@@ -1,33 +1,30 @@
-// Pictures of the graphics for the sessions: the current one and a short
-// history, so each output frame can take the picture of its own moment
-// (`setFrame` / `frameAt` of the Node.js sidecar). A picture is dated when Chromium
-// drew it, not when its decoding finished.
+// Pictures of the graphics for the sessions: the current one and a history,
+// so each output frame can take the picture of its own moment (`setFrame` /
+// `frameAt` of the Node.js sidecar). A picture is dated when Chromium drew it,
+// not when its decoding finished. The history covers the lead of the streams
+// (seconds of pictures), so a picture stays a PNG until a session shows it.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use crate::packets::{Rect, picture_packet};
 use crate::yuva::yuva_frame;
 
-// Frames kept for sessions that write late (backpressure, a busy host).
-const HISTORY: Duration = Duration::from_millis(500);
+/// Turns the PNG of a capture into visible rectangles at the channel size.
+pub type Decode = dyn Fn(&[u8]) -> Result<Vec<Rect>, String> + Send + Sync;
 
-/// One picture; `seq` grows with every new picture.
+/// A decoded picture; built once, shared by the sessions of the same size.
 #[derive(Debug)]
-pub struct Frame {
-    pub seq: u64,
+pub struct Picture {
     pub rects: Vec<Rect>,
-    /// When Chromium drew it.
-    pub at: Instant,
-    /// Built once, shared by the sessions of the same size.
     packet: OnceLock<Vec<u8>>,
     yuva: OnceLock<(u32, u32, Arc<[u8]>)>,
 }
 
-impl Frame {
-    pub fn new(seq: u64, rects: Vec<Rect>, at: Instant) -> Frame {
-        Frame { seq, rects, at, packet: OnceLock::new(), yuva: OnceLock::new() }
+impl Picture {
+    pub fn new(rects: Vec<Rect>) -> Picture {
+        Picture { rects, packet: OnceLock::new(), yuva: OnceLock::new() }
     }
 
     /// ETV packet: the visible rectangles, or Clear.
@@ -39,6 +36,56 @@ impl Frame {
     pub fn yuva(&self, width: u32, height: u32) -> Arc<[u8]> {
         let (w, h, data) = self.yuva.get_or_init(|| (width, height, yuva_frame(&self.rects, width, height)));
         if (*w, *h) == (width, height) { Arc::clone(data) } else { yuva_frame(&self.rects, width, height) }
+    }
+}
+
+enum Content {
+    Decoded(Arc<Picture>),
+    Png { data: Vec<u8>, decode: Arc<Decode>, decoded: Mutex<Weak<Picture>> },
+}
+
+/// One picture; `seq` grows with every new picture.
+pub struct Frame {
+    pub seq: u64,
+    /// When Chromium drew it.
+    pub at: Instant,
+    content: Content,
+}
+
+impl std::fmt::Debug for Frame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Frame").field("seq", &self.seq).field("at", &self.at).finish_non_exhaustive()
+    }
+}
+
+impl Frame {
+    pub fn new(seq: u64, rects: Vec<Rect>, at: Instant) -> Frame {
+        Frame { seq, at, content: Content::Decoded(Arc::new(Picture::new(rects))) }
+    }
+
+    /// The decoded picture. A PNG is decoded again only after every session
+    /// let go of it, so the history holds PNGs, not pixels.
+    pub fn picture(&self) -> Arc<Picture> {
+        match &self.content {
+            Content::Decoded(picture) => Arc::clone(picture),
+            Content::Png { data, decode, decoded } => {
+                let mut decoded = decoded.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(picture) = decoded.upgrade() {
+                    return picture;
+                }
+                let rects = decode(data).unwrap_or_else(|error| {
+                    crate::warn!("burn-in: {error}");
+                    Vec::new()
+                });
+                let picture = Arc::new(Picture::new(rects));
+                *decoded = Arc::downgrade(&picture);
+                picture
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(&self.content, Content::Decoded(picture) if picture.rects.is_empty())
     }
 }
 
@@ -68,20 +115,18 @@ impl Source for Empty {
     }
 }
 
-/// The current picture and the ones before it, for `HISTORY`.
+/// The current picture and the ones before it, for `keep`.
 pub struct History {
+    keep: Duration,
     frames: Mutex<VecDeque<Arc<Frame>>>,
 }
 
-impl Default for History {
-    fn default() -> Self {
-        History::new()
-    }
-}
-
 impl History {
-    pub fn new() -> History {
-        History { frames: Mutex::new(VecDeque::from([Arc::new(Frame::new(0, Vec::new(), Instant::now()))])) }
+    pub fn new(keep: Duration) -> History {
+        // Nothing before: pictures of the window may be dated before the start.
+        let now = Instant::now();
+        let empty = Frame::new(0, Vec::new(), now.checked_sub(keep).unwrap_or(now));
+        History { keep, frames: Mutex::new(VecDeque::from([Arc::new(empty)])) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<Arc<Frame>>> {
@@ -92,19 +137,29 @@ impl History {
         Arc::clone(self.lock().back().expect("history is never empty"))
     }
 
-    /// A new picture drawn at `at`; the history stays in order. Two empty
-    /// pictures in a row are one.
+    /// A new decoded picture drawn at `at`. Two empty pictures in a row are one.
     pub fn set(&self, rects: Vec<Rect>, at: Instant) {
-        let mut frames = self.lock();
-        let current = frames.back().expect("history is never empty");
-        if rects.is_empty() && current.rects.is_empty() {
+        if rects.is_empty() && self.current().is_empty() {
             return;
         }
+        self.push(at, |seq, at| Frame::new(seq, rects, at));
+    }
+
+    /// A new PNG drawn at `at`, decoded once a session shows it.
+    pub fn set_png(&self, data: Vec<u8>, at: Instant, decode: &Arc<Decode>) {
+        let decode = Arc::clone(decode);
+        self.push(at, |seq, at| Frame { seq, at, content: Content::Png { data, decode, decoded: Mutex::new(Weak::new()) } });
+    }
+
+    /// Keeps the history in order and no longer than `keep`.
+    fn push(&self, at: Instant, frame: impl FnOnce(u64, Instant) -> Frame) {
+        let mut frames = self.lock();
+        let current = frames.back().expect("history is never empty");
         let at = at.max(current.at);
-        let frame = Arc::new(Frame::new(current.seq + 1, rects, at));
+        let frame = Arc::new(frame(current.seq + 1, at));
         frames.push_back(frame);
         // Keep the frame that was current when the window starts.
-        while frames.len() > 1 && at.checked_sub(HISTORY).is_some_and(|start| frames[1].at <= start) {
+        while frames.len() > 1 && at.checked_sub(self.keep).is_some_and(|start| frames[1].at <= start) {
             frames.pop_front();
         }
     }
@@ -129,7 +184,7 @@ mod tests {
 
     #[test]
     fn history_gives_the_picture_of_a_past_moment() {
-        let history = History::new();
+        let history = History::new(Duration::from_millis(500));
         let t0 = Instant::now();
         history.set(pixel(1), t0 + Duration::from_millis(10));
         history.set(pixel(2), t0 + Duration::from_millis(50));
@@ -147,5 +202,30 @@ mod tests {
         history.set(Vec::new(), t0 + Duration::from_secs(3));
         assert_eq!(history.current().seq, 4);
         assert_eq!(history.lock().len(), 2);
+    }
+
+    #[test]
+    fn a_png_is_decoded_when_shown_and_dropped_after() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let decodes = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&decodes);
+        let decode: Arc<Decode> = Arc::new(move |data: &[u8]| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            Ok(pixel(data[0]))
+        });
+        let history = History::new(Duration::from_secs(5));
+        let t0 = Instant::now();
+        history.set_png(vec![7], t0, &decode);
+        assert_eq!(decodes.load(Ordering::Relaxed), 0);
+
+        let frame = history.frame_at(t0);
+        let shown = frame.picture();
+        assert_eq!(shown.rects[0].pixels[0], 7);
+        // A second session shares the picture while the first still shows it.
+        assert!(Arc::ptr_eq(&shown, &frame.picture()));
+        assert_eq!(decodes.load(Ordering::Relaxed), 1);
+        drop(shown);
+        frame.picture();
+        assert_eq!(decodes.load(Ordering::Relaxed), 2);
     }
 }

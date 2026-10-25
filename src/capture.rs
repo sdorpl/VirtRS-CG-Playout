@@ -1,10 +1,9 @@
 // Burn-in source: one headless Chromium per channel size renders the VizRS
 // `/output` page with a transparent background. Chromium sends a PNG
-// (DevTools `Page.startScreencast`) only when the page changes; the newest one
-// is decoded on its own thread and kept as the current frame for all
-// sessions, with a short history so each output frame can take the picture of
-// its own moment (the decoder that always takes the newest
-// frame as in vizrs_capture.rs of VizRS ffPlayout System).
+// (DevTools `Page.startScreencast`) only when the page changes; it becomes the
+// current frame for all sessions, with a history as long as the lead of the
+// streams so each output frame can take the picture of its own moment. A PNG
+// is decoded only when a session shows it.
 
 use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
@@ -12,12 +11,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::devtools::{DevTools, Incoming};
-use crate::frames::{Frame, History, Source};
+use crate::frames::{Decode, Frame, History, Source};
 use crate::json::{self, Value};
 use crate::packets::{Rect, crop};
 use crate::png::decode_png;
@@ -96,11 +95,8 @@ pub struct CaptureOptions {
     pub no_sandbox: bool,
     pub extra_args: Vec<String>,
     pub idle: Duration,
-}
-
-struct Png {
-    data: String,
-    at: Instant,
+    /// How far back sessions take pictures (their lead).
+    pub history: Duration,
 }
 
 /// What the browser loop is told from other threads.
@@ -125,21 +121,23 @@ struct State {
 pub struct Capture {
     options: CaptureOptions,
     history: History,
+    decode: Arc<Decode>,
     state: Mutex<State>,
     stopped: AtomicBool,
-    pending: Mutex<Option<Png>>,
-    decode: Condvar,
 }
 
 static PROFILES: AtomicU64 = AtomicU64::new(0);
 
 impl Capture {
-    /// Starts the browser and the decoder; the capture is active at first.
+    /// Starts the browser; the capture is active at first.
     pub fn start(options: CaptureOptions) -> Arc<Capture> {
         let fps = options.fps;
+        let history = History::new(options.history);
+        let decode = decoder(&options);
         let capture = Arc::new(Capture {
             options,
-            history: History::new(),
+            history,
+            decode,
             state: Mutex::new(State {
                 status: "starting",
                 users: 0,
@@ -151,12 +149,9 @@ impl Capture {
                 profile: None,
             }),
             stopped: AtomicBool::new(false),
-            pending: Mutex::new(None),
-            decode: Condvar::new(),
         });
-        let (browser, decoder) = (Arc::clone(&capture), Arc::clone(&capture));
+        let browser = Arc::clone(&capture);
         let _ = thread::Builder::new().name("capture".into()).spawn(move || browser.supervise());
-        let _ = thread::Builder::new().name("decode".into()).spawn(move || decoder.decode_loop());
         capture
     }
 
@@ -176,10 +171,6 @@ impl Capture {
 
     pub fn key(&self) -> String {
         if self.size() == self.render() { self.size() } else { format!("{} (render {})", self.size(), self.render()) }
-    }
-
-    fn scaled(&self) -> bool {
-        self.size() != self.render()
     }
 
     pub fn status(&self) -> &'static str {
@@ -265,8 +256,6 @@ impl Capture {
         if let Some(profile) = state.profile.take() {
             remove_profile(&profile);
         }
-        drop(state);
-        self.decode.notify_all();
     }
 
     fn supervise(self: Arc<Self>) {
@@ -481,7 +470,7 @@ impl Capture {
                             match devtools.call("Page.captureScreenshot", params, Some(&session), CALL_TIMEOUT) {
                                 Ok(shot) => {
                                     if let Some(data) = shot.get("data").and_then(Value::as_str) {
-                                        capture.push_png(data.to_owned(), Instant::now());
+                                        capture.push_png(data, Instant::now());
                                     }
                                 }
                                 Err(error) => crate::warn!("burn-in {}: {error}", capture.key()),
@@ -509,7 +498,7 @@ impl Capture {
                             let _ = devtools.send("Page.screencastFrameAck", ack, Some(&session));
                             if let Some(data) = params.get("data").and_then(Value::as_str) {
                                 let timestamp = params.get("metadata").and_then(|m| m.get("timestamp")).and_then(Value::as_f64);
-                                self.push_png(data.to_owned(), drawn_at(timestamp));
+                                self.push_png(data, drawn_at(timestamp));
                             }
                             settle_at = (step > 1 && self.state().active).then(|| Instant::now() + SETTLE);
                         }
@@ -523,47 +512,43 @@ impl Capture {
         }
     }
 
-    /// Keeps only the newest undecoded frame: animations drop frames, never lag.
-    fn push_png(&self, data: String, at: Instant) {
-        *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(Png { data, at });
-        self.decode.notify_one();
-    }
-
-    fn decode_loop(self: Arc<Self>) {
-        loop {
-            let png = {
-                let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-                loop {
-                    if self.stopped.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    if let Some(png) = pending.take() {
-                        break png;
-                    }
-                    pending = self.decode.wait(pending).unwrap_or_else(|e| e.into_inner());
-                }
-            };
-            if let Err(error) = self.apply_png(&png) {
-                crate::warn!("burn-in {}: {error}", self.key());
-            }
+    /// A new picture; one of another size (the page resizing) is skipped.
+    fn push_png(&self, data: &str, at: Instant) {
+        let png = match base64::decode(data) {
+            Ok(png) => png,
+            Err(error) => return crate::warn!("burn-in {}: {error}", self.key()),
+        };
+        let o = &self.options;
+        match png_size(&png) {
+            Some(size) if size == (o.width, o.height) => self.history.set_png(png, at, &self.decode),
+            Some((w, h)) => crate::warn!("burn-in {}: frame {w}x{h} skipped", self.key()),
+            None => crate::warn!("burn-in {}: not a PNG", self.key()),
         }
     }
+}
 
-    fn apply_png(&self, png: &Png) -> Result<(), String> {
-        let picture = decode_png(&base64::decode(&png.data)?)?;
-        let o = &self.options;
-        if (picture.width, picture.height) != (o.width, o.height) {
+/// Width and height from the PNG header.
+fn png_size(png: &[u8]) -> Option<(u32, u32)> {
+    let header = png.get(..24).filter(|h| h.starts_with(b"\x89PNG\r\n\x1a\n") && &h[12..16] == b"IHDR")?;
+    let number = |at: usize| u32::from_be_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);
+    Some((number(16), number(20)))
+}
+
+/// Visible rectangles of a capture's PNG at the channel size.
+fn decoder(options: &CaptureOptions) -> Arc<Decode> {
+    let (width, height, out_width, out_height) = (options.width, options.height, options.out_width, options.out_height);
+    Arc::new(move |png: &[u8]| {
+        let picture = decode_png(png)?;
+        if (picture.width, picture.height) != (width, height) {
             return Err(format!("frame {}x{} skipped", picture.width, picture.height));
         }
-        let boxes = visible_rects(&picture.rgba, picture.width, picture.height);
-        let rects = if self.scaled() {
-            scale_rects(&picture.rgba, picture.width, picture.height, &boxes, o.out_width, o.out_height)
+        let boxes = visible_rects(&picture.rgba, width, height);
+        Ok(if (width, height) != (out_width, out_height) {
+            scale_rects(&picture.rgba, width, height, &boxes, out_width, out_height)
         } else {
-            boxes.into_iter().map(|(x, y, w, h)| Rect { x, y, w, h, pixels: crop(&picture.rgba, picture.width, (x, y, w, h)) }).collect()
-        };
-        self.history.set(rects, png.at);
-        Ok(())
-    }
+            boxes.into_iter().map(|(x, y, w, h)| Rect { x, y, w, h, pixels: crop(&picture.rgba, width, (x, y, w, h)) }).collect()
+        })
+    })
 }
 
 impl Source for Capture {
@@ -581,6 +566,16 @@ mod tests {
         for (fps, n) in [(0.0, 60), (1.0, 60), (24.0, 2), (25.0, 2), (29.97, 2), (30.0, 2), (50.0, 1), (60.0, 1), (100.0, 1)] {
             assert_eq!(every_nth_frame(fps), n, "{fps}");
         }
+    }
+
+    #[test]
+    fn png_size_reads_the_header() {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend_from_slice(&1920u32.to_be_bytes());
+        png.extend_from_slice(&1080u32.to_be_bytes());
+        assert_eq!(png_size(&png), Some((1920, 1080)));
+        assert_eq!(png_size(&png[..20]), None);
+        assert_eq!(png_size(b"GIF89a, not a PNG at all"), None);
     }
 
     #[test]

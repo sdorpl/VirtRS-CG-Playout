@@ -53,6 +53,7 @@ fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> 
         no_sandbox,
         extra_args: Vec::new(),
         idle,
+        history: Duration::from_secs(5),
     }))
 }
 
@@ -69,7 +70,7 @@ const PAGE: &str = r#"<!doctype html><html><body style="margin:0;background:tran
 </body></html>"#;
 
 fn boxes(capture: &Capture) -> Vec<(u32, u32, u32, u32)> {
-    capture.current().rects.iter().map(|r| (r.x, r.y, r.w, r.h)).collect()
+    capture.current().picture().rects.iter().map(|r| (r.x, r.y, r.w, r.h)).collect()
 }
 
 #[test]
@@ -78,7 +79,7 @@ fn chromium_capture_gives_the_visible_box_of_a_transparent_page() {
     let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
     // A cold browser may first send a half-painted frame; the picture must settle on the page.
     until("the red box", || boxes(&capture) == [(40, 300, 400, 60)]);
-    assert_eq!(&capture.current().rects[0].pixels[..4], &[255, 0, 0, 255]);
+    assert_eq!(&capture.current().picture().rects[0].pixels[..4], &[255, 0, 0, 255]);
     capture.stop();
 }
 
@@ -87,7 +88,7 @@ fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
     let _serial = serial();
     let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
     capture.acquire();
-    until("a first frame", || !capture.current().rects.is_empty());
+    until("a first frame", || !capture.current().picture().rects.is_empty());
     capture.release();
     until("paused", || capture.status() == "paused");
 
@@ -96,7 +97,7 @@ fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
     capture.acquire();
     assert_eq!(capture.status(), "capturing");
     until("a fresh frame", || capture.current().seq > seq);
-    assert_eq!(capture.current().rects.len(), 1);
+    assert_eq!(capture.current().picture().rects.len(), 1);
     capture.stop();
 }
 
@@ -107,10 +108,10 @@ fn chromium_capture_renders_smaller_and_scales_to_the_channel() {
     const SCALED: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
 <div style="position:absolute;left:10%;top:80%;width:50%;height:10%;background:rgb(255,0,0)"></div></body></html>"#;
     let Some(capture) = capture(serve(SCALED), (320, 180), (640, 360), Duration::from_secs(30)) else { return };
-    until("the scaled box", || !capture.current().rects.is_empty());
+    until("the scaled box", || !capture.current().picture().rects.is_empty());
 
     // Red box 32,144 160x18 at 320x180, plus 4 px margin, doubled.
-    let frame = capture.current();
+    let frame = capture.current().picture();
     let rect = &frame.rects[0];
     assert_eq!((rect.x, rect.y, rect.w, rect.h), (56, 280, 336, 52));
     let middle = (((rect.h >> 1) * rect.w + (rect.w >> 1)) * 4) as usize;
@@ -131,7 +132,7 @@ fn chromium_capture_follows_an_animation_at_the_channel_rate() {
 (function step(t) { box.style.left = (t / 10 % 500) + "px"; requestAnimationFrame(step); })(0);</script>
 </body></html>"#;
     let Some(capture) = capture(serve(ANIMATED), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
-    until("a first frame", || !capture.current().rects.is_empty());
+    until("a first frame", || !capture.current().picture().rects.is_empty());
     thread::sleep(Duration::from_secs(1));
     let seq = capture.current().seq;
     thread::sleep(Duration::from_secs(2));

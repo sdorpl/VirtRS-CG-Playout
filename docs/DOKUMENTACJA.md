@@ -59,8 +59,9 @@ Sidecar to jeden plik binarny `virtrs-cg` (Rust) obok bezgłowego Chromium:
 | `GET /ffmpeg/frames?session=N[&fps=25/1]` | surowe klatki `yuva420p` przejętej sesji dla ffmpeg (Nakładka ffmpeg, niżej) |
 | `GET /health` | liczba sesji, stan przechwytywania (`size` kanału, `render`, `status`: `capturing`, `paused`, `restarting`…, `seq`) i kanały z nakładką ffmpeg (`overlay`) |
 
-Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje najnowszą
-klatkę, przycina ją do widocznych obszarów i wysyła jako jeden pakiet
+Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje klatkę
+dopiero wtedy, gdy któraś sesja ją pokazuje (klatki, których żadna klatka
+wyjścia nie bierze, zostają niezdekodowanym PNG), przycina ją do widocznych obszarów i wysyła jako jeden pakiet
 `Rectangles` z osobnym prostokątem na każdą grupę grafik (np. logo w rogu
 i pasek na dole to dwa małe prostokąty, a nie jeden na cały ekran;
 przerwy węższe niż 32 px zostają w jednym prostokącie). Niezmienione klatki idą jako `Repeat`, więc statyczna grafika
@@ -78,7 +79,7 @@ Płynność animacji (rozwiązania z VizRS ffPlayout System):
   sidecar robi jeden zrzut strony (`Page.captureScreenshot`) i obraz zawsze
   dochodzi do stanu końcowego.
 - **Każda klatka wyjścia pokazuje grafikę ze swojej chwili.** Sidecar trzyma
-  klatki z ostatnich 0,5 s z czasem, w którym Chromium je narysował (znacznik
+  klatki z ostatnich `lead_seconds` + 1,6 s (jako PNG) z czasem, w którym Chromium je narysował (znacznik
   screencastu, nie chwila końca dekodowania), a strumień bierze dla klatki
   wyjścia tę, która była aktualna w jej chwili, nie w chwili zapisu. Klatka
   wyjścia patrzy 100 ms wstecz: tyle mieści się przesył i dekodowanie PNG,
@@ -86,11 +87,24 @@ Płynność animacji (rozwiązania z VizRS ffPlayout System):
   ruchu w powtórzenia i podwójne kroki (opóźnienie grafiki rośnie o 0,1 s).
   Gdy ErsatzTV na moment przestaje czytać (zator, obciążony CPU), zaległe
   klatki idą jako kolejne obrazy animacji, a nie jeden obraz powtórzony i skok.
+  Czytelnik spóźniony o ponad 1 s względem osi czasu przeskakuje do przodu.
 
 Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,
 i zarazem opóźnienie zmiany z VizRS na obrazie. Mniej = szybsza grafika,
-więcej = gdy odtwarzanie się zacina.
+więcej = gdy odtwarzanie się zacina. Grafika idzie `lead_seconds` za
+zegarem, więc także początkowy wyrzut pokazuje obrazy z sekund przed
+startem (animacja się rusza), a nie jeden obraz powtórzony.
+
+Oś czasu strumienia to czas emisji pozycji: start w harmonogramie
+(`start` z danych szablonu) plus przesunięcie (`seek`). ErsatzTV transkoduje
+pozycję kawałkami po 44 s, każdy w nowej sesji; dzięki temu kolejny kawałek
+ciągnie animację dokładnie od miejsca, w którym skończył się poprzedni, bez
+skoku ani powtórki. Gdy ErsatzTV wyprzedza harmonogram (pierwsza klatka
+w emisji później niż koniec wyrzutu, do 2 s), strumień czeka; czas emisji
+ponad 2 s po końcu wyrzutu albo ponad 10 s w przeszłości to zły zegar lub
+stare dane – wtedy oś czasu liczy się od startu strumienia, jak bez czasu
+emisji.
 
 ### Nakładka ffmpeg
 
@@ -563,7 +577,7 @@ i tekst). Zamiast sceny można zmierzyć prawdziwe `/output` VizRS
 | Kolumna | Znaczenie |
 |---|---|
 | `cpu_percent` | CPU procesu sidecara, % jednego rdzenia |
-| `rss_mb` | pamięć procesu sidecara (głównie klatki: historia 500 ms) |
+| `rss_mb` | pamięć procesu sidecara (głównie klatki: historia PNG na `lead_seconds` + 1,6 s i obrazy pokazywane przez sesje) |
 | `pictures_per_s` | nowe obrazy grafiki na sekundę (animacja przy 25 fps: ok. 25) |
 | `mb_per_s` | strumień do ErsatzTV albo ffmpeg |
 

@@ -182,6 +182,12 @@ impl ClipContext {
         }
     }
 
+    /// When the clip's first transcoded frame is on air (epoch ms): the item's
+    /// start in the schedule plus the seek.
+    pub fn air_ms(&self) -> Option<f64> {
+        time::parse_iso(&self.start).map(|start| start as f64 + self.seek * 1000.0)
+    }
+
     /// The context with the field names of the Node.js build.
     pub fn to_json(&self) -> Value {
         json::object([
