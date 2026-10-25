@@ -6,16 +6,22 @@
 
 FROM --platform=$BUILDPLATFORM rust:1.97-bookworm AS build
 ARG TARGETARCH
+ARG BUILDARCH
+# Built on arm64 itself (e.g. `up --build` on an Ampere A1) the native gcc
+# links: Debian has no cross gcc for aarch64 on arm64 hosts.
 RUN case "$TARGETARCH" in \
       amd64) echo x86_64-unknown-linux-gnu > /target ;; \
       arm64) echo aarch64-unknown-linux-gnu > /target \
-             && dpkg --add-architecture arm64 \
-             && apt-get update \
-             && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
-             && rm -rf /var/lib/apt/lists/* ;; \
+             && if [ "$BUILDARCH" != arm64 ]; then \
+                  dpkg --add-architecture arm64 \
+                  && apt-get update \
+                  && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+                  && rm -rf /var/lib/apt/lists/*; \
+                fi ;; \
       *) echo "unsupported architecture $TARGETARCH" >&2; exit 1 ;; \
     esac \
     && rustup target add "$(cat /target)"
+# The native gcc of Debian arm64 has the same name.
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
