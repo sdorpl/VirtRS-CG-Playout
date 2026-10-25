@@ -1,6 +1,5 @@
-node_modules/
 config.json
-!/test/vectors/config.json
+!/tests/vectors/config.json
 *.png
 *.log
 /media/
