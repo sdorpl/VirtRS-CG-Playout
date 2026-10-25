@@ -1,6 +1,6 @@
 # PLAN: płynność animacji grafiki (ticker)
 
-> Status (2026-10-25): **etapy 1–4 i 6 zrobione** (6: obszar grafiki, gałąź `lzejsza-grafika`) – miara równych kroków w benchmarku, tryb `capture_mode: frames` (domyślnie wyłączony), pomiary na x86 (§4), dokumentacja. Otwarte: pomiar na Ampere A1 i ewentualne włączenie `frames` w `docker-compose.ampere.yml`. Etap 5 nie podjęty (warunek niespełniony).
+> Status (2026-10-25): **etapy 1–4 i 6 zrobione** (6: obszary grafiki, także kilka na kanał; gałąź `lzejsza-grafika`) – miara równych kroków w benchmarku, tryb `capture_mode: frames` (domyślnie wyłączony), pomiary na x86 (§4), dokumentacja. Otwarte: pomiar na Ampere A1 i ewentualne włączenie `frames` w `docker-compose.ampere.yml`. Etap 5 nie podjęty (warunek niespełniony).
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) §1 (Płynność animacji, Klatkaż kanału), §8 (benchmark).
 
 ## 0. Cel
@@ -128,4 +128,14 @@ Co powstało (`src/area.rs`, `src/capture.rs`, `src/yuva.rs`, `src/server.rs`, `
 
 Wynik (DOKUMENTACJA §1, §8): z `frames` 96–99,5% równych kroków na kanale 1080p przy 25 i 50 kl./s (cały kanał: 0–38%), CPU przeglądarki ok. 2,5× mniejsze, sidecar w trybie nakładki ok. 4× mniej CPU i 8× mniej danych. Koszt: grafika poza obszarem jest obcinana.
 
-Dalej: kilka obszarów na kanał (np. logo w rogu i pasek) – osobne wejścia ffmpeg albo osobne strony; obszar wykrywany automatycznie z widocznych prostokątów.
+### Kilka obszarów na kanał (zrobione)
+
+- `area=1920x140+0+930,160x160+1690+30`; nakładające się obszary łączone w prostokąt obejmujący.
+- `frames`: w każdej klatce kolejne `setDeviceMetricsOverride` z `viewport` obszaru i `beginFrame` (czasy klatki o 0,004 ms od siebie); obraz = jeden PNG na obszar (`History::set_pngs`, dekoder z numerem PNG). Eksperyment: dwa obszary w jednej przeglądarce 25 kl./s przy 77% CPU, jeden prostokąt obejmujący 16 kl./s przy 115%.
+- screencast: jeden `viewport` = prostokąt obejmujący, prostokąty przycinane do obszarów (`cut_to`).
+- ffmpeg: obszary ułożone jeden pod drugim w jednej klatce (`Layout::atlas`); nakładka: `split=N`, `crop` każdego, łańcuch przygotowania ErsatzTV (`format`, `hwupload…`) powielony, `overlay…=x:y` po kolei. Sprawdzone prawdziwym ffmpeg (programowy `overlay`).
+- `/ffmpeg?…&area=1` zwraca `areas` (x, y, w, h) oraz `x`, `y` pierwszego; nakładka bez `area=1` (np. z wydania 2.1.6) dostaje pełne klatki kanału.
+
+Wynik (DOKUMENTACJA §8): pasek + logo przy 25 kl./s 98,9% równych kroków (jeden prostokąt obejmujący: 36%); przy 50 kl./s potrzebne `max_fps` 25 (100%).
+
+Dalej: ciaśniejsze układanie obszarów w klatce ffmpeg (dziś wąskie logo pod szerokim paskiem marnuje ok. połowę klatki); obszar wykrywany automatycznie z widocznych prostokątów.

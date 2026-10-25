@@ -389,6 +389,45 @@ test("graphics area: frames of the area overlaid at its place; full frames when 
   assert.equal(whole.read, 2 * yuvaSize(8, 4));
 });
 
+test("two graphics areas: stacked in one frame, split, cropped and overlaid each at its place", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
+  const etv = http.createServer((request, response) => {
+    const child = spawn(CLIENT, [`${cg.url}/etv?channel=1&area=4x2+0+2,2x2+6+0`]);
+    child.stdout.resume();
+    child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
+    response.writeHead(200);
+    response.flushHeaders();
+    response.on("close", () => child.kill());
+  });
+  const etvPort = await listen(etv);
+  t.after(() => etv.close());
+  const dir = mkdtempSync(path.join(os.tmpdir(), "virtrs-ffmpeg-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ffmpeg = path.join(dir, "ffmpeg");
+  writeFileSync(ffmpeg, FAKE_FFMPEG);
+  chmodSync(ffmpeg, 0o755);
+
+  const overlay = await runWrapper([
+    "-i", "/m/News.mp4", "-headers", "x-etv-frame-rate:25/1\r\n",
+    "-i", `http://127.0.0.1:${etvPort}/internal/graphics/1/7?exp=1&sig=x`,
+    "-filter_complex", "[1:0]format=yuva420p[v_s0];[0:0][v_s0]overlay=x=0:y=0[v_o0]", "-map", "[v_o0]", "-f", "hls", "/t/ffmpeg.m3u8",
+  ], { VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, FRAME_BYTES: String(yuvaSize(4, 4)), FRAMES: "2" });
+  const pipe = overlay.args.find((arg) => arg.startsWith("pipe:"));
+  // The strip (4x2) on rows 0-1 of the frame, the corner (2x2) on rows 2-3.
+  assert.deepEqual(overlay.args, [
+    "-i", "/m/News.mp4",
+    "-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", "4x4", "-framerate", "25/1", "-i", pipe,
+    "-filter_complex",
+    "[1:0]split=2[vz_s0][vz_s1];[vz_s0]crop=4:2:0:0,format=yuva420p[vz_g0];[vz_s1]crop=2:2:0:2,format=yuva420p[vz_g1];"
+      + "[0:0][vz_g0]overlay=x=0:y=2[vz_o0];[vz_o0][vz_g1]overlay=x=6:y=0[v_o0]",
+    "-map", "[v_o0]", "-f", "hls", "/t/ffmpeg.m3u8",
+  ]);
+  assert.equal(overlay.read, 2 * yuvaSize(4, 4));
+  assert.equal((await cg.health()).captures[0].area, "4x2+0+2,2x2+6+0");
+});
+
 test("ffmpeg overlay with hardware acceleration: ErsatzTV's NVIDIA and VAAPI graphs", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);

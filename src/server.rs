@@ -8,10 +8,12 @@
 //                         a script session of the channel: its packets
 //                         stop, the reply gives the session, size and rate;
 //                         with area=1 (the overlay can place the graphics)
-//                         the size and position x, y of the graphics area
+//                         the graphics areas (`areas`: x, y, w, h; stacked
+//                         one below the other in the frames), the size of
+//                         the frames and the position x, y of the first
 //   GET  /ffmpeg/frames?session=N[&fps=25/1][&area=1]
 //                         raw yuva420p frames of that session for ffmpeg:
-//                         the channel, or with area=1 its graphics area
+//                         the channel, or with area=1 its graphics areas
 //   GET  /health          captures and sessions
 
 use std::collections::{BTreeMap, HashMap};
@@ -23,7 +25,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use crate::area::Area;
+use crate::area::{Area, Layout, geometries};
 use crate::capture::{Capture, CaptureMode, CaptureOptions, IDLE, find_browser};
 use crate::config::Config;
 use crate::frames::{Empty, Source};
@@ -175,11 +177,11 @@ impl Server {
             crate::warn!("{error}; using the screencast");
             CaptureMode::Screencast
         });
-        let area = Area::parse(area, width, height).unwrap_or_else(|error| {
+        let areas = Area::parse_list(area, width, height).unwrap_or_else(|error| {
             crate::warn!("{error}; using the whole channel");
-            None
+            Vec::new()
         });
-        let key = format!("{width}x{height}/{rw}x{rh}/{}", area.map_or_else(String::new, Area::geometry));
+        let key = format!("{width}x{height}/{rw}x{rh}/{}", geometries(&areas));
         let mut sessions = lock(&self.sessions);
         if let Some((_, capture)) = sessions.captures.iter().find(|(k, _)| *k == key) {
             return Graphics::Capture(Arc::clone(capture));
@@ -190,7 +192,7 @@ impl Server {
             height: rh,
             out_width: width,
             out_height: height,
-            area,
+            areas,
             fps,
             max_fps: self.config.max_fps,
             mode,
@@ -214,7 +216,7 @@ impl Server {
                 json::object([
                     ("size", c.size().into()),
                     ("render", c.render().into()),
-                    ("area", c.area().map_or(Value::Null, |a| a.geometry().into())),
+                    ("area", if c.areas().is_empty() { Value::Null } else { geometries(c.areas()).into() }),
                     ("fps", c.fps().into()),
                     ("mode", c.mode().name().into()),
                     ("status", c.status().into()),
@@ -319,17 +321,28 @@ impl Server {
         };
 
         crate::info!("channel {channel}: ffmpeg overlay took over the graphics of {}", script.ctx.title);
-        // Frames of the graphics area only for an overlay that places them (area=1).
-        let (x, y, width, height) = frame_part(&script, request.param("area") == Some("1"));
+        // Frames of the graphics areas only for an overlay that places them (area=1).
+        let placed = request.param("area") == Some("1");
+        let layout = frame_layout(&script, placed);
         let mut reply = json::object([
             ("session", script.id.into()),
-            ("width", u64::from(width).into()),
-            ("height", u64::from(height).into()),
+            ("width", u64::from(layout.width).into()),
+            ("height", u64::from(layout.height).into()),
             ("fps", script.fps.into()),
         ]);
-        if let (true, Value::Object(members)) = (request.param("area") == Some("1"), &mut reply) {
-            members.push(("x".into(), u64::from(x).into()));
-            members.push(("y".into(), u64::from(y).into()));
+        if let (true, Value::Object(members)) = (placed, &mut reply) {
+            let (first, _) = layout.parts[0];
+            members.push(("x".into(), u64::from(first.x).into()));
+            members.push(("y".into(), u64::from(first.y).into()));
+            let areas = layout.parts.iter().map(|(a, _)| {
+                json::object([
+                    ("x", u64::from(a.x).into()),
+                    ("y", u64::from(a.y).into()),
+                    ("w", u64::from(a.w).into()),
+                    ("h", u64::from(a.h).into()),
+                ])
+            });
+            members.push(("areas".into(), Value::Array(areas.collect())));
         }
         http::respond(&mut stream, 200, Some("application/json"), reply.to_string().as_bytes())
     }
@@ -353,8 +366,8 @@ impl Server {
         let control = Control::new(false);
         watch_close(&stream, &control);
         if let Ok(mut out) = http::Stream::start(stream, request) {
-            let (x, y, width, height) = frame_part(&script, request.param("area") == Some("1"));
-            let format = Format::Yuva { x, y, width, height, hd: script.ctx.height >= 720 };
+            let layout = frame_layout(&script, request.param("area") == Some("1"));
+            let format = Format::Yuva { layout, hd: script.ctx.height >= 720 };
             stream::stream_frames(
                 &*capture,
                 &mut out,
@@ -457,13 +470,12 @@ impl Server {
     }
 }
 
-/// The part of the channel a session's raw frames carry: its graphics area
-/// when the overlay places it (`area`), else the whole channel.
-fn frame_part(script: &Script, area: bool) -> (u32, u32, u32, u32) {
-    let whole = (0, 0, script.ctx.width, script.ctx.height);
-    match script.capture.as_ref().and_then(|c| c.area()) {
-        Some(a) if area => (a.x, a.y, a.w, a.h),
-        _ => whole,
+/// What a session's raw frames carry: its graphics areas stacked when the
+/// overlay places them (`area`), else the whole channel.
+fn frame_layout(script: &Script, area: bool) -> Layout {
+    match script.capture.as_ref().map(|c| c.areas()) {
+        Some(areas) if area && !areas.is_empty() => Layout::atlas(areas),
+        _ => Layout::whole(script.ctx.width, script.ctx.height),
     }
 }
 

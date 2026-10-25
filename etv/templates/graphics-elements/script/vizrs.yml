@@ -6,7 +6,8 @@
 # (less CPU for animations, softer text); default: the channel size.
 # "&area=1920x140+0+930" (WxH+X+Y): only that part of the channel carries
 # graphics (here a ticker strip); Chromium draws and ffmpeg overlays only it,
-# everything outside is cut off. Default: the whole channel.
+# everything outside is cut off. Several areas comma-separated, e.g. a ticker
+# and a logo: "&area=1920x140+0+930,160x160+1690+30". Default: the whole channel.
 name: VizRS
 command: /vizrs/vizrs-etv-client
 args:

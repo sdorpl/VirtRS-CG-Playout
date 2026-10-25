@@ -2,20 +2,23 @@
 // so each output frame can take the picture of its own moment (`setFrame` /
 // `frameAt` of the Node.js sidecar). A picture is dated when Chromium drew it,
 // not when its decoding finished. The history covers the lead of the streams
-// (seconds of pictures), so a picture stays a PNG until a session shows it.
+// (seconds of pictures), so a picture stays a PNG until a session shows it. A
+// picture of several graphics areas is one PNG per area.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
+use crate::area::Layout;
 use crate::packets::{Rect, picture_packet};
 use crate::yuva::yuva_area;
 
-/// Turns the PNG of a capture into visible rectangles at the channel size.
-pub type Decode = dyn Fn(&[u8]) -> Result<Vec<Rect>, String> + Send + Sync;
+/// Turns PNG number `index` of a picture (its graphics area) into visible
+/// rectangles at the channel size, in channel coordinates.
+pub type Decode = dyn Fn(usize, &[u8]) -> Result<Vec<Rect>, String> + Send + Sync;
 
-/// Part of a picture as a yuva420p frame and its colour matrix.
-type Part = ((u32, u32, u32, u32), bool);
+/// Layout of a yuva420p frame and its colour matrix.
+type Part = (Layout, bool);
 
 /// A decoded picture; built once, shared by the sessions of the same size.
 #[derive(Debug)]
@@ -35,17 +38,21 @@ impl Picture {
         self.packet.get_or_init(|| picture_packet(&self.rects))
     }
 
-    /// The part `(x, y, width, height)` of the picture (the channel, or its
-    /// graphics area) as one yuva420p frame; `hd` = BT.709.
-    pub fn yuva(&self, part: (u32, u32, u32, u32), hd: bool) -> Arc<[u8]> {
-        let (cached, data) = self.yuva.get_or_init(|| ((part, hd), yuva_area(&self.rects, part, hd)));
-        if *cached == (part, hd) { Arc::clone(data) } else { yuva_area(&self.rects, part, hd) }
+    /// The picture as one yuva420p frame of `layout` (the channel, its
+    /// graphics area, or its areas stacked); `hd` = BT.709.
+    pub fn yuva(&self, layout: &Layout, hd: bool) -> Arc<[u8]> {
+        let build = || match layout.single() {
+            Some(a) => yuva_area(&self.rects, (a.x, a.y, a.w, a.h), hd),
+            None => yuva_area(&layout.place(&self.rects), (0, 0, layout.width, layout.height), hd),
+        };
+        let ((cached, cached_hd), data) = self.yuva.get_or_init(|| ((layout.clone(), hd), build()));
+        if cached == layout && *cached_hd == hd { Arc::clone(data) } else { build() }
     }
 }
 
 enum Content {
     Decoded(Arc<Picture>),
-    Png { data: Vec<u8>, decode: Arc<Decode>, decoded: Mutex<Weak<Picture>> },
+    Png { data: Vec<Arc<[u8]>>, decode: Arc<Decode>, decoded: Mutex<Weak<Picture>> },
 }
 
 /// One picture; `seq` grows with every new picture.
@@ -77,10 +84,13 @@ impl Frame {
                 if let Some(picture) = decoded.upgrade() {
                     return picture;
                 }
-                let rects = decode(data).unwrap_or_else(|error| {
-                    crate::warn!("burn-in: {error}");
-                    Vec::new()
-                });
+                let mut rects = Vec::new();
+                for (index, png) in data.iter().enumerate() {
+                    match decode(index, png) {
+                        Ok(more) => rects.extend(more),
+                        Err(error) => crate::warn!("burn-in: {error}"),
+                    }
+                }
                 let picture = Arc::new(Picture::new(rects));
                 *decoded = Arc::downgrade(&picture);
                 picture
@@ -151,6 +161,11 @@ impl History {
 
     /// A new PNG drawn at `at`, decoded once a session shows it.
     pub fn set_png(&self, data: Vec<u8>, at: Instant, decode: &Arc<Decode>) {
+        self.set_pngs(vec![data.into()], at, decode);
+    }
+
+    /// A new picture of one PNG per graphics area, drawn at `at`.
+    pub fn set_pngs(&self, data: Vec<Arc<[u8]>>, at: Instant, decode: &Arc<Decode>) {
         let decode = Arc::clone(decode);
         self.push(at, |seq, at| Frame { seq, at, content: Content::Png { data, decode, decoded: Mutex::new(Weak::new()) } });
     }
@@ -213,7 +228,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let decodes = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&decodes);
-        let decode: Arc<Decode> = Arc::new(move |data: &[u8]| {
+        let decode: Arc<Decode> = Arc::new(move |_, data: &[u8]| {
             counter.fetch_add(1, Ordering::Relaxed);
             Ok(pixel(data[0]))
         });

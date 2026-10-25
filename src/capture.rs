@@ -7,7 +7,9 @@
 // only when asked (`HeadlessExperimental.beginFrame`), once per frame of the
 // channel, with that frame's time: animations advance one step per output frame.
 // With a graphics area Chromium draws only that part of the page (a DevTools
-// viewport; the page still lays out at full size), so PNGs are its size.
+// viewport; the page still lays out at full size), so PNGs are its size. With
+// several areas the frames mode draws each of them per frame (one PNG per
+// area); the screencast has one viewport: their bounding box, cut to the areas.
 
 use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
@@ -19,7 +21,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::area::Area;
+use crate::area::{Area, cut_to, geometries, union};
 use crate::devtools::{DevTools, Incoming};
 use crate::frames::{Decode, Frame, History, Source};
 use crate::json::{self, Value};
@@ -133,8 +135,8 @@ pub struct CaptureOptions {
     /// Size of the frames (the channel).
     pub out_width: u32,
     pub out_height: u32,
-    /// Graphics area of the channel (`area`): only it is drawn; None = all.
-    pub area: Option<Area>,
+    /// Graphics areas of the channel (`area`): only they are drawn; none = all of it.
+    pub areas: Vec<Area>,
     pub fps: f64,
     /// Capture rate limit (`max_fps`); 0 = the channel rate.
     pub max_fps: f64,
@@ -169,7 +171,10 @@ struct State {
 pub struct Capture {
     options: CaptureOptions,
     history: History,
+    /// One PNG of the whole page or of the bounding box of the areas (screencast).
     decode: Arc<Decode>,
+    /// One PNG per area (frames mode).
+    decode_areas: Arc<Decode>,
     state: Mutex<State>,
     stopped: AtomicBool,
     /// The browser has no begin frames (not chromium-headless-shell): screencast instead.
@@ -183,11 +188,13 @@ impl Capture {
     pub fn start(options: CaptureOptions) -> Arc<Capture> {
         let fps = options.fps;
         let history = History::new(options.history);
-        let decode = decoder(&options);
+        let decode = decoder(regions(&options, false), options.areas.clone());
+        let decode_areas = decoder(regions(&options, true), Vec::new());
         let capture = Arc::new(Capture {
             options,
             history,
             decode,
+            decode_areas,
             state: Mutex::new(State {
                 status: "starting",
                 users: 0,
@@ -220,15 +227,15 @@ impl Capture {
         format!("{}x{}", self.options.width, self.options.height)
     }
 
-    /// Graphics area of the channel, if any.
-    pub fn area(&self) -> Option<Area> {
-        self.options.area
+    /// Graphics areas of the channel; none = all of it.
+    pub fn areas(&self) -> &[Area] {
+        &self.options.areas
     }
 
     pub fn key(&self) -> String {
         let mut key = if self.size() == self.render() { self.size() } else { format!("{} (render {})", self.size(), self.render()) };
-        if let Some(area) = self.area() {
-            key.push_str(&format!(" area {}", area.geometry()));
+        if !self.areas().is_empty() {
+            key.push_str(&format!(" area {}", geometries(self.areas())));
         }
         key
     }
@@ -492,25 +499,9 @@ impl Capture {
         let session = attached.get("sessionId").and_then(Value::as_str).ok_or("no sessionId")?.to_owned();
         let call = |method: &str, params: Value| devtools.call(method, params, Some(&session), CALL_TIMEOUT);
         let (width, height) = (u64::from(self.options.width), u64::from(self.options.height));
-
-        let mut metrics = json::object([
-            ("width", width.into()),
-            ("height", height.into()),
-            ("deviceScaleFactor", 1u64.into()),
-            ("mobile", false.into()),
-        ]);
         // A graphics area: the page lays out at full size, Chromium draws only the area.
-        if let (Some(clip), Value::Object(members)) = (clip(&self.options), &mut metrics) {
-            let viewport = json::object([
-                ("x", u64::from(clip.x).into()),
-                ("y", u64::from(clip.y).into()),
-                ("width", u64::from(clip.w).into()),
-                ("height", u64::from(clip.h).into()),
-                ("scale", 1u64.into()),
-            ]);
-            members.push(("viewport".into(), viewport));
-        }
-        call("Emulation.setDeviceMetricsOverride", metrics)?;
+        let area = (!self.options.areas.is_empty()).then(|| regions(&self.options, mode == CaptureMode::Frames)[0].0);
+        call("Emulation.setDeviceMetricsOverride", self.metrics(area))?;
         // Transparency only through DevTools: `--default-background-color` crashes current renderers.
         let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
         call("Emulation.setDefaultBackgroundColorOverride", json::object([("color", transparent)]))?;
@@ -549,7 +540,6 @@ impl Capture {
         // A screenshot of the final state when the screencast went quiet.
         let shooting = Arc::new(AtomicBool::new(false));
         // With a graphics area a static page gets no screencast frame at all: always a screenshot.
-        let area = clip(&self.options);
         let settles = |step: u32| step > 1 || (step > 0 && area.is_some());
         let mut settle_at = settles(step).then(|| Instant::now() + SETTLE);
         loop {
@@ -565,14 +555,7 @@ impl Capture {
                         let _ = thread::Builder::new().name("screenshot".into()).spawn(move || {
                             let mut params = json::object([("format", "png".into())]);
                             if let (Some(area), Value::Object(members)) = (area, &mut params) {
-                                let clip = json::object([
-                                    ("x", u64::from(area.x).into()),
-                                    ("y", u64::from(area.y).into()),
-                                    ("width", u64::from(area.w).into()),
-                                    ("height", u64::from(area.h).into()),
-                                    ("scale", 1u64.into()),
-                                ]);
-                                members.push(("clip".into(), clip));
+                                members.push(("clip".into(), rectangle(area)));
                             }
                             match devtools.call("Page.captureScreenshot", params, Some(&session), CALL_TIMEOUT) {
                                 Ok(shot) => {
@@ -619,6 +602,21 @@ impl Capture {
         }
     }
 
+    /// `Emulation.setDeviceMetricsOverride`: the page size, and the part drawn (`viewport`).
+    fn metrics(&self, viewport: Option<Area>) -> Value {
+        let o = &self.options;
+        let mut metrics = json::object([
+            ("width", u64::from(o.width).into()),
+            ("height", u64::from(o.height).into()),
+            ("deviceScaleFactor", 1u64.into()),
+            ("mobile", false.into()),
+        ]);
+        if let (Some(viewport), Value::Object(members)) = (viewport, &mut metrics) {
+            members.push(("viewport".into(), rectangle(viewport)));
+        }
+        metrics
+    }
+
     /// The frames mode: Chromium draws once per slot of the channel's frame
     /// grid, with the slot's time as frame time, so an animation advances
     /// exactly one frame per output frame. A picture is dated by its slot. A
@@ -626,6 +624,8 @@ impl Capture {
     /// every slot asks for one; once it stands still, a slot only probes for
     /// damage and a screenshot follows when there is some. Slots missed by a
     /// slow host are skipped (the picture before repeats), never made up.
+    /// Several graphics areas: each slot draws each area (its viewport) in
+    /// turn, a hair apart in frame time; the picture has one PNG per area.
     fn frames(&self, devtools: &DevTools, session: &str, incoming: &mpsc::Receiver<Control>) -> Result<(), String> {
         let begin = |time: f64, interval: f64, screenshot: bool| {
             let mut params = json::object([("frameTimeTicks", time.into()), ("interval", interval.into())]);
@@ -660,8 +660,13 @@ impl Capture {
         };
         crate::info!("burn-in {}: capturing {} (frames)", self.key(), self.options.url);
 
+        // Each area in turn (one viewport after another) when there are several.
+        let parts = regions(&self.options, true);
+        let switching = parts.len() > 1;
+        let fresh = || (vec![false; parts.len()], vec![f64::NEG_INFINITY; parts.len()], vec![None::<String>; parts.len()]);
         let mut slot = (sys::monotonic_ms() / frame_ms).ceil();
-        let (mut moving, mut last_shot, mut last_png) = (false, f64::NEG_INFINITY, None::<String>);
+        let (mut moving, mut last_shot, mut last_png) = fresh();
+        let mut pngs: Vec<Option<Arc<[u8]>>> = vec![None; parts.len()];
         // Slots of the window drawn and missed (a host too slow for the rate).
         let (mut window, mut drawn, mut missed) = (Instant::now(), 0u64, 0u64);
         loop {
@@ -674,7 +679,7 @@ impl Capture {
                     // A new grid at the current rate; the first slot sends a fresh picture.
                     frame_ms = 1000.0 / self.capture_fps();
                     slot = (sys::monotonic_ms() / frame_ms).ceil();
-                    (moving, last_shot, last_png) = (false, f64::NEG_INFINITY, None);
+                    (moving, last_shot, last_png) = fresh();
                 }
                 Ok(Control::DevTools(Incoming::Event(event))) => {
                     let method = event.get("method").and_then(Value::as_str).unwrap_or("");
@@ -683,27 +688,41 @@ impl Capture {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    let time = slot * frame_ms;
-                    let check = time - last_shot >= CHECK_MS;
-                    let mut result = begin(time, frame_ms, moving || check)?;
-                    if result.get("screenshotData").is_some() {
-                        last_shot = time;
-                    } else if result.get("hasDamage").and_then(Value::as_bool) == Some(true) {
-                        last_shot = time;
-                        result = begin(time + 0.001, frame_ms, true)?;
+                    let start = slot * frame_ms;
+                    let mut changed = false;
+                    for (i, &(clip, _)) in parts.iter().enumerate() {
+                        if switching {
+                            devtools.call("Emulation.setDeviceMetricsOverride", self.metrics(Some(clip)), Some(session), CALL_TIMEOUT)?;
+                        }
+                        let time = start + i as f64 * 0.004;
+                        let check = time - last_shot[i] >= CHECK_MS;
+                        let mut result = begin(time, frame_ms, moving[i] || check)?;
+                        if result.get("screenshotData").is_some() {
+                            last_shot[i] = time;
+                        } else if result.get("hasDamage").and_then(Value::as_bool) == Some(true) {
+                            last_shot[i] = time;
+                            result = begin(time + 0.001, frame_ms, true)?;
+                        }
+                        let shot = result.get("screenshotData").and_then(Value::as_str);
+                        moving[i] = shot.is_some_and(|data| last_png[i].as_deref() != Some(data));
+                        match shot {
+                            Some(data) if moving[i] => {
+                                if let Some(png) = self.png_of(data, (clip.w, clip.h)) {
+                                    pngs[i] = Some(png.into());
+                                    changed = true;
+                                }
+                                last_png[i] = Some(data.to_owned());
+                            }
+                            // The page stood still; the frame after a screenshot reports damage, an empty frame takes it.
+                            Some(_) => {
+                                begin(time + 0.002, frame_ms, false)?;
+                            }
+                            None => {}
+                        }
                     }
-                    let shot = result.get("screenshotData").and_then(Value::as_str);
-                    moving = shot.is_some_and(|data| last_png.as_deref() != Some(data));
-                    match shot {
-                        Some(data) if moving => {
-                            self.push_png(data, instant(time));
-                            last_png = Some(data.to_owned());
-                        }
-                        // The page stood still; the frame after a screenshot reports damage, an empty frame takes it.
-                        Some(_) => {
-                            begin(time + 0.002, frame_ms, false)?;
-                        }
-                        None => {}
+                    // A picture once every area has one: a PNG for each.
+                    if let Some(all) = pngs.iter().cloned().collect::<Option<Vec<_>>>().filter(|_| changed) {
+                        self.history.set_pngs(all, instant(start), &self.decode_areas);
                     }
                     // Behind the grid: on with the slot of now; the missed ones repeat the picture.
                     let next = (slot + 1.0).max((sys::monotonic_ms() / frame_ms).floor());
@@ -724,17 +743,27 @@ impl Capture {
         }
     }
 
-    /// A new picture; one of another size (the page resizing) is skipped.
-    fn push_png(&self, data: &str, at: Instant) {
-        let png = match base64::decode(data) {
-            Ok(png) => png,
-            Err(error) => return crate::warn!("burn-in {}: {error}", self.key()),
-        };
-        let o = &self.options;
+    /// The PNG of a screenshot if it has the size drawn (not the page resizing).
+    fn png_of(&self, data: &str, size: (u32, u32)) -> Option<Vec<u8>> {
+        let png = base64::decode(data).map_err(|error| crate::warn!("burn-in {}: {error}", self.key())).ok()?;
         match png_size(&png) {
-            Some(size) if size == drawn_size(o) => self.history.set_png(png, at, &self.decode),
-            Some((w, h)) => crate::warn!("burn-in {}: frame {w}x{h} skipped", self.key()),
-            None => crate::warn!("burn-in {}: not a PNG", self.key()),
+            Some(drawn) if drawn == size => Some(png),
+            Some((w, h)) => {
+                crate::warn!("burn-in {}: frame {w}x{h} skipped", self.key());
+                None
+            }
+            None => {
+                crate::warn!("burn-in {}: not a PNG", self.key());
+                None
+            }
+        }
+    }
+
+    /// A new picture of the screencast; one of another size (the page resizing) is skipped.
+    fn push_png(&self, data: &str, at: Instant) {
+        let (clip, _) = regions(&self.options, false)[0];
+        if let Some(png) = self.png_of(data, (clip.w, clip.h)) {
+            self.history.set_png(png, at, &self.decode);
         }
     }
 }
@@ -746,36 +775,49 @@ fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     Some((number(16), number(20)))
 }
 
-/// The graphics area at the render size: the part of the page Chromium draws.
-fn clip(options: &CaptureOptions) -> Option<Area> {
-    options.area.map(|area| area.scaled((options.out_width, options.out_height), (options.width, options.height)))
+/// `{x, y, width, height, scale}` of DevTools (a viewport, a screenshot clip).
+fn rectangle(area: Area) -> Value {
+    json::object([
+        ("x", u64::from(area.x).into()),
+        ("y", u64::from(area.y).into()),
+        ("width", u64::from(area.w).into()),
+        ("height", u64::from(area.h).into()),
+        ("scale", 1u64.into()),
+    ])
 }
 
-/// Size of the PNGs: the page, or its graphics area, at the render size.
-fn drawn_size(options: &CaptureOptions) -> (u32, u32) {
-    clip(options).map_or((options.width, options.height), |clip| (clip.w, clip.h))
+/// Parts of the page drawn into a PNG each: the part at the render size (the
+/// viewport) and the part of the channel it is. No areas: the whole page.
+/// Areas: each of them (`each`, the frames mode) or their bounding box.
+fn regions(o: &CaptureOptions, each: bool) -> Vec<(Area, Area)> {
+    let scale = |area: Area| area.scaled((o.out_width, o.out_height), (o.width, o.height));
+    match o.areas.as_slice() {
+        [] => vec![(Area { x: 0, y: 0, w: o.width, h: o.height }, Area { x: 0, y: 0, w: o.out_width, h: o.out_height })],
+        areas if each => areas.iter().map(|&area| (scale(area), area)).collect(),
+        areas => vec![(union(&areas.iter().map(|&a| scale(a)).collect::<Vec<_>>()), union(areas))],
+    }
 }
 
-/// Visible rectangles of a capture's PNG at the channel size, in channel coordinates.
-fn decoder(options: &CaptureOptions) -> Arc<Decode> {
-    let (width, height) = drawn_size(options);
-    // The PNG covers the area (or the channel) at the render size.
-    let (ox, oy, out_width, out_height) = options.area.map_or((0, 0, options.out_width, options.out_height), |a| (a.x, a.y, a.w, a.h));
-    Arc::new(move |png: &[u8]| {
+/// Visible rectangles of PNG number `index` (of `regions`) at the channel
+/// size, in channel coordinates, cut to `cut` (the areas, for their bounding box).
+fn decoder(regions: Vec<(Area, Area)>, cut: Vec<Area>) -> Arc<Decode> {
+    Arc::new(move |index: usize, png: &[u8]| {
+        let &(clip, part) = regions.get(index).ok_or("no such area")?;
+        let (width, height) = (clip.w, clip.h);
         let picture = decode_png(png)?;
         if (picture.width, picture.height) != (width, height) {
             return Err(format!("frame {}x{} skipped", picture.width, picture.height));
         }
         let boxes = visible_rects(&picture.rgba, width, height);
-        let mut rects = if (width, height) != (out_width, out_height) {
-            scale_rects(&picture.rgba, width, height, &boxes, out_width, out_height)
+        let mut rects = if (width, height) != (part.w, part.h) {
+            scale_rects(&picture.rgba, width, height, &boxes, part.w, part.h)
         } else {
             boxes.into_iter().map(|(x, y, w, h)| Rect { x, y, w, h, pixels: crop(&picture.rgba, width, (x, y, w, h)) }).collect()
         };
         for rect in &mut rects {
-            (rect.x, rect.y) = (rect.x + ox, rect.y + oy);
+            (rect.x, rect.y) = (rect.x + part.x, rect.y + part.y);
         }
-        Ok(rects)
+        Ok(if cut.len() > 1 { cut_to(rects, &cut) } else { rects })
     })
 }
 

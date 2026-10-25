@@ -36,6 +36,7 @@ use std::time::Duration;
 
 use regex::Regex;
 
+use crate::area::Area;
 use crate::http::percent_decode;
 use crate::json::{self, Value};
 use crate::net::{Url, connect, error, read_head, status_of};
@@ -112,13 +113,29 @@ fn overlay_filter() -> &'static Regex {
 /// when that cannot be done safely: no overlay of that input, positional
 /// overlay options, or the graphics resized on the way.
 pub fn placed(filter: &str, input: usize, x: u32, y: u32) -> Option<String> {
+    placed_areas(filter, input, &[(Area { x, y, w: 0, h: 0 }, 0)])
+}
+
+/// The filter with the graphics areas of input `input` overlaid each at its
+/// place: one area as `placed`; several stacked in the frames (`Layout`:
+/// area and its row) are split, cropped, prepared as ErsatzTV prepares the
+/// graphics (`format`, `hwupload`…) and overlaid one after another.
+pub fn placed_areas(filter: &str, input: usize, areas: &[(Area, u32)]) -> Option<String> {
     let inputs = [format!("[{input}]"), format!("[{input}:0]"), format!("[{input}:v]"), format!("[{input}:v:0]")];
     // The chain that prepares the graphics, `[1:0]format=yuva420p[v_s0]`, if any.
-    let chain = filter.split(';').find(|chain| inputs.iter().any(|label| chain.starts_with(label.as_str())));
-    let label = match chain {
+    let chains: Vec<&str> = filter.split(';').collect();
+    let chain = chains.iter().position(|chain| inputs.iter().any(|label| chain.starts_with(label.as_str())));
+    let (label, source, body) = match chain.map(|i| chains[i]) {
         Some(chain) if chain.contains("scale") => return None,
-        Some(chain) => chain.rsplit_once('[').filter(|(_, l)| l.ends_with(']'))?.1.trim_end_matches(']').to_owned(),
-        None => inputs.iter().find(|label| filter.contains(label.as_str()))?.trim_matches(['[', ']']).to_owned(),
+        Some(chain) => {
+            let (rest, label) = chain.rsplit_once('[').filter(|(_, l)| l.ends_with(']'))?;
+            let source = inputs.iter().find(|l| chain.starts_with(l.as_str()))?;
+            (label.trim_end_matches(']').to_owned(), source.clone(), rest[source.len()..].to_owned())
+        }
+        None => {
+            let source = inputs.iter().find(|label| filter.contains(label.as_str()))?;
+            (source.trim_matches(['[', ']']).to_owned(), source.clone(), String::new())
+        }
     };
     let pattern = format!(r"\[([^\]]+)\]\[{}\](overlay\w*)(=[^\[,;]*)?", regex::escape(&label));
     let found = Regex::new(&pattern).ok()?.captures(filter)?;
@@ -129,16 +146,47 @@ pub fn placed(filter: &str, input: usize, x: u32, y: u32) -> Option<String> {
             options.push(option.to_owned());
         }
     }
-    options.extend([format!("x={x}"), format!("y={y}")]);
+    let overlay = |graphics: &str, area: Area| {
+        let mut all = options.clone();
+        all.extend([format!("x={}", area.x), format!("y={}", area.y)]);
+        format!("[{graphics}]{}={}", &found[2], all.join(":"))
+    };
     let whole = found.get(0)?;
-    let replaced = format!("[{}][{label}]{}={}", &found[1], &found[2], options.join(":"));
-    Some(format!("{}{replaced}{}", &filter[..whole.start()], &filter[whole.end()..]))
+    let (before, after) = (&filter[..whole.start()], &filter[whole.end()..]);
+    if let [(area, _)] = areas {
+        return Some(format!("{before}[{}]{}{after}", &found[1], overlay(&label, *area)));
+    }
+
+    // Several areas: the graphics split, each area cropped out and prepared.
+    let n = areas.len();
+    let split: String = (0..n).map(|i| format!("[vz_s{i}]")).collect();
+    let mut prepare = vec![format!("{source}split={n}{split}")];
+    for (i, (area, row)) in areas.iter().enumerate() {
+        let crop = format!("[vz_s{i}]crop={}:{}:0:{row}", area.w, area.h);
+        prepare.push(if body.is_empty() { format!("{crop}[vz_g{i}]") } else { format!("{crop},{body}[vz_g{i}]") });
+    }
+    // Overlaid one after another: the last one goes on as the original overlay did.
+    let mut chained = format!("[{}]", &found[1]);
+    for (i, (area, _)) in areas.iter().enumerate() {
+        chained.push_str(&overlay(&format!("vz_g{i}"), *area));
+        if i + 1 < n {
+            chained.push_str(&format!("[vz_o{i}];[vz_o{i}]"));
+        }
+    }
+    let rest = format!("{before}{chained}{after}");
+    let kept: Vec<&str> = rest.split(';').enumerate().filter(|&(i, _)| Some(i) != chain).map(|(_, c)| c).collect();
+    Some(prepare.into_iter().chain(kept.into_iter().map(str::to_owned)).collect::<Vec<_>>().join(";"))
 }
 
 /// `args` with the canvas input (`-i` number `input`) overlaid at `x`, `y`.
 pub fn with_position(args: &[OsString], input: usize, x: u32, y: u32) -> Option<Vec<OsString>> {
+    with_areas(args, input, &[(Area { x, y, w: 0, h: 0 }, 0)])
+}
+
+/// `args` with the graphics areas of the canvas input overlaid (`placed_areas`).
+pub fn with_areas(args: &[OsString], input: usize, areas: &[(Area, u32)]) -> Option<Vec<OsString>> {
     let i = (0..args.len().saturating_sub(1)).find(|&i| args[i] == "-filter_complex")?;
-    let filter = placed(args[i + 1].to_str()?, input, x, y)?;
+    let filter = placed_areas(args[i + 1].to_str()?, input, areas)?;
     let mut out = args.to_vec();
     out[i + 1] = filter.into();
     Some(out)
@@ -232,8 +280,9 @@ pub struct Frames {
     pub width: u32,
     pub height: u32,
     pub rate: String,
-    /// Position of the frames in the channel (the graphics area); None = the whole channel.
-    pub position: Option<(u32, u32)>,
+    /// Graphics areas of the channel and their rows in the frames (stacked);
+    /// empty = the frames are the whole channel.
+    pub areas: Vec<(Area, u32)>,
 }
 
 /// The command with the canvas input replaced by raw frames from `pipe:<fd>`.
@@ -253,9 +302,10 @@ pub fn overlay_args(args: &[OsString], canvas: &Canvas, fd: i32, frames: &Frames
     let raw = ["-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", &size, "-framerate", &frames.rate, "-i", &format!("pipe:{fd}")];
     out.extend(raw.iter().map(OsString::from));
     out.extend_from_slice(&args[canvas.index + 2..]);
-    // Frames of a graphics area: overlaid at its place (checked by `with_position` beforehand).
-    if let Some((x, y)) = frames.position.filter(|&p| p != (0, 0)) {
-        out = with_position(&out, input_number(args, canvas.index), x, y).unwrap_or(out);
+    // Frames of graphics areas: each overlaid at its place (checked by `with_position` beforehand).
+    let at_origin = matches!(frames.areas.as_slice(), [(a, _)] if (a.x, a.y) == (0, 0));
+    if !frames.areas.is_empty() && !at_origin {
+        out = with_areas(&out, input_number(args, canvas.index), &frames.areas).unwrap_or(out);
     }
     with_rate(out, fps)
 }
@@ -373,8 +423,23 @@ fn take_over(settings: &Settings, channel: &str, header_rate: &str, place: bool)
         Value::String(text) => text.clone(),
         other => other.to_string(),
     };
-    let position = if place { Some((size("x")?, size("y")?)) } else { None };
-    let frames = Frames { width: size("width")?, height: size("height")?, rate, position };
+    let mut areas = Vec::new();
+    if place {
+        // `areas` (stacked in the frames); an older sidecar sends only `x`, `y`.
+        let number = |value: &Value, key: &str| {
+            value.get(key).and_then(Value::as_f64).map(|n| n as u32).ok_or_else(|| error(format!("'areas.{key}'")))
+        };
+        let mut row = 0;
+        for area in info.get("areas").and_then(Value::as_array).unwrap_or(&[]) {
+            let area = Area { x: number(area, "x")?, y: number(area, "y")?, w: number(area, "w")?, h: number(area, "h")? };
+            areas.push((area, row));
+            row += area.h;
+        }
+        if areas.is_empty() {
+            areas.push((Area { x: size("x")?, y: size("y")?, w: size("width")?, h: size("height")? }, 0));
+        }
+    }
+    let frames = Frames { width: size("width")?, height: size("height")?, rate, areas };
     let path = format!("/ffmpeg/frames?session={}&fps={}{area}", quote_plus(&session), quote_plus(&frames.rate));
     Ok((frames, open_frames(&settings.sidecar, &path)?))
 }
@@ -520,6 +585,23 @@ mod tests {
         assert_eq!(placed("[1:0]scale=1920:1080,format=yuva420p[g];[0][g]overlay", 1, 10, 940), None);
         assert_eq!(placed("[0]scale=8:4[v]", 1, 10, 940), None);
         assert_eq!(placed("[0][2]overlay", 1, 10, 940), None);
+
+        // Two areas stacked: split, crop, prepare each, overlay one after another.
+        let (ticker, logo) = (Area { x: 0, y: 930, w: 1920, h: 140 }, Area { x: 1760, y: 40, w: 140, h: 140 });
+        let two = [(ticker, 0), (logo, 140)];
+        assert_eq!(
+            placed_areas("[0:0]scale=8:4[v_m0];[1:0]format=yuva420p,hwupload_cuda[v_s0];[v_m0][v_s0]overlay_cuda=x=0:y=0[v_o0]", 1, &two)
+                .unwrap(),
+            "[1:0]split=2[vz_s0][vz_s1];[vz_s0]crop=1920:140:0:0,format=yuva420p,hwupload_cuda[vz_g0];\
+             [vz_s1]crop=140:140:0:140,format=yuva420p,hwupload_cuda[vz_g1];[0:0]scale=8:4[v_m0];\
+             [v_m0][vz_g0]overlay_cuda=x=0:y=930[vz_o0];[vz_o0][vz_g1]overlay_cuda=x=1760:y=40[v_o0]"
+        );
+        assert_eq!(
+            placed_areas("[0][1]overlay=format=0,format=nv12[o]", 1, &two).unwrap(),
+            "[1]split=2[vz_s0][vz_s1];[vz_s0]crop=1920:140:0:0[vz_g0];[vz_s1]crop=140:140:0:140[vz_g1];\
+             [0][vz_g0]overlay=format=0:x=0:y=930[vz_o0];[vz_o0][vz_g1]overlay=format=0:x=1760:y=40,format=nv12[o]"
+        );
+        assert_eq!(placed_areas("[1:0]scale=1920:1080[g];[0][g]overlay", 1, &two), None);
 
         let list = args(&["-i", "a", "-i", "http://x/internal/graphics/1/7", "-filter_complex", "[0][1]overlay[o]", "-f", "hls", "o"]);
         assert_eq!(input_number(&list, 2), 1);

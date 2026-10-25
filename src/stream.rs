@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::area::Layout;
 use crate::frames::Source;
 use crate::packets::repeat_packet;
 
@@ -81,14 +82,14 @@ impl Control {
 }
 
 /// What a session reads.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Format {
     /// ETV packets: a picture once, then one `Repeat` for any run of the same picture.
     Packets,
-    /// Raw yuva420p of the part `width`x`height` at `x`, `y` (the channel, or
-    /// its graphics area): every output frame carries the whole part. `hd` =
-    /// BT.709 (the channel has 720 lines or more).
-    Yuva { x: u32, y: u32, width: u32, height: u32, hd: bool },
+    /// Raw yuva420p of `layout` (the channel, its graphics area, or its areas
+    /// stacked): every output frame carries all of it. `hd` = BT.709 (the
+    /// channel has 720 lines or more).
+    Yuva { layout: Layout, hd: bool },
 }
 
 pub struct Options {
@@ -152,9 +153,9 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         let due = ((elapsed / frame_s).floor() + 1.0 + lead as f64).max(0.0) as u64;
         while sent < due {
             let frame = frame_at(base, sent);
-            let written = if let Format::Yuva { x, y, width, height, hd } = options.format {
+            let written = if let Format::Yuva { layout, hd } = &options.format {
                 sent += 1;
-                out.write_all(&frame.picture().yuva((x, y, width, height), hd))
+                out.write_all(&frame.picture().yuva(layout, *hd))
             } else if sent_seq != Some(frame.seq) {
                 sent_seq = Some(frame.seq);
                 sent += 1;
@@ -239,7 +240,7 @@ mod tests {
         let sent = stream_frames(
             &history,
             &mut out,
-            &Options { fps: 25.0, lead_seconds: 0.2, format: Format::Yuva { x: 0, y: 0, width: 4, height: 2, hd: false }, air: None },
+            &Options { fps: 25.0, lead_seconds: 0.2, format: Format::Yuva { layout: Layout::whole(4, 2), hd: false }, air: None },
             &control,
         );
         timer.join().unwrap();

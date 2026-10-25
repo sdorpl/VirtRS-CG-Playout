@@ -42,7 +42,7 @@ fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> 
 }
 
 fn capture_in(mode: CaptureMode, url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
-    capture_area(mode, url, render, out, None, idle)
+    capture_area(mode, url, render, out, Vec::new(), idle)
 }
 
 fn capture_area(
@@ -50,7 +50,7 @@ fn capture_area(
     url: String,
     render: (u32, u32),
     out: (u32, u32),
-    area: Option<Area>,
+    areas: Vec<Area>,
     idle: Duration,
 ) -> Option<Arc<Capture>> {
     let Some(browser) = find_browser() else {
@@ -65,7 +65,7 @@ fn capture_area(
         height: render.1,
         out_width: out.0,
         out_height: out.1,
-        area,
+        areas,
         fps: 25.0,
         max_fps: 0.0,
         mode,
@@ -237,7 +237,7 @@ fn chromium_capture_of_a_graphics_area() {
     for (mode, render) in [(CaptureMode::Screencast, (640, 360)), (CaptureMode::Frames, (640, 360)), (CaptureMode::Screencast, (320, 180))]
     {
         let url = serve(STRIP);
-        let Some(capture) = capture_area(mode, url, render, (640, 360), Some(area), Duration::from_secs(30)) else { return };
+        let Some(capture) = capture_area(mode, url, render, (640, 360), vec![area], Duration::from_secs(30)) else { return };
         // Red box 64,306 160x36 of the channel; at half size scaled with a margin.
         let expected = if render == (640, 360) { vec![(64, 306, 160, 36)] } else { vec![(56, 298, 176, 52)] };
         until("the box of the area", || boxes(&capture) == expected);
@@ -248,6 +248,30 @@ fn chromium_capture_of_a_graphics_area() {
         thread::sleep(Duration::from_millis(600));
         assert_eq!(boxes(&capture), expected, "{} {render:?}", mode.name());
         assert!(capture.key().ends_with("area 640x80+0+280"), "{}", capture.key());
+        capture.stop();
+    }
+}
+
+/// Two graphics areas: the frames mode draws each (one PNG per area), the
+/// screencast their bounding box cut to them; graphics between them cut off.
+#[test]
+fn chromium_capture_of_two_graphics_areas() {
+    let _serial = serial();
+    // Red strip at the bottom, blue logo top right, green box between them.
+    const TWO: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
+<div style="position:absolute;left:40px;top:310px;width:200px;height:30px;background:rgb(255,0,0)"></div>
+<div style="position:absolute;left:560px;top:20px;width:40px;height:40px;background:rgb(0,0,255)"></div>
+<div style="position:absolute;left:300px;top:150px;width:40px;height:40px;background:rgb(0,255,0)"></div></body></html>"#;
+    let areas = vec![Area { x: 0, y: 290, w: 640, h: 70 }, Area { x: 540, y: 0, w: 100, h: 80 }];
+    for mode in [CaptureMode::Frames, CaptureMode::Screencast] {
+        let Some(capture) = capture_area(mode, serve(TWO), (640, 360), (640, 360), areas.clone(), Duration::from_secs(30)) else { return };
+        let expected = vec![(40, 310, 200, 30), (560, 20, 40, 40)];
+        until("both boxes", || {
+            let mut found = boxes(&capture);
+            found.sort();
+            found == expected
+        });
+        assert!(capture.key().ends_with("area 640x70+0+290,100x80+540+0"), "{}", capture.key());
         capture.stop();
     }
 }

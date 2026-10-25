@@ -76,9 +76,24 @@ ma pierwszeństwo) podaje obszar grafiki w pikselach kanału, w zapisie
 - nakładka ffmpeg dostaje klatki w rozmiarze obszaru i nakłada je w jego
   miejscu (`overlay=x=X:y=Y`, Nakładka ffmpeg, niżej).
 
-Wszystko poza obszarem jest obcinane – grafika, która ma się pokazać gdzie
-indziej (lower third wyżej, logo w drugim rogu), musi się w nim mieścić albo
-mieć osobny kanał lub element. Pozycja i rozmiar są wyrównywane do parzystych
+Obszarów może być kilka, rozdzielonych przecinkami, np. pasek i logo:
+`area=1920x140+0+930,160x160+1690+30`.
+
+- W trybie `capture_mode: frames` Chromium w każdej klatce rysuje kolejno
+  każdy obszar (zmiana `viewport` między nimi), a obraz składa się z jednego
+  PNG na obszar.
+- Screencast ma jeden `viewport`: Chromium rysuje prostokąt obejmujący
+  wszystkie obszary, a sidecar przycina go do nich. Przy obszarach w różnych
+  rogach to prawie cały ekran, więc kilka obszarów opłaca się tylko z `frames`.
+- Nakładka ffmpeg dostaje jedną klatkę z obszarami ułożonymi jeden pod drugim
+  (szerokość najszerszego, wysokość wszystkich razem). W grafie rozdziela je
+  (`split`, `crop`), każdy przygotowuje tak jak ErsatzTV przygotowuje grafikę
+  (`format`, `hwupload`…) i nakłada w jego miejscu, jeden po drugim.
+- Nakładające się obszary sidecar łączy w jeden (ich prostokąt obejmujący),
+  żeby żaden piksel nie był nakładany dwa razy.
+
+Wszystko poza obszarami jest obcinane – grafika, która ma się pokazać gdzie
+indziej (lower third wyżej), musi się w którymś mieścić. Pozycja i rozmiar są wyrównywane do parzystych
 pikseli (podpróbkowanie chrominancji 4:2:0) i przycinane do kanału; puste albo
 `full` = cały kanał. Błędna wartość trafia do logu, a grafika idzie z całego
 kanału.
@@ -205,7 +220,9 @@ ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄─
    w tempie kanału z `lead_seconds` zapasu (§1). Gdy kanał ma obszar grafiki
    (§1), klatki mają jego rozmiar, a nakładka ustawia jego położenie
    w filtrze nakładania grafiki (`x=`, `y=` w `overlay`, `overlay_cuda`,
-   `overlay_vaapi`…; inne opcje zostają). Jeśli w grafie tego zrobić się nie
+   `overlay_vaapi`…; inne opcje zostają). Kilka obszarów przychodzi ułożonych
+   w jednej klatce; nakładka rozdziela je (`split`, `crop`) i nakłada każdy
+   osobno w jego miejscu (§1, Obszar grafiki). Jeśli w grafie tego zrobić się nie
    da (grafika skalowana po drodze, opcje pozycyjne, brak nakładania wejścia
    płótna), nakładka prosi o pełne klatki i nie zmienia filtra. Opcje płótna (`-headers`,
    `-protocol_whitelist`, kodek, format) znikają, a `-t` i reszta komendy
@@ -611,8 +628,9 @@ Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 `VIZRS_TOKEN`, `VIZRS_OUTPUT_URL`, `VIZRS_ON_CLIP`, `VIZRS_ON_AD`
 (`\n` rozdziela linie), `VIZRS_AD_PATH`, `VIZRS_AD_TITLE`, `VIZRS_AD_WITHOUT_ELEMENT=0`
 (wyłącza reklamę po braku elementu), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
-(`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_AREA` (obszar
-grafiki `SZERxWYS+X+Y`, np. `1920x140+0+930`, puste = cały kanał; §1), `VIZRS_MAX_FPS`
+(`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_AREA` (obszary
+grafiki `SZERxWYS+X+Y` po przecinku, np. `1920x140+0+930,160x160+1690+30`,
+puste = cały kanał; §1), `VIZRS_MAX_FPS`
 (górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
 kanału), `VIZRS_CAPTURE_MODE` (`screencast` albo `frames`, niżej),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
@@ -804,7 +822,7 @@ Zmienne środowiskowe (wszystkie opcjonalne):
 | `BENCH_CAPTURE` | `screencast` | `capture_mode` sidecara (`frames`, §5) |
 | `BENCH_MAX_FPS` | `0` | `max_fps` sidecara |
 | `BENCH_RENDER` | – | `render_size` sidecara, np. `720p` |
-| `BENCH_AREA` | – | `area` sidecara, np. `1920x140+0+930` (pasek z tickerem sceny); znacznik kroku trafia w lewy górny róg obszaru |
+| `BENCH_AREA` | – | `area` sidecara, np. `1920x140+0+930` (pasek z tickerem sceny) albo z logo `1920x140+0+930,160x160+1690+30`; znacznik kroku trafia w lewy górny róg pierwszego obszaru |
 | `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
 | `BENCH_DURATION` | `30` | pomiar [s] |
 
@@ -878,6 +896,20 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
 
   Z renderem 720p obszar daje te same 99,5% (`frames`), ale CPU sidecara
   rośnie do 38–45% przez skalowanie.
+
+- **Kilka obszarów** (`frames`, ten sam host, 1080p; równo / stoi /
+  przeskok, CPU sidecara / przeglądarki, obrazy na sekundę, strumień):
+
+  | Obszar | `etv` 25 | `ffmpeg` 50 |
+  |---|---|---|
+  | cały kanał | 33 / 35 / 32, 26% / 117%, 16,3/s | 0 / 66 / 34, 100% / 117%, 16,5/s, 189 MB/s |
+  | pasek `1920x140+0+930` | 99,5 / 0,3 / 0,3, 7% / 46%, 24,9/s | 94 / 4 / 2, 36% / 87%, 48/s, 34 MB/s |
+  | pasek + logo `…,160x160+1690+30` | 98,9 / 0,5 / 0,5, 10% / 86%, 24,9/s | 41 / 30 / 29, 57% / 117%, 35/s, 72 MB/s |
+  | ten sam pasek i logo jako jeden prostokąt `1920x1050+0+30` | 36 / 33 / 31, 27% / 119%, 16,8/s | 0 / 66 / 34, 100% / 117%, 184 MB/s |
+
+  Dwa obszary to dwa rysowania na klatkę: przy 50 kl./s ten host ich nie
+  mieści w 20 ms; z `max_fps` 25 pasek i logo na kanale 50 kl./s dają 100%
+  równych kroków (25 obrazów/s, sidecar 54%, przeglądarka 84%).
 
   Ten host nie rysuje 1080p w pełnym rozmiarze w 25 kl./s ani 720p w 50
   kl./s; tam oba tryby są słabe, a `frames` przy 50/60 kl./s bez `max_fps`

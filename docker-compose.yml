@@ -67,8 +67,8 @@ services:
       # Graphics render size, scaled to the channel: "" = channel size, 720p, 1280x720.
       # Per channel: &render=720p in the element URL (vizrs.yml).
       VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
-      # Graphics area of the channel, e.g. 1920x140+0+930 for a ticker strip: Chromium
-      # draws and ffmpeg overlays only that part; empty = the whole channel.
+      # Graphics areas of the channel, e.g. 1920x140+0+930 for a ticker strip (several
+      # comma-separated): Chromium draws and ffmpeg overlays only them; empty = the whole channel.
       # Per channel: &area=1920x140+0+930 in the element URL (vizrs.yml).
       VIZRS_AREA: ${VIZRS_AREA:-}
       # Capture rate limit, e.g. 25 on a 50 fps channel: half the PNG work; empty = channel rate.

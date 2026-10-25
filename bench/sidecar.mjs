@@ -34,9 +34,10 @@ const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
 const RENDER = env.BENCH_RENDER || "";
 const CAPTURE = env.BENCH_CAPTURE || "screencast";
 const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
-// Graphics area (WxH+X+Y): the marker goes to its top-left corner, ffmpeg asks for its frames.
+// Graphics areas (WxH+X+Y, comma-separated): the marker goes to the top-left
+// corner of the first, ffmpeg asks for their frames.
 const AREA = env.BENCH_AREA || "";
-const [AX, AY] = (/^\d+x\d+\+(\d+)\+(\d+)$/.exec(AREA) ?? [0, 0, 0]).slice(1).map(Number);
+const [AX, AY] = (/^\d+x\d+\+(\d+)\+(\d+)/.exec(AREA) ?? [0, 0, 0]).slice(1).map(Number);
 const CLK_TCK = 100;
 const HEADER = 11;
 
@@ -235,7 +236,10 @@ async function run(mode) {
   const started = (await cg.health()).captures[0] ?? {};
   const points = markerPoints(started.render ?? `${WIDTH}x${HEIGHT}`);
   // The frames ffmpeg gets: the graphics area (area=1), or the channel.
-  const [aw, ah, ax, ay] = started.area ? started.area.split(/[x+]/).map(Number) : [WIDTH, HEIGHT, 0, 0];
+  // Several areas: stacked, the first one on top (where the marker is).
+  const areas = started.area ? started.area.split(",").map((g) => g.split(/[x+]/).map(Number)) : [[WIDTH, HEIGHT, 0, 0]];
+  const [ax, ay] = areas[0].slice(2);
+  const [aw, ah] = [Math.max(...areas.map((a) => a[0])), areas.reduce((sum, a) => sum + a[1], 0)];
   const probe = { steps: null };
   const readers = [script.body.getReader()];
   let bytes = 0;
