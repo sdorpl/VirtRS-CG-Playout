@@ -35,6 +35,9 @@ services:
       VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE-720p}
       # Animations at 25 frames per second also on 50 fps channels.
       VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-25}
+      # Even motion at lower browser CPU on x86 (DOKUMENTACJA §4); not yet measured
+      # on A1: VIZRS_CAPTURE_MODE=frames after a benchmark run (§8).
+      VIZRS_CAPTURE_MODE: ${VIZRS_CAPTURE_MODE:-}
 
   ersatztv:
     platform: linux/arm64

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use crate::capture::{Capture, CaptureOptions, IDLE, find_browser};
+use crate::capture::{Capture, CaptureMode, CaptureOptions, IDLE, find_browser};
 use crate::config::Config;
 use crate::frames::{Empty, Source};
 use crate::http::{self, Request};
@@ -167,6 +167,10 @@ impl Server {
             crate::warn!("render size: {error}; using {width}x{height}");
             (width, height)
         });
+        let mode = CaptureMode::parse(&self.config.capture_mode).unwrap_or_else(|error| {
+            crate::warn!("{error}; using the screencast");
+            CaptureMode::Screencast
+        });
         let key = format!("{width}x{height}/{rw}x{rh}");
         let mut sessions = lock(&self.sessions);
         if let Some((_, capture)) = sessions.captures.iter().find(|(k, _)| *k == key) {
@@ -180,6 +184,7 @@ impl Server {
             out_height: height,
             fps,
             max_fps: self.config.max_fps,
+            mode,
             browser: self.browser.clone(),
             no_sandbox: self.config.no_sandbox,
             extra_args: self.config.browser_args.clone(),
@@ -201,6 +206,7 @@ impl Server {
                     ("size", c.size().into()),
                     ("render", c.render().into()),
                     ("fps", c.fps().into()),
+                    ("mode", c.mode().name().into()),
                     ("status", c.status().into()),
                     ("seq", c.current().seq.into()),
                 ])

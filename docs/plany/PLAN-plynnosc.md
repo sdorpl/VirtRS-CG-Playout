@@ -1,6 +1,6 @@
 # PLAN: płynność animacji grafiki (ticker)
 
-> Status (2026-10-25): **analiza, nic nie zmierzone ani zaimplementowane.** Wnioski z przeglądu kodu (`src/capture.rs`, `src/stream.rs`) i DOKUMENTACJA §1, §4, §8.
+> Status (2026-10-25): **etapy 1–4 zrobione** – miara równych kroków w benchmarku, tryb `capture_mode: frames` (domyślnie wyłączony), pomiary na x86 (§4), dokumentacja. Otwarte: pomiar na Ampere A1 i ewentualne włączenie `frames` w `docker-compose.ampere.yml`. Etap 5 nie podjęty (warunek niespełniony).
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) §1 (Płynność animacji, Klatkaż kanału), §8 (benchmark).
 
 ## 0. Cel
@@ -20,7 +20,7 @@ Chromium składa stronę w 60 Hz (`BROWSER_FPS`). Screencast bierze co n-tą kla
 | 30 kl./s | co 2. = 30/s | 1:1 | równo |
 | 60 kl./s | każda = 60/s | 1:1 | równo |
 
-To zachowanie deterministyczne, niezależne od obciążenia. Przy równym przewijaniu tekstu widać je najbardziej.
+To zachowanie deterministyczne, niezależne od obciążenia. Przy równym przewijaniu tekstu widać je najbardziej. Pomiar (§4) pokazał dodatkowo, że pod obciążeniem Chromium nie rysuje równo co 1/60 s, więc także 30 i 60 kl./s (1:1 w tabeli) nie dają równego ruchu.
 
 ### 1.2 Koszt klatki przy ciągłej animacji
 
@@ -49,7 +49,9 @@ Do sprawdzenia także przy 30/60: faza (zegar Chromium nie jest zgrany z klatkam
 
 Koszt: 30 kl./s prawie jak dziś (20% więcej klatek dla kodera). 60 kl./s to dwa razy więcej PNG (1080p50 na Xeonie ok. 170% CPU sidecara), ok. 310 MB/s surowych klatek 1080p i dwa razy więcej klatek dla kodera; na A1 nierealne. Na A1 z `VIZRS_MAX_FPS=25` kanał 60 kl./s dostaje każdą klatkę grafiki równo podwojoną (ruch równy, ale 30 Hz), płaci głównie x264.
 
-**Wniosek:** materiały 30/60 kl./s → `VIZRS_FFMPEG_FPS=30` (albo 60, gdy CPU pozwala), opisać w DOKUMENTACJA §1. Materiały 25 kl./s → zostać przy 25/50 i robić etap 2.
+**Wniosek (przed pomiarem):** materiały 30/60 kl./s → `VIZRS_FFMPEG_FPS=30` (albo 60, gdy CPU pozwala), opisać w DOKUMENTACJA §1. Materiały 25 kl./s → zostać przy 25/50 i robić etap 2.
+
+**Po pomiarze (§4):** screencast przy 30 i 60 kl./s dał 34–57% równych kroków (720p), tyle co przy 25 i 50 – założenie o równych 60 Hz Chromium się nie potwierdziło. Klatkaż 30/60 zostaje więc tylko sprawą materiałów (DOKUMENTACJA §1, Klatkaż kanału), a równą grafikę daje `frames`.
 
 ### 2.3 Klatki Chromium sterowane przez sidecar (BeginFrame) – rekomendowane
 
@@ -63,8 +65,51 @@ Chromium rysuje raz cały pasek tekstu, a sidecar przesuwa go o piksele wyliczon
 
 ## 3. Etapy
 
+| # | Etap | Stan |
+|---|---|---|
+| 1 | miara równych kroków (`bench/sidecar.mjs`, znacznik w `bench/scene.html`), CPU przeglądarki, `BENCH_CAPTURE`/`BENCH_MAX_FPS`/`BENCH_RENDER` | ✅ |
+| 2 | `capture_mode: frames` (`src/capture.rs`, `src/config.rs`, `src/sys.rs` – zegar monotoniczny), powrót do screencastu bez begin frames, ostrzeżenie o nienarysowanych klatkach, `/health` `mode`, testy Rusta i kontraktu | ✅ |
+| 3 | decyzja: domyślnie `screencast` (niżej) | ✅ (x86) |
+| 4 | DOKUMENTACJA §1 (Płynność animacji, Klatkaż kanału), §4 (A1), §5, §8 | ✅ |
+| 5 | osobny proces na ticker | nie podjęty: brak pomiaru na A1, a `frames` usuwa główną przyczynę bez zmian w VizRS |
+
+Opis etapów z planowania:
+
 1. **Miara równych kroków w benchmarku.** `bench/sidecar.mjs` podaje dziś tylko `pictures_per_s`, więc dudnienia nie pokaże. Trzeba dodać odsetek klatek wyjścia, w których ticker przesunął się o jeden krok (wzorzec: stary `bench/bench.mjs`, commit 0c54143). Zmierzyć stan obecny: 25, 30, 50 i 60 kl./s, x86 i A1, 720p i 1080p. Przy okazji sprawdzić rzeczywistą częstotliwość Chromium (60 Hz, dryf).
 2. **Przechwytywanie BeginFrame za opcją** (np. `capture_mode`; `src/config.rs`, `config.example.json`, `docker-compose.yml`, DOKUMENTACJA §5, test). Domyślnie wyłączone, dopóki pomiary z etapu 1 nie potwierdzą zysku na A1. Obsłużyć pułapki z 2.3, zrzut stanu końcowego, pauzę bez sesji i restart po awarii (zasada „grafika nigdy nie zatrzymuje emisji”).
 3. **Decyzja o domyślnym trybie** na podstawie pomiarów (x86 i A1). Aktualizacja DOKUMENTACJA §1 (Płynność animacji) i §4 (A1).
 4. **Opis klatkażu 30/60** w DOKUMENTACJA §1 (Klatkaż kanału): kiedy pomaga, a kiedy szkodzi (2.2).
 5. **Osobny proces na ticker (2.1)** tylko wtedy, gdy po etapie 3 na A1 brakuje CPU i VizRS umie wystawić pojedynczą warstwę.
+
+## 4. Wyniki (etapy 1 i 3)
+
+Host: Intel Xeon 2,8 GHz, 4 vCPU (maszyna w chmurze, współdzielona – liczby niosą szum kilku punktów), Chromium 153 `chrome-headless-shell`, scena `animated`, rozgrzewka 5 s, pomiar 15 s. Kolumny: CPU sidecara / CPU przeglądarki (% rdzenia), nowe obrazy na sekundę, klatki wyjścia równo / stoi / przeskok.
+
+| Kanał | Tryb | `screencast` | `frames` |
+|---|---|---|---|
+| 720p25 | etv | 19 / 150, 25,9/s, 60 / 16 / 24 | 21 / 97, 24,4/s, 95 / 3 / 3 |
+| 720p25 | ffmpeg | 34 / 134, 20,3/s, 31 / 32 / 37 | 32 / 95, 24,7/s, 97 / 2 / 2 |
+| 720p30 | etv | 17 / 136, 21,5/s, 34 / 32 / 34 | 22 / 109, 27,5/s, 83 / 9 / 9 |
+| 720p30 | ffmpeg | 40 / 151, 25,9/s, 55 / 18 / 27 | 39 / 109, 28,0/s, 86 / 7 / 7 |
+| 720p50 | ffmpeg | 59 / 178, 46,7/s, 48 / 24 / 28 | 60 / 115, 30,6/s, 27 / 39 / 34 |
+| 720p60 | ffmpeg | 72 / 186, 50,1/s, 57 / 20 / 23 | 71 / 115, 30,1/s, 9 / 50 / 41 |
+| 720p50, `max_fps` 25 | ffmpeg | 61 / 146, 26,1/s, 62 / 16 / 22 | 59 / 92, 24,8/s, 99 / 1 / 0 |
+| 1080p25 | etv | 21 / 152, 14,3/s, 10 / 47 / 43 | 28 / 118, 17,5/s, 41 / 30 / 29 |
+| 1080p25 | ffmpeg | 70 / 151, 13,7/s, 9 / 48 / 43 | 71 / 118, 16,5/s, 33 / 34 / 33 |
+| 1080p30 | etv | 21 / 152, 13,7/s, 3 / 56 / 41 | 28 / 118, 17,7/s, 24 / 41 / 35 |
+| 1080p30 | ffmpeg | 84 / 153, 13,5/s, 1 / 56 / 43 | 84 / 117, 16,6/s, 17 / 45 / 38 |
+| 1080p50 | ffmpeg | 92 / 191, 26,5/s, 5 / 45 / 50 | 99 / 117, 16,7/s, 0 / 66 / 34 |
+| 1080p60 | ffmpeg | 92 / 189, 25,7/s, 2 / 46 / 52 | 100 / 117, 16,1/s, 0 / 67 / 33 |
+| 1080p50, `max_fps` 25 | ffmpeg | 95 / 148, 13,0/s, 26 / 49 / 25 | 99 / 116, 16,5/s, 45 / 33 / 22 |
+| 1080p25, render 720p | etv | 66 / 145, 26,0/s, 64 / 14 / 22 | 71 / 97, 24,3/s, 93 / 3 / 3 |
+| 1080p25, render 720p | ffmpeg | 98 / 131, 20,8/s, 30 / 32 / 38 | 99 / 95, 24,3/s, 87 / 4 / 9 |
+
+Wnioski:
+
+- Gdy host rysuje każdą klatkę w czasie klatki (720p przy 25–30 kl./s, 1080p renderowane w 720p), `frames` daje 83–99% równych kroków zamiast 30–64% i ok. jedną trzecią mniej CPU przeglądarki. To potwierdza wynik starego benchmarku (`chromium-frames`, 99% wobec 65% przy 720p).
+- Gdy nie nadąża (tu 1080p w pełnym rozmiarze, 720p przy 50/60 kl./s), oba tryby są słabe, a `frames` bez `max_fps` przy 50/60 kl./s gorszy od screencastu: rysowanie jest szeregowe (`beginFrame` czeka na PNG), klatki wypadają nieregularnie. Lekarstwo: `max_fps` (720p50 z `max_fps` 25: 99%) albo `render_size`.
+- Hipoteza 2.2 (30/60 kl./s wyrównują screencast) się nie potwierdziła (34–57% przy 720p).
+
+Decyzja (etap 3): **domyślnie `screencast`**. Powody: `frames` wymaga `chromium-headless-shell` (z innym Chromium tylko powrót do screencastu po restarcie przeglądarki) i bez dobranego `max_fps`/`render_size` na zbyt wolnym hoście bywa gorszy; Ampere A1 nie został zmierzony. Zalecenie w DOKUMENTACJI §1 i §4: `frames` przy renderowaniu, które host rysuje w czasie klatki – sprawdzić benchmarkiem na maszynie docelowej. Na A1 nakładka `docker-compose.ampere.yml` ma już render 720p i `max_fps` 25, czyli warunki, w których `frames` wypadł najlepiej; włączenie po pomiarze na A1.
+
+Możliwe dalsze kroki: kilka przeglądarek rysujących na przemian (stary `frames-worker.mjs` miał `pages`), żeby PNG kodowały się równolegle przy 50 kl./s; automatyczne obniżanie tempa (co druga klatka), gdy host nie nadąża.

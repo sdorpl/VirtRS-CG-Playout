@@ -3,7 +3,9 @@
 // (DevTools `Page.startScreencast`) only when the page changes; it becomes the
 // current frame for all sessions, with a history as long as the lead of the
 // streams so each output frame can take the picture of its own moment. A PNG
-// is decoded only when a session shows it.
+// is decoded only when a session shows it. In the `frames` mode Chromium draws
+// only when asked (`HeadlessExperimental.beginFrame`), once per frame of the
+// channel, with that frame's time: animations advance one step per output frame.
 
 use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
@@ -36,6 +38,11 @@ const BROWSER_FPS: f64 = 60.0;
 // With n > 1 a lone change (static page, last frame of an animation) may be
 // skipped: after this long without frames a screenshot fetches the final state.
 const SETTLE: Duration = Duration::from_millis(150);
+// Frames mode: a page standing still is probed for damage without a picture;
+// a screenshot this often catches a change the probes missed.
+const CHECK_MS: f64 = 1000.0;
+// Frames mode: missed slots are counted over this long; above a tenth, a warning.
+const MISSED_WINDOW: Duration = Duration::from_secs(60);
 const BROWSERS: [&str; 7] =
     ["chromium-headless-shell", "chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
 
@@ -54,6 +61,34 @@ pub fn find_browser() -> Option<String> {
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// How Chromium's pictures are taken (`capture_mode`, DOKUMENTACJA §5).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CaptureMode {
+    /// `Page.startScreencast`: Chromium draws at 60 Hz, every n-th frame is taken.
+    Screencast,
+    /// `HeadlessExperimental.beginFrame`: one frame per frame of the channel,
+    /// at its time (chromium-headless-shell only).
+    Frames,
+}
+
+impl CaptureMode {
+    /// `""` or `screencast`, `frames`.
+    pub fn parse(spec: &str) -> Result<CaptureMode, String> {
+        match spec.trim().to_ascii_lowercase().as_str() {
+            "" | "screencast" => Ok(CaptureMode::Screencast),
+            "frames" => Ok(CaptureMode::Frames),
+            _ => Err(format!("capture mode \"{spec}\" (expected screencast or frames)")),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CaptureMode::Screencast => "screencast",
+            CaptureMode::Frames => "frames",
+        }
+    }
 }
 
 /// Screencast step that keeps frames at or above the channel rate: 25 fps takes every second frame.
@@ -98,6 +133,7 @@ pub struct CaptureOptions {
     pub fps: f64,
     /// Capture rate limit (`max_fps`); 0 = the channel rate.
     pub max_fps: f64,
+    pub mode: CaptureMode,
     pub browser: Option<String>,
     pub no_sandbox: bool,
     pub extra_args: Vec<String>,
@@ -109,8 +145,8 @@ pub struct CaptureOptions {
 /// What the browser loop is told from other threads.
 enum Control {
     DevTools(Incoming),
-    /// Start or stop the screencast (sessions came or left, another rate).
-    Screencast(bool),
+    /// Start or stop capturing (sessions came or left, another rate).
+    Active(bool),
 }
 
 struct State {
@@ -131,6 +167,8 @@ pub struct Capture {
     decode: Arc<Decode>,
     state: Mutex<State>,
     stopped: AtomicBool,
+    /// The browser has no begin frames (not chromium-headless-shell): screencast instead.
+    no_frames: AtomicBool,
 }
 
 static PROFILES: AtomicU64 = AtomicU64::new(0);
@@ -156,6 +194,7 @@ impl Capture {
                 profile: None,
             }),
             stopped: AtomicBool::new(false),
+            no_frames: AtomicBool::new(false),
         });
         let browser = Arc::clone(&capture);
         let _ = thread::Builder::new().name("capture".into()).spawn(move || browser.supervise());
@@ -186,6 +225,16 @@ impl Capture {
 
     pub fn fps(&self) -> f64 {
         self.state().fps
+    }
+
+    /// The mode in use: `frames` falls back to the screencast on a browser without begin frames.
+    pub fn mode(&self) -> CaptureMode {
+        if self.no_frames.load(Ordering::Relaxed) { CaptureMode::Screencast } else { self.options.mode }
+    }
+
+    /// Frames per second Chromium draws in the frames mode, and at most takes in the screencast.
+    fn capture_fps(&self) -> f64 {
+        capped_fps(self.fps(), self.options.max_fps).max(1.0)
     }
 
     pub fn current(&self) -> Arc<Frame> {
@@ -228,27 +277,33 @@ impl Capture {
         crate::info!("burn-in {}: {}", self.key(), if active { "resumed" } else { "paused, no sessions" });
         if let Some(control) = &state.control {
             state.status = if active { "capturing" } else { "paused" };
-            let _ = control.send(Control::Screencast(active));
+            let _ = control.send(Control::Active(active));
         }
     }
 
-    /// A session needs more frames (the ffmpeg overlay at 50 fps): capture every n-th frame for it.
+    /// A session needs more frames (the ffmpeg overlay at 50 fps): capture every n-th frame
+    /// for it, or draw at its rate in the frames mode.
     pub fn raise_fps(&self, fps: f64) {
+        let mode = self.mode();
         let mut state = self.state();
         if fps <= state.fps {
             return;
         }
         let max = self.options.max_fps;
-        let before = every_nth_frame(capped_fps(state.fps, max));
+        let (before, after) = (capped_fps(state.fps, max), capped_fps(fps, max));
         state.fps = fps;
-        if every_nth_frame(capped_fps(fps, max)) == before {
+        let same = match mode {
+            CaptureMode::Screencast => every_nth_frame(before) == every_nth_frame(after),
+            CaptureMode::Frames => before == after,
+        };
+        if same {
             return;
         }
         crate::info!("burn-in {}: capturing for {} fps", self.key(), Value::Number(fps));
         if state.active {
-            // A new step needs a new screencast.
+            // A new step needs a new screencast, a new rate a new frame grid.
             if let Some(control) = &state.control {
-                let _ = control.send(Control::Screencast(true));
+                let _ = control.send(Control::Active(true));
             }
         }
     }
@@ -283,7 +338,7 @@ impl Capture {
         }
     }
 
-    fn browser_command(&self, browser: &str, profile: &Path) -> Command {
+    fn browser_command(&self, browser: &str, profile: &Path, mode: CaptureMode) -> Command {
         let o = &self.options;
         let mut command = Command::new(browser);
         command
@@ -315,6 +370,10 @@ impl Capture {
         if o.no_sandbox {
             command.arg("--no-sandbox");
         }
+        if mode == CaptureMode::Frames {
+            // Not --disable-new-content-rendering-timeout: with it every frame reports damage.
+            command.args(["--enable-begin-frame-control", "--run-all-compositor-stages-before-draw"]);
+        }
         // The page opens in the startup tab: a tab created later over DevTools
         // stays hidden in headless mode and never paints.
         command.args(&o.extra_args).arg(&o.url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -329,7 +388,8 @@ impl Capture {
         // Chromium reads commands on fd 3 and writes replies and events on fd 4.
         let (commands_read, commands_write) = std::io::pipe().map_err(|e| e.to_string())?;
         let (events_read, events_write) = std::io::pipe().map_err(|e| e.to_string())?;
-        let mut command = self.browser_command(&browser, &profile);
+        let mode = self.mode();
+        let mut command = self.browser_command(&browser, &profile, mode);
         let fds = [(commands_read.as_raw_fd(), 3), (events_write.as_raw_fd(), 4)];
         // SAFETY: child_setup only makes async-signal-safe calls.
         unsafe {
@@ -374,7 +434,7 @@ impl Capture {
             }
         });
 
-        let result = self.session(&devtools, &incoming);
+        let result = self.session(&devtools, &incoming, mode);
 
         let mut state = self.state();
         state.control = None;
@@ -407,7 +467,7 @@ impl Capture {
         Err("page did not open".into())
     }
 
-    fn session(self: &Arc<Self>, devtools: &Arc<DevTools>, incoming: &mpsc::Receiver<Control>) -> Result<(), String> {
+    fn session(self: &Arc<Self>, devtools: &Arc<DevTools>, incoming: &mpsc::Receiver<Control>, mode: CaptureMode) -> Result<(), String> {
         let target = self.page_target(devtools)?;
         let attached = devtools.call(
             "Target.attachToTarget",
@@ -432,11 +492,14 @@ impl Capture {
         let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
         call("Emulation.setDefaultBackgroundColorOverride", json::object([("color", transparent)]))?;
         call("Page.enable", json::object([]))?;
+        if mode == CaptureMode::Frames {
+            return self.frames(devtools, &session, incoming);
+        }
 
         // Not faster than the channel needs: half the PNG work at 24–30 fps.
         let screencast = |active: bool| -> Result<u32, String> {
             if active {
-                let n = every_nth_frame(capped_fps(self.fps(), self.options.max_fps));
+                let n = every_nth_frame(self.capture_fps());
                 call("Page.stopScreencast", json::object([]))?;
                 let params = json::object([
                     ("format", "png".into()),
@@ -488,7 +551,7 @@ impl Capture {
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err("browser exited".into()),
-                Ok(Control::Screencast(on)) => {
+                Ok(Control::Active(on)) => {
                     match screencast(on) {
                         Ok(n) => step = n,
                         Err(error) => crate::warn!("burn-in {}: {error}", self.key()),
@@ -514,6 +577,111 @@ impl Capture {
                             return Err(format!("page closed ({method})"));
                         }
                         _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// The frames mode: Chromium draws once per slot of the channel's frame
+    /// grid, with the slot's time as frame time, so an animation advances
+    /// exactly one frame per output frame. A picture is dated by its slot. A
+    /// screenshot always redraws and reports damage: while the page moves
+    /// every slot asks for one; once it stands still, a slot only probes for
+    /// damage and a screenshot follows when there is some. Slots missed by a
+    /// slow host are skipped (the picture before repeats), never made up.
+    fn frames(&self, devtools: &DevTools, session: &str, incoming: &mpsc::Receiver<Control>) -> Result<(), String> {
+        let begin = |time: f64, interval: f64, screenshot: bool| {
+            let mut params = json::object([("frameTimeTicks", time.into()), ("interval", interval.into())]);
+            if let (true, Value::Object(members)) = (screenshot, &mut params) {
+                let png = json::object([("format", "png".into()), ("optimizeForSpeed", true.into())]);
+                members.push(("screenshot".into(), png));
+            }
+            devtools.call("HeadlessExperimental.beginFrame", params, Some(session), CALL_TIMEOUT)
+        };
+        // Chromium's frame times are CLOCK_MONOTONIC in ms, as `Instant`.
+        let (origin_ms, origin) = (sys::monotonic_ms(), Instant::now());
+        let instant = |ms: f64| {
+            let offset = Duration::from_secs_f64((ms - origin_ms).abs() / 1000.0);
+            if ms >= origin_ms { origin.checked_add(offset) } else { origin.checked_sub(offset) }.unwrap_or(origin)
+        };
+
+        let mut frame_ms = 1000.0 / self.capture_fps();
+        if let Err(error) = begin(sys::monotonic_ms(), frame_ms, false) {
+            if error.contains("wasn't found") {
+                self.no_frames.store(true, Ordering::Relaxed);
+                crate::warn!(
+                    "burn-in {}: no begin frames in this browser (needs chromium-headless-shell); using the screencast",
+                    self.key()
+                );
+            }
+            return Err(error);
+        }
+        let mut active = {
+            let mut state = self.state();
+            state.status = if state.active { "capturing" } else { "paused" };
+            state.active
+        };
+        crate::info!("burn-in {}: capturing {} (frames)", self.key(), self.options.url);
+
+        let mut slot = (sys::monotonic_ms() / frame_ms).ceil();
+        let (mut moving, mut last_shot, mut last_png) = (false, f64::NEG_INFINITY, None::<String>);
+        // Slots of the window drawn and missed (a host too slow for the rate).
+        let (mut window, mut drawn, mut missed) = (Instant::now(), 0u64, 0u64);
+        loop {
+            let wait = if active { instant(slot * frame_ms).saturating_duration_since(Instant::now()) } else { Duration::from_secs(3600) };
+            match incoming.recv_timeout(wait) {
+                Err(RecvTimeoutError::Disconnected) | Ok(Control::DevTools(Incoming::Closed)) => return Err("browser exited".into()),
+                Ok(Control::Active(on)) => {
+                    active = on;
+                    (window, drawn, missed) = (Instant::now(), 0, 0);
+                    // A new grid at the current rate; the first slot sends a fresh picture.
+                    frame_ms = 1000.0 / self.capture_fps();
+                    slot = (sys::monotonic_ms() / frame_ms).ceil();
+                    (moving, last_shot, last_png) = (false, f64::NEG_INFINITY, None);
+                }
+                Ok(Control::DevTools(Incoming::Event(event))) => {
+                    let method = event.get("method").and_then(Value::as_str).unwrap_or("");
+                    if matches!(method, "Inspector.targetCrashed" | "Target.targetCrashed" | "Target.detachedFromTarget") {
+                        return Err(format!("page closed ({method})"));
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    let time = slot * frame_ms;
+                    let check = time - last_shot >= CHECK_MS;
+                    let mut result = begin(time, frame_ms, moving || check)?;
+                    if result.get("screenshotData").is_some() {
+                        last_shot = time;
+                    } else if result.get("hasDamage").and_then(Value::as_bool) == Some(true) {
+                        last_shot = time;
+                        result = begin(time + 0.001, frame_ms, true)?;
+                    }
+                    let shot = result.get("screenshotData").and_then(Value::as_str);
+                    moving = shot.is_some_and(|data| last_png.as_deref() != Some(data));
+                    match shot {
+                        Some(data) if moving => {
+                            self.push_png(data, instant(time));
+                            last_png = Some(data.to_owned());
+                        }
+                        // The page stood still; the frame after a screenshot reports damage, an empty frame takes it.
+                        Some(_) => {
+                            begin(time + 0.002, frame_ms, false)?;
+                        }
+                        None => {}
+                    }
+                    // Behind the grid: on with the slot of now; the missed ones repeat the picture.
+                    let next = (slot + 1.0).max((sys::monotonic_ms() / frame_ms).floor());
+                    (drawn, missed) = (drawn + 1, missed + (next - slot - 1.0) as u64);
+                    slot = next;
+                    if window.elapsed() >= MISSED_WINDOW {
+                        if missed * 10 > drawn + missed {
+                            crate::warn!(
+                                "burn-in {}: {missed} of {} frames not drawn in time; lower max_fps or render_size",
+                                self.key(),
+                                drawn + missed
+                            );
+                        }
+                        (window, drawn, missed) = (Instant::now(), 0, 0);
                     }
                 }
             }

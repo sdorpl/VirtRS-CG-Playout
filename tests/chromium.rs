@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use virtrs_cg::capture::{Capture, CaptureOptions, find_browser};
+use virtrs_cg::capture::{Capture, CaptureMode, CaptureOptions, find_browser};
+use virtrs_cg::frames::Source;
 
 /// Serves `page` to every request; returns its URL.
 fn serve(page: &'static str) -> String {
@@ -36,6 +37,10 @@ fn serial() -> MutexGuard<'static, ()> {
 }
 
 fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
+    capture_in(CaptureMode::Screencast, url, render, out, idle)
+}
+
+fn capture_in(mode: CaptureMode, url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
     let Some(browser) = find_browser() else {
         eprintln!("no Chromium: skipped");
         return None;
@@ -50,6 +55,7 @@ fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> 
         out_height: out.1,
         fps: 25.0,
         max_fps: 0.0,
+        mode,
         browser: Some(browser),
         no_sandbox,
         extra_args: Vec::new(),
@@ -141,4 +147,66 @@ fn chromium_capture_follows_an_animation_at_the_channel_rate() {
     capture.stop();
     // Chromium at 60 Hz / 2 = 30, minus what a busy test host drops.
     assert!(rate >= 12.0, "{rate} pictures per second");
+}
+
+/// The frames mode on chromium-headless-shell; another browser has no begin
+/// frames and falls back to the screencast, which must show the page as well.
+#[test]
+fn chromium_frames_capture_shows_the_page_pauses_and_resumes() {
+    let _serial = serial();
+    let Some(capture) = capture_in(CaptureMode::Frames, serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
+    capture.acquire();
+    until("the red box", || boxes(&capture) == [(40, 300, 400, 60)]);
+    eprintln!("capture mode: {}", capture.mode().name());
+    capture.release();
+    until("paused", || capture.status() == "paused");
+
+    let seq = capture.current().seq;
+    capture.acquire();
+    until("a fresh frame", || capture.current().seq > seq);
+    assert_eq!(boxes(&capture), [(40, 300, 400, 60)]);
+    capture.stop();
+}
+
+/// Begin frames: one picture per frame of the channel, dated on its grid
+/// (40 ms at 25 fps), the animation one step further in each.
+#[test]
+fn chromium_frames_capture_draws_on_the_frame_grid_of_the_channel() {
+    let _serial = serial();
+    const STEPS: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
+<div id="box" style="position:absolute;top:100px;width:20px;height:20px;background:rgb(0,0,255)"></div>
+<script>const box = document.getElementById("box");
+(function step(t) { box.style.left = (Math.floor(t / 40 + 0.001) % 600) + "px"; requestAnimationFrame(step); })(0);</script>
+</body></html>"#;
+    let Some(capture) = capture_in(CaptureMode::Frames, serve(STEPS), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
+    until("a first frame", || !capture.current().picture().rects.is_empty());
+    thread::sleep(Duration::from_secs(2));
+    if capture.mode() != CaptureMode::Frames {
+        eprintln!("no begin frames in this browser: skipped");
+        return capture.stop();
+    }
+    let seq = capture.current().seq;
+    thread::sleep(Duration::from_secs(2));
+    let end = capture.current();
+    let rate = (end.seq - seq) as f64 / 2.0;
+
+    // Back from the newest picture: every picture is on the grid, mostly one step apart.
+    let (mut frame, mut steps, mut one) = (end, 0, 0);
+    while steps < 40 {
+        let before = capture.frame_at(frame.at - Duration::from_micros(1));
+        if before.seq == 0 {
+            break;
+        }
+        let gap = (frame.at - before.at).as_secs_f64() * 1000.0;
+        let slots = (gap / 40.0).round();
+        assert!(slots >= 1.0 && (gap - slots * 40.0).abs() < 0.05, "{gap} ms between pictures");
+        let x = |f: &virtrs_cg::frames::Frame| f.picture().rects[0].x;
+        if slots == 1.0 && x(&frame) == (x(&before) + 1) % 600 {
+            one += 1;
+        }
+        (frame, steps) = (before, steps + 1);
+    }
+    capture.stop();
+    assert!(rate >= 12.0, "{rate} pictures per second");
+    assert!(one * 10 >= steps * 7, "{one} of {steps} pictures one step after the one before");
 }

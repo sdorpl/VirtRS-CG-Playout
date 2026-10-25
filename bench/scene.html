@@ -4,9 +4,11 @@
   ?scene=static    clock (every second) and a lower third whose text changes over SSE
   ?scene=animated  plus a 3D logo, a lower third sliding in and out, a blurred glow and a ticker
   ?fps=25          the ticker moves at most this often (as VizRS ?fps=)
-  The animated scene also draws a 4x4 px marker at the top-left corner: red +
-  256 * green = animation step (requestAnimationFrame time / frame length), so
-  every output frame tells whether the motion moved by one step, stood or skipped.
+  The animated scene also draws a marker at the top-left corner: 16 cells of
+  8x8 px, white = 1, black = 0 (bit 0 first), the animation step
+  (requestAnimationFrame time / frame length) mod 65536. Black and white survive
+  the scaling of render_size and yuva420p, so every output frame (ETV packets or
+  ffmpeg frames) tells whether the motion moved by one step, stood or skipped.
 -->
 <html>
 <head>
@@ -29,13 +31,15 @@
   #sub { position: absolute; left: 40px; top: 80px; font-size: 28px; opacity: .85; clip-path: inset(0 0 0 0); }
   #ticker { position: absolute; left: 0; bottom: 40px; width: 1920px; height: 70px; background: rgba(15, 23, 42, .85); overflow: hidden; display: none; }
   .animated #ticker { display: block; }
-  #marker { position: fixed; left: 0; top: 0; width: 4px; height: 4px; display: none; }
-  .animated #marker { display: block; }
+  #marker { position: fixed; left: 0; top: 0; height: 8px; display: none; }
+  .animated #marker { display: flex; }
+  #marker i { width: 8px; height: 8px; background: #000; }
+  #marker i.on { background: #fff; }
   #ticker span { position: absolute; top: 12px; white-space: nowrap; font-size: 36px; will-change: transform; }
 </style>
 </head>
 <body>
-<div id="marker"></div>
+<div id="marker"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 <div id="stage">
   <div id="clock" class="box">00:00:00</div>
   <div id="logo"><div>VRS</div></div>
@@ -81,10 +85,11 @@
     const speed = 240; // px/s
     let start = null;
     let lastStep = -1;
-    const marker = document.getElementById("marker");
+    const cells = [...document.querySelectorAll("#marker i")];
     const move = (time) => {
-      const frame = Math.floor(time / (1000 / fps));
-      marker.style.background = `rgb(${frame & 255}, ${(frame >> 8) & 255}, 0)`;
+      // A frame time on the frame grid (begin frames) may land a hair below its step.
+      const frame = Math.floor(time / (1000 / fps) + 0.001);
+      cells.forEach((cell, bit) => cell.classList.toggle("on", ((frame >> bit) & 1) === 1));
       start ??= time;
       const step = Math.floor(((time - start) / 1000) * fps);
       if (step !== lastStep) {

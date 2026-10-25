@@ -117,6 +117,17 @@ test("render size: config default, per-channel override, one capture per size pa
   ]);
 });
 
+test("capture mode: file, environment on top, a bad value falls back to the screencast", async (t) => {
+  const hd = { ...item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), Resolution: { Width: 1920, Height: 1080 } };
+  const modes = [];
+  for (const [file, env] of [["frames", {}], ["frames", { VIZRS_CAPTURE_MODE: "screencast" }], ["bogus", {}]]) {
+    const cg = await sidecar(t, { vizrs: { address: "127.0.0.1:9", token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0, capture_mode: file }, env);
+    await runClient(`${cg.url}/etv?channel=1`, hd, 300);
+    modes.push((await cg.health()).captures[0].mode);
+  }
+  assert.deepEqual(modes, ["frames", "screencast", "screencast"]);
+});
+
 test("client exits quietly when the sidecar is down", async () => {
   const stream = await runClient("http://127.0.0.1:9/etv", {}, 3000);
   assert.equal(stream.length, 0);

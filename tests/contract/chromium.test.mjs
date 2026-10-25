@@ -11,7 +11,12 @@ import { findBrowser, runClient, startSidecar } from "./sidecar.mjs";
 const browser = findBrowser();
 // Without the sandbox as root, and where the host forbids it (CI runners, containers).
 const noSandbox = process.getuid?.() === 0 || process.env.VIZRS_BROWSER_NO_SANDBOX === "1";
-test("sidecar burns the page in: ETV packets and yuva420p frames for ffmpeg", { skip: !browser && "no Chromium", timeout: 120000 }, async (t) => {
+for (const mode of ["screencast", "frames"]) {
+  // The frames mode needs chromium-headless-shell; another browser falls back to the screencast.
+  test(`sidecar burns the page in (${mode}): ETV packets and yuva420p frames for ffmpeg`, { skip: !browser && "no Chromium", timeout: 120000 }, (t) => burnIn(t, mode));
+}
+
+async function burnIn(t, mode) {
   const page = `<!doctype html><html><body style="margin:0;background:transparent">
 <div style="position:absolute;left:40px;top:100px;width:120px;height:20px;background:rgb(255,0,0)"></div></body></html>`;
   const server = http.createServer((_, res) => res.end(page));
@@ -19,7 +24,7 @@ test("sidecar burns the page in: ETV packets and yuva420p frames for ffmpeg", { 
   t.after(() => server.close());
 
   const cg = await startSidecar(
-    { vizrs: { address: "127.0.0.1:9", token: "" }, output_url: `http://127.0.0.1:${server.address().port}/`, lead_seconds: 0 },
+    { vizrs: { address: "127.0.0.1:9", token: "" }, output_url: `http://127.0.0.1:${server.address().port}/`, lead_seconds: 0, capture_mode: mode },
     { VIZRS_BROWSER: browser, ...(noSandbox ? { VIZRS_BROWSER_NO_SANDBOX: "1" } : {}) },
   );
   t.after(cg.stop);
@@ -69,4 +74,4 @@ test("sidecar burns the page in: ETV packets and yuva420p frames for ffmpeg", { 
   const last = readFrames(stream, width, height).at(-1);
   assert.deepEqual([...last.subarray(center * 4, center * 4 + 4)], [255, 0, 0, 255]);
   assert.equal(last[3], 0);
-});
+}

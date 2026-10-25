@@ -16,6 +16,7 @@
   "lead_seconds": 4,
   "render_size": "",
   "max_fps": 0,
+  "capture_mode": "screencast",
   "browser": "",
   "no_sandbox": false,
   "browser_args": []
@@ -41,6 +42,7 @@
     "lead_seconds": 4,
     "render_size": "",
     "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -70,6 +72,7 @@
     "lead_seconds": 1,
     "render_size": "",
     "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -100,6 +103,7 @@
     "lead_seconds": 4,
     "render_size": "720p",
     "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "",
     "no_sandbox": true,
     "browser_args": [
@@ -134,6 +138,7 @@
     "lead_seconds": 4,
     "render_size": "",
     "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -170,6 +175,7 @@
     "lead_seconds": 2.5,
     "render_size": "",
     "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "",
     "no_sandbox": false,
     "browser_args": [],
@@ -214,6 +220,7 @@
     "lead_seconds": 4,
     "render_size": "",
     "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "/usr/bin/chromium",
     "no_sandbox": false,
     "browser_args": [
@@ -243,6 +250,67 @@
     "lead_seconds": 4,
     "render_size": "",
     "max_fps": 25,
+    "capture_mode": "screencast",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": {
+    "capture_mode": "frames"
+   },
+   "env": {
+    "VIZRS_CAPTURE_MODE": ""
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "max_fps": 0,
+    "capture_mode": "frames",
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
+   }
+  },
+  {
+   "file": {
+    "capture_mode": "frames"
+   },
+   "env": {
+    "VIZRS_CAPTURE_MODE": "screencast"
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "max_fps": 0,
+    "capture_mode": "screencast",
     "browser": "",
     "no_sandbox": false,
     "browser_args": []

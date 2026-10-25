@@ -64,7 +64,7 @@ Sidecar to jeden plik binarny `virtrs-cg` (Rust) obok bezgłowego Chromium:
 | `POST /etv?channel=1[&render=720p]` | treść: dane szablonu ErsatzTV; odpowiedź: niekończący się strumień pakietów ETV; `render` – rozmiar renderowania grafiki (§1) |
 | `GET /ffmpeg?channel=1[&wait=2000]` | nakładka ffmpeg przejmuje wolną sesję elementu kanału; odpowiedź: `session`, `width`, `height`, `fps` (404 = brak sesji) |
 | `GET /ffmpeg/frames?session=N[&fps=25/1]` | surowe klatki `yuva420p` przejętej sesji dla ffmpeg (Nakładka ffmpeg, niżej) |
-| `GET /health` | liczba sesji, stan przechwytywania (`size` kanału, `render`, `status`: `capturing`, `paused`, `restarting`…, `seq`) i kanały z nakładką ffmpeg (`overlay`) |
+| `GET /health` | liczba sesji, stan przechwytywania (`size` kanału, `render`, `fps`, `mode`: `screencast` albo `frames`, `status`: `capturing`, `paused`, `restarting`…, `seq`) i kanały z nakładką ffmpeg (`overlay`) |
 
 Chromium wysyła PNG tylko przy zmianie strony. Sidecar dekoduje klatkę
 dopiero wtedy, gdy któraś sesja ją pokazuje (klatki, których żadna klatka
@@ -95,6 +95,23 @@ Płynność animacji (rozwiązania z VizRS ffPlayout System):
   Gdy ErsatzTV na moment przestaje czytać (zator, obciążony CPU), zaległe
   klatki idą jako kolejne obrazy animacji, a nie jeden obraz powtórzony i skok.
   Czytelnik spóźniony o ponad 1 s względem osi czasu przeskakuje do przodu.
+- **Klatki na żądanie (`capture_mode: frames`, §5).** Screencast bierze
+  klatki z zegara Chromium (60 Hz), więc przy 25 kl./s kanału na 5 klatek
+  wyjścia przypada 6 klatek źródła i ruch co jakiś czas przeskakuje
+  o podwójny krok; pod obciążeniem Chromium nie trzyma też równych 60 Hz.
+  W trybie `frames` sidecar każe Chromium narysować klatkę
+  (`HeadlessExperimental.beginFrame`) dokładnie raz na klatkę kanału,
+  z czasem tej klatki, i datuje obraz tym czasem. Animacja idzie o jeden
+  krok na klatkę wyjścia, a strona stojąca kosztuje tylko próbę rysowania bez
+  PNG (co sekundę zrzut kontrolny). Pomiar (§8, Xeon 2,8 GHz, 4 vCPU,
+  przewijany ticker): kanał 720p25 – 95–97% klatek z równym krokiem
+  zamiast 30–60%, CPU przeglądarki ok. 95% zamiast ok. 135–150%; kanał
+  1080p25 renderowany w 720p – 87–93% zamiast 30–64%. Warunek: host musi
+  narysować każdą klatkę w czasie klatki. Gdy nie nadąża (tamże: 1080p
+  w pełnym rozmiarze, 50 albo 60 kl./s), klatki wypadają nieregularnie
+  i ruch bywa gorszy niż ze screencastu – wtedy `max_fps` (np. `25` przy
+  kanale 50 kl./s: 98,8% równych kroków w 720p) albo `render_size`.
+  Działa tylko z `chromium-headless-shell`; domyślnie wyłączone (§5).
 
 Strumień wyprzedza zegar najwyżej o `lead_seconds`
 (domyślnie 4 s) – to bufor, który ErsatzTV buduje początkowym wyrzutem,
@@ -221,6 +238,16 @@ transkodowanie do HLS:
 Inne wywołania (koder płótna ErsatzTV, kopiowanie strumienia `-c copy`,
 remuks do MPEG-TS) zostają bez zmian. Obraz materiału 25 kl./s nie robi się
 płynniejszy, bo każda jego klatka jest powtórzona; płynniejsza jest grafika.
+
+Klatkaż 30 albo 60 kl./s (`VIZRS_FFMPEG_FPS=30`/`60`) ma sens tylko przy
+materiałach 30 albo 60 kl./s. Przy materiałach 25 kl./s psuje obraz: przy 30
+co piąta klatka filmu jest powtórzona, przy 60 klatki filmu trwają na
+przemian 2 i 3 klatki wyjścia (60/25 = 2,4), więc ruch w materiale robi się
+nierówny. Grafiki ze screencastu sam klatkaż nie wyrównuje, choć 30 i 60
+dzielą 60 Hz Chromium: pomiar (§8) przy 30 i 60 kl./s dał 34–57% równych
+kroków, tyle co przy 25 i 50, bo pod obciążeniem Chromium nie rysuje równo
+co 1/60 s. Równą grafikę przy każdym klatkażu daje tryb `frames` (§1,
+Płynność animacji).
 Koszt: animacja grafiki to dwa razy więcej PNG w Chromium i sidecarze (pomiar
 na Xeon E3-1270 v3, 1080p50: ok. 170% CPU sidecara w trakcie animacji, kilka
 procent przy grafice stojącej), surowe klatki 1080p to ok. 260 MB/s, a koder
@@ -436,6 +463,14 @@ od wersji 2.1.4. Ustaw preset w profilu FFmpeg jawnie – puste pole to
 `/output` (mniej ciągłych animacji, mniejsze rozmiary kanału) daje więcej
 niż podnoszenie `CG_CPUS`.
 
+Ustawienia nakładki (render 720p, `VIZRS_MAX_FPS=25`) to dokładnie warunki,
+w których tryb `frames` (§1) dał na x86 najrówniejszy ruch przy mniejszym
+CPU przeglądarki. Na A1 go jeszcze nie zmierzono, więc zostaje wyłączony:
+włącz `VIZRS_CAPTURE_MODE=frames` po pomiarze benchmarkiem (§8,
+`BENCH_CAPTURE=frames BENCH_RENDER=720p BENCH_MAX_FPS=25`); `even_percent`
+wyraźnie poniżej 90% albo ostrzeżenia o nienarysowanych klatkach w logu
+oznaczają, że A1 nie nadąża.
+
 Limity darmowego planu (Always Free): 4 OCPU i 24 GB łącznie na wszystkie
 instancje A1, 200 GB dysków, 10 TB ruchu wychodzącego miesięcznie – średnio
 ok. 31 Mb/s, czyli ok. 7 widzów HLS 4 Mb/s oglądających non stop. Oracle
@@ -523,7 +558,8 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "ad_without_element": true,
   "lead_seconds": 4,
   "render_size": "",
-  "max_fps": 0
+  "max_fps": 0,
+  "capture_mode": "screencast"
 }
 ```
 
@@ -535,7 +571,7 @@ Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 (wyłącza reklamę po braku elementu), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
 (`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_MAX_FPS`
 (górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
-kanału),
+kanału), `VIZRS_CAPTURE_MODE` (`screencast` albo `frames`, niżej),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.
@@ -550,7 +586,25 @@ poprzednią wartość.
 (co n-ta klatka z 60 na sekundę, §1): przy `25` kanał 50 kl./s dostaje
 animacje w 25 kl./s (każda klatka grafiki dwa razy), a Chromium koduje
 i sidecar dekoduje o połowę mniej PNG. Kanały 24–30 kl./s i tak dostają
-co drugą klatkę, więc `25` ich nie zmienia.
+co drugą klatkę, więc `25` ich nie zmienia. W trybie `frames` (niżej)
+`max_fps` to tempo, w jakim Chromium rysuje: przy `25` kanał 50 kl./s
+dostaje każdą klatkę grafiki równo dwa razy.
+
+`capture_mode` (`VIZRS_CAPTURE_MODE`) wybiera sposób przechwytywania
+Chromium (§1, Płynność animacji):
+
+| Wartość | Działanie |
+|---|---|
+| `screencast` (domyślnie, też puste) | Chromium składa stronę 60 razy na sekundę, screencast bierze co n-tą klatkę |
+| `frames` | Chromium rysuje tylko na żądanie (`HeadlessExperimental.beginFrame`), raz na klatkę kanału (albo `max_fps`), z czasem tej klatki |
+
+`frames` działa tylko z `chromium-headless-shell` (obraz Dockera go ma).
+Inna przeglądarka (pełny `chromium`, `google-chrome`) nie ma tej komendy:
+sidecar zapisuje ostrzeżenie, uruchamia przeglądarkę ponownie po 3 s i dalej
+używa screencastu (`/health`: `mode` przechwytywania). Błędna wartość trafia
+do logu, a przechwytywanie idzie screencastem. Gdy host nie nadąża rysować
+każdej klatki, co minutę w logu pojawia się ostrzeżenie z liczbą
+nienarysowanych klatek – obniż wtedy `max_fps` albo `render_size`.
 
 `ad_match.path` i `ad_match.title` to wyrażenia regularne składni
 [`regex`](https://docs.rs/regex/latest/regex/#syntax), bez rozróżniania
@@ -676,12 +730,23 @@ i `blur`, wysuwany co 5 s, tekst przez `EventSource`, ticker na
 i tekst). Zamiast sceny można zmierzyć prawdziwe `/output` VizRS
 (`BENCH_URL`; grafika musi być na antenie).
 
+Scena `animated` rysuje w lewym górnym rogu znacznik: 16 pól 8×8 px, białe
+= 1, czarne = 0, numer kroku animacji (czas `requestAnimationFrame` przez
+długość klatki). Benchmark czyta go z każdej klatki wyjścia, tak jak bierze
+ją ErsatzTV (pakiety ETV z `Repeat`) albo ffmpeg (klatki `yuva420p`),
+i liczy, czy ruch poszedł dokładnie o jeden krok, stał, czy przeskoczył.
+Scena robi krok raz na klatkę wyjścia, a przy `BENCH_MAX_FPS` niższym od
+klatkażu raz na kilka (np. 50 kl./s przy `25`: równo = krok co drugą klatkę).
+
 | Kolumna | Znaczenie |
 |---|---|
+| `render`, `fps`, `capture`, `max_fps` | rozmiar renderowania, klatkaż wyjścia trybu, tryb przechwytywania (`/health`), `max_fps` |
 | `cpu_percent` | CPU procesu sidecara, % jednego rdzenia |
+| `browser_cpu_percent` | CPU przeglądarki (procesy potomne sidecara), % jednego rdzenia |
 | `rss_mb` | pamięć procesu sidecara (głównie klatki: historia PNG na `lead_seconds` + 1,6 s i obrazy pokazywane przez sesje) |
 | `pictures_per_s` | nowe obrazy grafiki na sekundę (animacja przy 25 fps: ok. 25) |
 | `mb_per_s` | strumień do ErsatzTV albo ffmpeg |
+| `even_percent`, `stood_percent`, `skipped_percent` | klatki wyjścia z ruchem równym (ideał 100%), stojącym i z przeskokiem (scena `animated`) |
 
 Zmienne środowiskowe (wszystkie opcjonalne):
 
@@ -693,6 +758,9 @@ Zmienne środowiskowe (wszystkie opcjonalne):
 | `BENCH_SIZE` | `1920x1080` | rozmiar kanału |
 | `BENCH_FPS` | `25` | klatkaż kanału |
 | `BENCH_FFMPEG_FPS` | `50` | klatkaż nakładki ffmpeg |
+| `BENCH_CAPTURE` | `screencast` | `capture_mode` sidecara (`frames`, §5) |
+| `BENCH_MAX_FPS` | `0` | `max_fps` sidecara |
+| `BENCH_RENDER` | – | `render_size` sidecara, np. `720p` |
 | `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
 | `BENCH_DURATION` | `30` | pomiar [s] |
 
@@ -735,6 +803,26 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
 ```
 
 ### Uwagi i wyniki
+
+- **Równość ruchu, screencast wobec `frames`** (Xeon 2,8 GHz, 4 vCPU
+  w chmurze, Chromium 153 `chrome-headless-shell`, scena `animated`, 15 s;
+  równo / stoi / przeskok, CPU przeglądarki):
+
+  | Kanał | Tryb sidecara | `screencast` | `frames` |
+  |---|---|---|---|
+  | 720p25 | `etv` | 60% / 16% / 24%, 150% | 95% / 3% / 3%, 97% |
+  | 720p25 | `ffmpeg` | 31% / 32% / 37%, 134% | 97% / 2% / 2%, 95% |
+  | 720p30 | `ffmpeg` | 55% / 18% / 27%, 151% | 86% / 7% / 7%, 109% |
+  | 720p50 | `ffmpeg` | 48% / 24% / 28%, 178% | 27% / 39% / 34%, 115% (31 obrazów/s) |
+  | 720p50, `max_fps` 25 | `ffmpeg` | 62% / 16% / 22%, 146% | 99% / 1% / 0%, 92% |
+  | 1080p25 | `etv` | 10% / 47% / 43%, 152% | 41% / 30% / 29%, 118% (17,5 obrazu/s) |
+  | 1080p25, render 720p | `etv` | 64% / 14% / 22%, 145% | 93% / 3% / 3%, 97% |
+  | 1080p25, render 720p | `ffmpeg` | 30% / 32% / 38%, 131% | 87% / 4% / 9%, 95% |
+
+  Ten host nie rysuje 1080p w pełnym rozmiarze w 25 kl./s ani 720p w 50
+  kl./s; tam oba tryby są słabe, a `frames` przy 50/60 kl./s bez `max_fps`
+  gorszy. CPU sidecara w obu trybach podobne. Pełna macierz (też 30 i 60
+  kl./s): [docs/plany/PLAN-plynnosc.md](plany/PLAN-plynnosc.md) §4.
 
 - **Sidecar w Ruście wobec Node.js** (Xeon E3-1270 v3, 1080p, scena
   `animated`, 25 s): tryb `etv` – Rust 28% CPU i 93–96 MB, Node 53–56%

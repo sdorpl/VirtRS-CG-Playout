@@ -3,14 +3,17 @@
 // another one with VIRTRS_CG_BIN) burns bench/scene.html in for one session,
 // and the CPU and memory of the sidecar process itself are measured (the
 // browser is measured apart from it). Modes (BENCH_MODES):
-//   etv      ETV packets for the script element (the Python client),
+//   etv      ETV packets for the script element (vizrs-etv-client),
 //   ffmpeg   raw yuva420p frames for the ffmpeg overlay at BENCH_FFMPEG_FPS.
+// On the animated scene every output frame is read as ErsatzTV or ffmpeg
+// would take it: the scene's marker tells whether the motion moved by exactly
+// one step (even), stood or skipped.
 // Results: a table and one JSON line on stdout (DOKUMENTACJA §8).
 //
 //   cargo build --release && node bench/sidecar.mjs
 //   VIRTRS_CG_BIN=/usr/local/bin/virtrs-cg node bench/sidecar.mjs
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -27,7 +30,12 @@ const WARMUP = Number(env.BENCH_WARMUP || 10);
 const DURATION = Number(env.BENCH_DURATION || 30);
 const SCENE = env.BENCH_URL ? "url" : env.BENCH_SCENE || "animated";
 const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
+// Sidecar options under test: render_size, capture_mode, max_fps.
+const RENDER = env.BENCH_RENDER || "";
+const CAPTURE = env.BENCH_CAPTURE || "screencast";
+const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
 const CLK_TCK = 100;
+const HEADER = 11;
 
 /** CPU seconds (user + system) and resident memory of one process. */
 function usage(pid) {
@@ -35,6 +43,146 @@ function usage(pid) {
   const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
   const rss = Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/status`, "utf8"))[1]);
   return { cpu: (Number(fields[11]) + Number(fields[12])) / CLK_TCK, rss_mb: rss / 1024 };
+}
+
+/** CPU seconds of the descendants of `pid` (the browser and its helpers). */
+function descendantsCpu(pid) {
+  const all = new Map();
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      all.set(Number(name), { ppid: Number(fields[1]), cpu: (Number(fields[11]) + Number(fields[12])) / CLK_TCK });
+    } catch {
+      // gone
+    }
+  }
+  const pids = new Set([pid]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [child, info] of all) {
+      if (!pids.has(child) && pids.has(info.ppid)) {
+        pids.add(child);
+        grew = true;
+      }
+    }
+  }
+  pids.delete(pid);
+  return [...pids].reduce((sum, child) => sum + all.get(child).cpu, 0);
+}
+
+/**
+ * Marker of bench/scene.html: 16 cells of 8x8 px at the render size, sampled
+ * in their middle at the channel size; returns a reader of `(x, y) -> [white,
+ * opaque]` per cell, or null.
+ */
+function markerPoints(render) {
+  const [rw, rh] = render.split("x").map(Number);
+  return Array.from({ length: 16 }, (_, bit) => [Math.floor(((8 * bit + 4) * WIDTH) / rw), Math.floor((4 * HEIGHT) / rh)]);
+}
+
+/** Animation step from 16 [white, opaque] samples, or null without the marker. */
+function stepOf(samples) {
+  if (samples.some(([, opaque]) => !opaque)) return null;
+  return samples.reduce((step, [white], bit) => step | (white ? 1 << bit : 0), 0);
+}
+
+/** Steps of an ETV packet stream: one per output frame, as ErsatzTV takes them. */
+function packetSteps(points, push) {
+  let chunks = [];
+  let length = 0;
+  let last = null;
+  const rectangles = (packet) => {
+    const samples = points.map(() => [false, false]);
+    let offset = HEADER + 2;
+    for (let i = packet.readUInt16BE(HEADER); i > 0; i--) {
+      const [x, y, w, h] = [0, 2, 4, 6].map((at) => packet.readUInt16BE(offset + at));
+      offset += 8;
+      points.forEach(([px, py], cell) => {
+        if (px >= x && px < x + w && py >= y && py < y + h) {
+          const at = offset + ((py - y) * w + (px - x)) * 4;
+          samples[cell] = [packet[at] > 127, packet[at + 3] > 127];
+        }
+      });
+      offset += w * h * 4;
+    }
+    return stepOf(samples);
+  };
+  return (chunk) => {
+    chunks.push(chunk);
+    length += chunk.length;
+    for (;;) {
+      if (length < HEADER) return;
+      let buffer = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, length);
+      const size = HEADER + buffer.readUInt32BE(7);
+      if (length < size) {
+        chunks = [buffer];
+        return;
+      }
+      const type = buffer[6];
+      if (type === 3) last = rectangles(buffer);
+      else if (type === 2) last = null;
+      const frames = type === 1 ? buffer.readUInt32BE(HEADER) + 1 : 1;
+      for (let i = 0; i < frames; i++) push(last);
+      buffer = buffer.subarray(size);
+      chunks = buffer.length ? [buffer] : [];
+      length = buffer.length;
+    }
+  };
+}
+
+/** Steps of raw yuva420p frames: luma and alpha of the marker cells in each frame. */
+function yuvaSteps(points, push) {
+  const cw = Math.ceil(WIDTH / 2);
+  const ch = Math.ceil(HEIGHT / 2);
+  const size = WIDTH * HEIGHT * 2 + cw * ch * 2;
+  const alpha = WIDTH * HEIGHT + 2 * cw * ch;
+  // Byte offsets in a frame, in order: luma of each cell, then its alpha.
+  const wanted = points.flatMap(([x, y]) => [y * WIDTH + x, alpha + y * WIDTH + x]).map((at, i) => ({ at, i })).sort((a, b) => a.at - b.at);
+  let position = 0;
+  let values = [];
+  return (chunk) => {
+    let start = 0;
+    while (start < chunk.length) {
+      const end = Math.min(chunk.length, start + size - position);
+      for (const { at, i } of wanted) {
+        if (at >= position && at < position + end - start) values[i] = chunk[start + at - position];
+      }
+      position += end - start;
+      start = end;
+      if (position === size) {
+        const samples = points.map((_, cell) => [values[2 * cell] > 125, values[2 * cell + 1] > 127]);
+        push(stepOf(samples));
+        position = 0;
+        values = [];
+      }
+    }
+  };
+}
+
+/**
+ * Share of output frames that move as they should, stand where they should not
+ * or skip: the scene steps once per `hold` output frames (1, or 2 with a 50 fps
+ * output and a capture limited to 25), so an even frame is one step after
+ * `hold` frames, or no step before that.
+ */
+function motion(steps, hold) {
+  let [one, stood, skipped] = [0, 0, 0];
+  let since = 0;
+  for (let i = 1; i < steps.length; i++) {
+    if (steps[i] === null || steps[i - 1] === null) continue;
+    const delta = (steps[i] - steps[i - 1] + 65536) % 65536;
+    since += 1;
+    if (delta === 0 && since < hold) one += 1;
+    else if (delta === 0) stood += 1;
+    else if (delta === 1 && since === hold) one += 1;
+    else if (delta < 1000) skipped += 1;
+    if (delta !== 0) since = 0;
+  }
+  const total = one + stood + skipped;
+  const pct = (n) => (total ? Math.round((n / total) * 1000) / 10 : null);
+  return { even_percent: pct(one), stood_percent: pct(stood), skipped_percent: pct(skipped) };
 }
 
 // The scene and its headline events, as bench/bench.mjs serves them.
@@ -55,18 +203,31 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 // BENCH_URL: the real VizRS /output instead of the scene (graphics must be on air).
-const scene = env.BENCH_URL || `http://127.0.0.1:${server.address().port}/scene.html?scene=${SCENE}&fps=${FPS}`;
+// The scene steps at the rate of the mode's output frames.
+const sceneUrl = (fps) => env.BENCH_URL || `http://127.0.0.1:${server.address().port}/scene.html?scene=${SCENE}&fps=${fps}`;
 
 const browser = findBrowser();
 if (!browser) throw new Error("no Chromium (set VIZRS_BROWSER)");
 const data = { Resolution: { Width: WIDTH, Height: HEIGHT }, FrameRate: FPS, MediaItem_Path: "/m/bench.mp4" };
 
 async function run(mode) {
+  const fps = mode === "ffmpeg" ? FFMPEG_FPS : FPS;
+  // The scene moves at most as often as the sidecar captures (max_fps), like VizRS ?fps=.
+  const sceneFps = MAX_FPS > 0 ? Math.min(fps, MAX_FPS) : fps;
   const cg = await startSidecar(
-    { vizrs: { address: "127.0.0.1:9", token: "" }, output_url: scene, lead_seconds: 1 },
+    {
+      vizrs: { address: "127.0.0.1:9", token: "" },
+      output_url: sceneUrl(sceneFps),
+      lead_seconds: 1,
+      render_size: RENDER,
+      capture_mode: CAPTURE,
+      max_fps: MAX_FPS,
+    },
     { VIZRS_BROWSER: browser, VIZRS_BROWSER_NO_SANDBOX: "1" },
   );
   const script = await fetch(`${cg.url}/etv?channel=1`, { method: "POST", body: JSON.stringify(data) });
+  const points = markerPoints((await cg.health()).captures[0]?.render ?? `${WIDTH}x${HEIGHT}`);
+  const probe = { steps: null };
   const readers = [script.body.getReader()];
   let bytes = 0;
   // The overlay takes the session over; the script session stays open (and silent), as in ErsatzTV.
@@ -75,33 +236,47 @@ async function run(mode) {
     const frames = await fetch(`${cg.url}/ffmpeg/frames?session=${claim.session}&fps=${FFMPEG_FPS}`);
     readers.push(frames.body.getReader());
   }
-  const drain = Promise.all(readers.map(async (reader) => {
+  // Steps of the stream ErsatzTV or ffmpeg reads (the last one), kept during the measurement.
+  const parse = (mode === "ffmpeg" ? yuvaSteps : packetSteps)(points, (step) => probe.steps?.push(step));
+  const drain = Promise.all(readers.map(async (reader, index) => {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.length;
+      if (index === readers.length - 1 && SCENE === "animated") parse(Buffer.from(value.buffer, value.byteOffset, value.length));
     }
   })).catch(() => {});
 
   await sleep(WARMUP * 1000);
-  const seq0 = (await cg.health()).captures[0]?.seq ?? 0;
-  const [u0, b0, t0] = [usage(cg.pid), bytes, performance.now()];
+  const health0 = await cg.health();
+  const seq0 = health0.captures[0]?.seq ?? 0;
+  const [u0, c0, b0, t0] = [usage(cg.pid), descendantsCpu(cg.pid), bytes, performance.now()];
+  probe.steps = [];
   await sleep(DURATION * 1000);
   const seconds = (performance.now() - t0) / 1000;
-  const [u1, seq1] = [usage(cg.pid), (await cg.health()).captures[0]?.seq ?? 0];
+  const [u1, c1, seq1] = [usage(cg.pid), descendantsCpu(cg.pid), (await cg.health()).captures[0]?.seq ?? 0];
+  const steps = probe.steps;
+  probe.steps = null;
   for (const reader of readers) reader.cancel().catch(() => {});
   await drain;
   await cg.stop();
 
+  const capture = health0.captures[0] ?? {};
   return {
     build: path.basename(env.VIRTRS_CG_BIN || "virtrs-cg"),
     mode,
     size: `${WIDTH}x${HEIGHT}`,
+    render: capture.render,
+    fps,
+    capture: capture.mode,
+    max_fps: MAX_FPS,
     scene: SCENE,
     cpu_percent: Math.round(((u1.cpu - u0.cpu) / seconds) * 1000) / 10,
+    browser_cpu_percent: Math.round(((c1 - c0) / seconds) * 1000) / 10,
     rss_mb: Math.round(u1.rss_mb),
     pictures_per_s: Math.round(((seq1 - seq0) / seconds) * 10) / 10,
     mb_per_s: Math.round(((bytes - b0) / seconds / 1e6) * 10) / 10,
+    ...(SCENE === "animated" ? motion(steps, Math.max(1, Math.round(fps / sceneFps))) : {}),
   };
 }
 
