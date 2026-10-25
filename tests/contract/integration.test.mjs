@@ -343,6 +343,19 @@ test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS out
   assert.deepEqual((await runWrapper(canvasEncoder, env)).args, canvasEncoder);
   const copy = ["-i", "/m/News.mp4", "-c", "copy", ...hls];
   assert.deepEqual((await runWrapper(copy, env)).args, copy);
+
+  // VIZRS_FFMPEG_PRESET: x264/x265 transcodes to HLS at that preset, the profile's or none.
+  const preset = { ...env, VIZRS_FFMPEG_PRESET: "superfast" };
+  assert.deepEqual(
+    (await runWrapper(["-i", "/m/Ad.mp4", "-c:v", "libx264", "-preset", "medium", ...hls], preset)).args,
+    ["-i", "/m/Ad.mp4", "-c:v", "libx264", "-preset", "superfast", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"],
+  );
+  assert.deepEqual(
+    (await runWrapper(["-i", "/m/Ad.mp4", "-c:v", "libx264", ...hls], preset)).args,
+    ["-i", "/m/Ad.mp4", "-c:v", "libx264", "-preset", "superfast", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"],
+  );
+  const nvenc = ["-i", "/m/Ad.mp4", "-c:v", "h264_nvenc", "-preset", "p4", "-f", "hls", "/t/ffmpeg.m3u8"];
+  assert.deepEqual((await runWrapper(nvenc, { ...preset, VIZRS_FFMPEG_FPS: "" })).args, nvenc);
 });
 
 test("graphics area: frames of the area overlaid at its place; full frames when the graph cannot place them", async (t) => {

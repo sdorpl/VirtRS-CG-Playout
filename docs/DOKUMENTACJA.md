@@ -279,6 +279,15 @@ Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
 | `VIZRS_CG_URL` | – (compose: `http://cg:7700`) | adres sidecara; puste = nakładka tylko przekazuje wywołania do ffmpeg |
 | `VIZRS_FFMPEG` | `/usr/local/bin/ffmpeg` | prawdziwy ffmpeg |
 | `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
+| `VIZRS_FFMPEG_PRESET` | – (nakładka A1: `superfast`) | wymuszony preset x264/x265, np. `superfast`; puste = preset z profilu FFmpeg ErsatzTV |
+
+`VIZRS_FFMPEG_PRESET` zmienia każde transkodowanie do HLS koderem `libx264`
+albo `libx265`, z grafiką VizRS i bez niej (reklamy): `-preset` z profilu
+dostaje tę wartość, a gdy profil go nie podaje (puste pole **Preset** to
+`medium` x264), nakładka dodaje go za koderem. Kodery sprzętowe (NVENC,
+VAAPI), kopiowanie strumienia i inne wywołania zostają bez zmian. Przydaje
+się tam, gdzie CPU koduje kanał (Ampere A1, §4) – preset działa wtedy bez
+względu na to, co ustawiono w profilu, także w bazie sprzed zmiany.
 
 #### Klatkaż kanału (`VIZRS_FFMPEG_FPS`)
 
@@ -501,7 +510,10 @@ bez dodatkowych pakietów. Na x86 binarka arm64 kompiluje się krzyżowo (ok. 40
 QEMU idzie tylko instalacja pakietów obrazu.
 Obraz VizRS ma wariant arm64.
 
-Nakładka ogranicza sidecar do 2 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
+Nakładka ogranicza sidecar do 2 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), koduje
+kanał presetem x264 `superfast` bez względu na profil FFmpeg ErsatzTV
+(`VIZRS_FFMPEG_PRESET`, §1; własny: np. `VIZRS_FFMPEG_PRESET=veryfast`,
+pusty = preset z profilu), uruchamia
 Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), renderuje grafikę
 w 720p i skaluje ją do kanału (`VIZRS_RENDER_SIZE=720p`, §1; pełna ostrość:
 `VIZRS_RENDER_SIZE=` puste), ogranicza animacje do 25 kl./s
@@ -510,7 +522,7 @@ wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
 sprzętowego kodera: w profilu FFmpeg ErsatzTV ustaw **Hardware Acceleration:
 None**, libx264, preset `veryfast` (`superfast` przy kilku kanałach albo
-1080p50). Na darmowym kształcie 4 OCPU realnie jeden kanał 1080p albo dwa
+1080p50); nakładka wymusza `superfast`. Na darmowym kształcie 4 OCPU realnie jeden kanał 1080p albo dwa
 720p transkodowane jednocześnie. Otwórz porty w liście bezpieczeństwa VCN
 i w zaporze maszyny (`firewalld`/`iptables`).
 
@@ -522,8 +534,23 @@ grafiki, §1). Pomiar na 4 OCPU, kanał 1080p25, przewijany ticker w VizRS,
 render 720p: z presetem x264 `medium` (pusty preset w profilu) kanał szedł
 ok. 0,5× czasu rzeczywistego, z `superfast` i sidecarem 1,5 CPU ok. 0,8–1×
 (sidecar dławiony ok. 30% czasu); stąd domyślne 2 CPU i szybsze skalowanie
-od wersji 2.1.4. Ustaw preset w profilu FFmpeg jawnie – puste pole to
-`medium`, za wolne na A1. Bez widzów przechwytywanie stoi (§1). Lżejsze
+od wersji 2.1.4. Puste pole presetu w profilu FFmpeg to `medium`, za wolne
+na A1 – stąd `VIZRS_FFMPEG_PRESET=superfast` w nakładce.
+
+Zrywanie strumienia 1080p25 na A1 (odtwarzacz czeka na bufor) to prawie
+zawsze transkodowanie wolniejsze niż czas rzeczywisty. Do wersji 2.1.7
+sidecar w trybie nakładki ffmpeg przygotowywał od nowa każdą klatkę grafiki,
+także stojącą (na x86 ok. 0,9 rdzenia w jednym wątku przy samym logo
+i belce, na A1 więcej niż rdzeń) – ffmpeg czekał na grafikę. Teraz stojąca
+grafika prawie nic nie kosztuje (§1, Nakładka ffmpeg). Sprawdź po kolei:
+
+1. tempo transkodowania w logu ErsatzTV (`speed=` ffmpeg) – poniżej `1x`
+   oznacza zrywy; preset (`VIZRS_FFMPEG_PRESET`) i obciążenie w `docker stats`;
+2. `VIZRS_AREA` (§1), gdy grafika zajmuje część ekranu (pasek, logo): mniej
+   pracy Chromium, sidecara i filtra nakładania w ffmpeg ErsatzTV;
+3. ostrzeżenia sidecara o nienarysowanych klatkach (`docker compose logs
+   cg`) – Chromium nie nadąża: niższe `VIZRS_MAX_FPS` albo mniejsze
+   `VIZRS_RENDER_SIZE`. Bez widzów przechwytywanie stoi (§1). Lżejsze
 `/output` (mniej ciągłych animacji, mniejsze rozmiary kanału) daje więcej
 niż podnoszenie `CG_CPUS`.
 
