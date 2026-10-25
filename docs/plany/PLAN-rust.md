@@ -1,6 +1,6 @@
 # PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
 
-> Status (2026-10-25): **etapy 0–4 zrobione** – testy kontraktu, szkielet sidecara, komendy VizRS, `/etv`, przetwarzanie klatek (prostokąty, PNG, `yuva420p` bajt w bajt, skalowanie w ±1 od libvips). Następny: etap 5 (Chromium).
+> Status (2026-10-25): **etapy 0–6 zrobione** – binarka Rusta przechodzi cały zestaw czarnej skrzynki (11 testów, z nakładką ffmpeg i prawdziwym Chromium), w CI także. Następny: etap 7 (obraz Docker i CI).
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) (opis działania – kontrakt, którego migracja nie zmienia).
 
@@ -61,8 +61,8 @@ Każdy etap kończy się zielonym commitem na `rust-edit`.
 | 2 | Szkielet | `json.rs` (parsowanie i zapis jak `JSON.stringify`), `config.rs` (plik + zmienne, zgodny z `test/vectors/config.json`), `log.rs`, `http.rs` (jedno żądanie na połączenie, wątek na połączenie, `Content-Length` lub chunked, limit 4 MB), `server.rs` z `/health`, `main.rs` (argument `config.json`/`CONFIG`); pozostałe trasy na razie 404 | ✅ |
 | 3 | Logika bez grafiki | `time.rs` (formy ISO `Date.parse`, wektor `dates`), `template.rs` (kontekst klipu, symbole, `AdMatcher`), `vizrs.rs` (TCP z limitami 2 s, `AUTH`/`STATE`/`OUT`/`TAKE`; stan kanału pod mutexem, wysyłki po kolei w wątku kanału, zegar przerwy jako wątek z licznikiem pokoleń), `packets.rs` (budowa pakietów), `stream.rs` (tempo, wyprzedzenie, `Repeat`, wstrzymanie/wznowienie), `/etv` z przezroczystymi klatkami | ✅ |
 | 4 | Klatki | `frames.rs` (klatka z czasem, pakiet i `yuva` liczone raz; historia `setFrame`/`frameAt`), `rects.rs`, `png.rs` (crate `png`), `yuva.rs` (te same działania na `f64` co JS, więc bajt w bajt), `scale.rs` (jak libvips: zmniejszanie Lanczos3 jak `vips_reduce` – najpierw pion, każde przejście w 8 bitach; powiększanie bicubic z próbkowaniem w `x/skala − 0,5`; kolor zerowany, gdy alfa = 0), format `Yuva` w `stream.rs` | ✅ |
-| 5 | Chromium | `capture.rs`: te same flagi, CDP przez rurę, screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami | |
-| 6 | Nakładka ffmpeg | `/ffmpeg`, `/ffmpeg/frames`, `HOLD_MS`, `FRAMES_WAIT_MS`, kanały z nakładką | |
+| 5 | Chromium | `capture.rs` (flagi i dekoder najnowszej klatki jak w `vizrs_capture.rs`; screencast z `everyNthFrame`, zrzut po 150 ms ciszy, czas z `metadata.timestamp`, pauza po 30 s, `raiseFps`, restart po 3 s z czystymi klatkami), `devtools.rs` (CDP przez `--remote-debugging-pipe`, sprawdzone na Chrome), `sys.rs` (rury na fd 3/4, `PR_SET_PDEATHSIG` – przeglądarka ginie nawet przy `kill -9`; SIGTERM sprząta przeglądarki i profile), `base64.rs`; testy Chromium w `rust/tests/chromium.rs` | ✅ |
+| 6 | Nakładka ffmpeg | `/ffmpeg` (oczekiwanie do 10 s, przejęcie sesji), `/ffmpeg/frames` (surowe `yuva420p`, `raiseFps`), wstrzymanie 3 s (`HOLD`), powrót do ErsatzTV po 10 s bez strumienia (`FRAMES_WAIT`), kanały z nakładką w `/health` | ✅ |
 | 7 | Obraz i CI | wieloetapowy `Dockerfile`, arm64 kompilacją krzyżową (`aarch64-unknown-linux-gnu`) zamiast QEMU, `ci.yml`, compose | |
 | 8 | Odbiór | pełny stos (oba tory grafiki, reklamy, restart Chromium, brak sidecara); benchmark §8 JS vs Rust na amd64 i Ampere A1 – nie gorzej niż JS | |
 | 9 | Sprzątanie | usunięcie `bin/`, `src/*.js`, `docker/sidecar.Dockerfile`; `rust/` do korzenia; DOKUMENTACJA, README, CLAUDE.md; scalenie do `main`, wersja zgodna z VizRS | |
@@ -92,4 +92,5 @@ Autor pozwolił przenosić kod ze swoich modułów VizRS (zasada w CLAUDE.md). K
 - **Daty.** Własny parser zastępuje `Date.parse`. Wektory zbieram z prawdziwych danych szablonu z `seed/`.
 - **Sesja wstrzymana.** Nagłówki muszą wyjść od razu (dziś robi to `flushHeaders`), inaczej klient ETV czeka. Zrobione: `http::Stream::start`. Koniec sesji wykrywa wątek czytający połączenie, więc działa też dla sesji, która nic nie pisze.
 - **Skalowanie.** Własny Lanczos odbiega od libvips o pojedyncze wartości. Test ma tolerancję.
-- **Tryb rury DevTools.** Do potwierdzenia na `chromium-headless-shell` z Debiana (amd64 i arm64) w etapie 5. Zapasowo własny klient WebSocket.
+- **Tryb rury DevTools.** Działa z Chrome (etap 5). Do potwierdzenia na `chromium-headless-shell` z Debiana (amd64 i arm64) w etapie 7. Zapasowo klient WebSocket jak w `vizrs_capture.rs`.
+- **Skalowanie na CPU.** `scale.rs` liczy na `f64` w jednym wątku (libvips: SIMD i wątki). Pełnoekranowa grafika 720p→1080p to kilkadziesiąt ms na klatkę. Do sprawdzenia w benchmarku (etap 8), w razie potrzeby wersja całkowitoliczbowa.

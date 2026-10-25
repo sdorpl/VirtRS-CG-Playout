@@ -3,7 +3,10 @@
 
 pub mod log;
 
+pub mod base64;
+pub mod capture;
 pub mod config;
+pub mod devtools;
 pub mod frames;
 pub mod http;
 pub mod json;
@@ -13,6 +16,7 @@ pub mod rects;
 pub mod scale;
 pub mod server;
 pub mod stream;
+pub mod sys;
 pub mod template;
 pub mod time;
 pub mod vizrs;

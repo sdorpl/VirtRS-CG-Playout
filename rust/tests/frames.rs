@@ -108,3 +108,16 @@ fn scaling_matches_libvips_within_tolerance() {
         }
     }
 }
+
+#[test]
+fn rates_and_screencast_steps_match_node() {
+    let v = vectors("server");
+    for case in list(&v, "rates") {
+        let input = case.get("input").and_then(Value::as_str);
+        assert_eq!(Value::from(virtrs_cg::server::parse_rate(input)), *case.get("fps").unwrap(), "{case}");
+    }
+    for case in list(&v, "every_nth_frame") {
+        let fps = case.get("fps").and_then(Value::as_f64).unwrap();
+        assert_eq!(virtrs_cg::capture::every_nth_frame(fps), num(case, "n"), "{case}");
+    }
+}

@@ -7,9 +7,11 @@ use std::sync::Arc;
 
 use virtrs_cg::config::Config;
 use virtrs_cg::server::{MAX_BODY, Server};
-use virtrs_cg::{error, http, info, log, warn};
+use virtrs_cg::{error, http, info, log, sys, warn};
 
 fn main() -> ExitCode {
+    // Before any thread starts: SIGTERM and SIGINT go to the stop thread below.
+    sys::block_stop_signals();
     log::set_debug(std::env::var("DEBUG").as_deref() == Ok("1"));
 
     let file = std::env::args_os().nth(1).or_else(|| std::env::var_os("CONFIG")).map(PathBuf::from);
@@ -38,6 +40,13 @@ fn main() -> ExitCode {
     info!("listening on {}; VizRS {}; burn-in {burn_in}", config.listen, config.vizrs.address);
 
     let server = Server::new(config);
+    let stopping = Arc::clone(&server);
+    std::thread::spawn(move || {
+        sys::wait_for_stop();
+        // Browsers and their profiles go with the sidecar.
+        stopping.stop_captures();
+        std::process::exit(0);
+    });
     http::serve(listener, MAX_BODY, Arc::new(move |request, stream| server.handle(request, stream)));
     ExitCode::FAILURE
 }
