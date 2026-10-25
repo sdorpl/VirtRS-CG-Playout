@@ -331,7 +331,8 @@ docker compose -f docker-compose.yml -f docker-compose.ampere.yml up -d
 ```
 
 Obraz sidecara `ghcr.io/sdorpl/virtrs-cg` (amd64 i arm64, zmienna
-`CG_IMAGE`) buduje CI po znaczniku `v*` (`.github/workflows/ci.yml`); pakiet
+`CG_IMAGE`) buduje workflow wydania po znaczniku `v*`
+(`.github/workflows/release.yml`); pakiet
 w ghcr musi być publiczny albo maszyna zalogowana (`docker login ghcr.io`).
 Bez opublikowanego obrazu dodaj `--build` do `up` – zbuduje go sama A1
 (kilka minut; budowanie krzyżowe przez QEMU na x86 jest dużo wolniejsze).
@@ -491,8 +492,21 @@ Nie używaj `docker compose down -v`, `docker volume prune` ani `docker
 system prune --volumes` – usuwają dane bez takiego sprawdzenia.
 
 CI (`.github/workflows/ci.yml`) uruchamia testy przy każdym wypchnięciu na
-`main` i w PR, a po znaczniku `v*` (albo ręcznie) buduje obraz sidecara
-na amd64 i arm64 i publikuje go jako `ghcr.io/<właściciel>/virtrs-cg`.
+`main` i `rust-edit` oraz w PR i zostawia binarkę Rusta (Linux x86_64) jako
+artefakt przebiegu.
+
+Wydanie (`.github/workflows/release.yml`) rusza po znaczniku `v*`
+(`git tag v2.0.6 && git push origin v2.0.6`) albo ręcznie (Actions → Release
+→ Run workflow, z wersją; powstaje wtedy szkic wydania). Buduje:
+
+- archiwa `VirtRS-CG-<wersja>-linux-x86_64.tar.gz` i `…-linux-arm64.tar.gz`
+  (binarka `virtrs-cg`, `client/`, `etv/`, `config.example.json`), arm64
+  natywnie na runnerze arm,
+- obraz `ghcr.io/<właściciel>/virtrs-cg:<wersja>` i `:latest` (amd64 i arm64),
+- wydanie na GitHubie z archiwami i `SHA256SUMS.txt`.
+
+Wersja z łącznikiem (`v2.1.0-rc1`) to wydanie wstępne: obraz dostaje tylko
+swój znacznik, `:latest` zostaje bez zmian.
 
 ## 8. Benchmark przechwytywania grafiki
 

@@ -1,0 +1,98 @@
+name: Release
+# Wydanie po wypchnięciu znacznika v* (np. v2.0.6) albo ręcznie (Actions → Release → Run workflow).
+#   binarka virtrs-cg (Rust) z client/ i etv/: Linux x86_64 i arm64 (.tar.gz)
+#   obraz Docker ghcr.io/<właściciel>/virtrs-cg:<wersja> i :latest (amd64 + arm64)
+#   wydanie na GitHubie z sumami SHA256SUMS.txt (ręcznie: szkic)
+# Wersja z łącznikiem (v2.1.0-rc1) = wydanie wstępne, bez przesuwania :latest.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Wersja (np. 2.0.6) – bez znacznika powstaje tylko szkic wydania'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  bin:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04: starsza glibc = binarka działa na większej liczbie dystrybucji
+          - { os: ubuntu-22.04, name: linux-x86_64 }
+          - { os: ubuntu-22.04-arm, name: linux-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+        working-directory: rust
+      - name: Paczka
+        run: |
+          v=${VERSION#v}; d=VirtRS-CG-$v-${{ matrix.name }}; mkdir -p dist/$d
+          cp rust/target/release/virtrs-cg dist/$d/
+          cp -r client etv README.md config.example.json dist/$d/
+          cd dist && tar czf $d.tar.gz $d && rm -rf $d && ls -la
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.name }}
+          path: dist/*
+
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      # bez artefaktu „*.dockerbuild” (zapis budowy) – download-artifact w jobie release nie umiał go pobrać
+      DOCKER_BUILD_RECORD_UPLOAD: false
+    steps:
+      - uses: actions/checkout@v4
+      # Binarka powstaje krzyżowo na platformie budującej; QEMU tylko dla apt-get w etapie arm64.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Nazwa obrazu
+        id: img
+        run: echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/virtrs-cg" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ steps.img.outputs.name }}:${{ env.VERSION }}
+            ${{ !contains(env.VERSION, '-') && format('{0}:latest', steps.img.outputs.name) || '' }}
+
+  release:
+    needs: [bin, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: 'bin-*'
+          merge-multiple: true
+      - name: Sumy kontrolne
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease: ${{ contains(env.VERSION, '-') }}
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            **Docker (amd64 / arm64):** `ghcr.io/${{ github.repository_owner }}/virtrs-cg:${{ env.VERSION }}` – stos: `docker compose pull && docker compose up -d` (docs/DOKUMENTACJA.md §4).
+            **Linux x86_64 / arm64:** archiwum z `virtrs-cg` (wymaga Chromium w PATH albo `VIZRS_BROWSER`), klientami ErsatzTV (`client/`) i elementem grafiki (`etv/`).

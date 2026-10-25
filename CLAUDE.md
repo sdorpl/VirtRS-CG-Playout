@@ -68,7 +68,8 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 | `bench/` | benchmark przechwytywania: sidecar, Chromium zsynchronizowany z klatkami, WPE (osobny obraz i compose, DOKUMENTACJA §8) |
 | `rust/` | migracja sidecara do Rusta, gałąź `rust-edit` (plan i stan: `docs/plany/PLAN-rust.md`); do scalenia używany jest Node.js |
 | `docs/plany/` | plany prac |
-| `.github/workflows/ci.yml` | testy; obraz amd64 + arm64 do ghcr po znaczniku `v*` |
+| `.github/workflows/ci.yml` | testy, binarka Rusta jako artefakt |
+| `.github/workflows/release.yml` | po znaczniku `v*`: archiwa Linux x86_64/arm64, obraz amd64 + arm64 do ghcr, wydanie GitHub |
 
 ## Commity
 
