@@ -1,0 +1,11 @@
+# VizRS Ticker graphics element for ErsatzTV.
+name: VizRS - Ticker (3001)
+command: /vizrs/vizrs-etv-client
+args:
+  - http://cg:7700/etv?channel=1&take=3001
+z_index: 100
+epg_entries: 3
+start_seconds: 0
+duration_seconds: 172800
+pixel_format: rgba
+format: packet

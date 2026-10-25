@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use crate::config::Config;
 use crate::json::{self, Value};
-use crate::template::{AdMatcher, ClipContext, js_string, render_commands};
+use crate::template::{AdMatcher, ClipContext, ShowMatcher, js_string, render_commands};
 use crate::time;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -134,12 +134,13 @@ struct State {
 pub struct ChannelEvents {
     config: Arc<Config>,
     ads: Arc<AdMatcher>,
+    shows: Arc<ShowMatcher>,
     state: Mutex<State>,
     queue: Mutex<Sender<Batch>>,
 }
 
 impl ChannelEvents {
-    pub fn new(config: Arc<Config>, ads: Arc<AdMatcher>) -> Arc<ChannelEvents> {
+    pub fn new(config: Arc<Config>, ads: Arc<AdMatcher>, shows: Arc<ShowMatcher>) -> Arc<ChannelEvents> {
         let (queue, batches) = mpsc::channel::<Batch>();
         let sender_config = Arc::clone(&config);
         thread::Builder::new()
@@ -155,6 +156,7 @@ impl ChannelEvents {
         Arc::new(ChannelEvents {
             config,
             ads,
+            shows,
             state: Mutex::new(State { last_key: None, active: 0, gap_generation: 0 }),
             queue: Mutex::new(queue),
         })
@@ -169,13 +171,14 @@ impl ChannelEvents {
     }
 
     /// A script session of the channel starts; call `ended` when it is over.
-    pub fn session(&self, ctx: &ClipContext) {
+    /// `custom_commands` overrides on_clip for this specific session (e.g. from ?take=ID&fields=...).
+    pub fn session(&self, ctx: &ClipContext, custom_commands: Option<&[String]>) {
         {
             let mut state = self.state();
             state.active += 1;
             state.gap_generation += 1;
         }
-        self.clip(ctx);
+        self.clip(ctx, custom_commands);
     }
 
     /// A session ended. When no session follows by the item's stop (ErsatzTV
@@ -212,14 +215,19 @@ impl ChannelEvents {
     fn ad(&self, ctx: &ClipContext) {
         self.state().last_key = Some(format!("ad|{}", ctx.stop));
         let ad_ctx = ClipContext { title: String::new(), show_title: String::new(), source: String::new(), duration: 0.0, ..ctx.clone() };
-        self.enqueue(Batch { ad: true, commands: render_commands(&self.config.on_ad, &ad_ctx) });
+        let show = self.shows.find(&ctx.show_title);
+        let on_ad = show.and_then(|s| s.on_ad.as_deref()).unwrap_or(&self.config.on_ad);
+        self.enqueue(Batch { ad: true, commands: render_commands(on_ad, &ad_ctx) });
     }
 
     /// Events for a clip that starts (or is joined) now. ErsatzTV starts the
     /// script again when a new session joins the same item; that does not send
     /// the commands twice (and does not restart the animations).
-    fn clip(&self, ctx: &ClipContext) {
-        let key = format!("{}|{}", ctx.source, ctx.start);
+    fn clip(&self, ctx: &ClipContext, custom_commands: Option<&[String]>) {
+        let key = match custom_commands {
+            Some(cmds) => format!("{}|{}|{}", ctx.source, ctx.start, cmds.join(";")),
+            None => format!("{}|{}", ctx.source, ctx.start),
+        };
         {
             let mut state = self.state();
             if state.last_key.as_deref() == Some(key.as_str()) {
@@ -227,9 +235,21 @@ impl ChannelEvents {
             }
             state.last_key = Some(key);
         }
-        let ad = self.ads.is_ad(ctx);
-        let template = if ad { &self.config.on_ad } else { &self.config.on_clip };
-        self.enqueue(Batch { ad, commands: render_commands(template, ctx) });
+        let show = self.shows.find(&ctx.show_title);
+        let ad = match show.and_then(|s| s.ad_matcher.as_ref()) {
+            Some(matcher) => matcher.is_ad(ctx),
+            None => self.ads.is_ad(ctx),
+        };
+        let commands = if ad {
+            let on_ad = show.and_then(|s| s.on_ad.as_deref()).unwrap_or(&self.config.on_ad);
+            render_commands(on_ad, ctx)
+        } else if let Some(custom) = custom_commands {
+            custom.iter().flat_map(|c| render_commands(c, ctx)).collect()
+        } else {
+            let on_clip = show.and_then(|s| s.on_clip.as_deref()).unwrap_or(&self.config.on_clip);
+            render_commands(on_clip, ctx)
+        };
+        self.enqueue(Batch { ad, commands });
     }
 }
 
@@ -295,6 +315,34 @@ mod tests {
         (address, handle)
     }
 
+    /// VizRS stand-in accepting multiple connections: replies `OK {}`, receives lines until `expected` lines arrive.
+    fn fake_multi(expected: usize) -> (String, thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let handle = thread::spawn(move || {
+            let mut received = Vec::new();
+            while received.len() < expected {
+                if let Ok((stream, _)) = listener.accept() {
+                    let mut writer = stream.try_clone().unwrap();
+                    for line in BufReader::new(stream).lines() {
+                        let Ok(line) = line else { break };
+                        if line == "STATE" {
+                            let _ = writeln!(writer, "OK {{\"layers\":[]}}");
+                        } else {
+                            let _ = writeln!(writer, "OK {{}}");
+                        }
+                        received.push(line);
+                        if received.len() >= expected {
+                            break;
+                        }
+                    }
+                }
+            }
+            received
+        });
+        (address, handle)
+    }
+
     #[test]
     fn auth_state_out_and_commands() {
         let (address, server) = fake(|line| {
@@ -338,5 +386,64 @@ mod tests {
         assert_eq!(send(&address, "", &["TAKE 1".into()], false).unwrap_err(), "TAKE: no reply");
         assert!(started.elapsed() < REPLY_TIMEOUT + Duration::from_millis(400));
         hold.join().unwrap();
+    }
+
+    #[test]
+    fn channel_events_per_show_overrides() {
+        use crate::config::{AdMatch, ShowOverride};
+
+        // 3 commands + 1 STATE query on ad
+        let (address, server) = fake_multi(4);
+        let mut config = Config::default();
+        config.vizrs.address = address;
+        config.on_clip = "TAKE global {title}".into();
+        config.on_ad = "TAKE ad_global".into();
+        config.shows = vec![ShowOverride {
+            show_title: "Wiadomości".into(),
+            on_clip: Some("TAKE news {title}".into()),
+            on_ad: Some("TAKE ad_news".into()),
+            ad_match: Some(AdMatch { path: "ad_news".into(), title: "".into() }),
+        }];
+
+        let config = Arc::new(config);
+        let (ads, _) = AdMatcher::new(&config.ad_match);
+        let (shows, _) = ShowMatcher::new(&config.shows);
+        let events = ChannelEvents::new(config, Arc::new(ads), Arc::new(shows));
+
+        // Clip matching show "Wiadomości"
+        let ctx_news = ClipContext {
+            title: "Wydanie".into(),
+            show_title: "Wiadomości".into(),
+            source: "/m/news1.mp4".into(),
+            start: "2026-10-25T12:00:00Z".into(),
+            ..ClipContext::default()
+        };
+        events.clip(&ctx_news, None);
+
+        // Clip not matching any show (uses global)
+        let ctx_other = ClipContext {
+            title: "Film".into(),
+            show_title: "Kino".into(),
+            source: "/m/movie.mp4".into(),
+            start: "2026-10-25T13:00:00Z".into(),
+            ..ClipContext::default()
+        };
+        events.clip(&ctx_other, None);
+
+        // Ad matching show's ad_match
+        let ctx_news_ad = ClipContext {
+            title: "Blok".into(),
+            show_title: "Wiadomości".into(),
+            source: "/m/ad_news_1.mp4".into(),
+            start: "2026-10-25T12:15:00Z".into(),
+            ..ClipContext::default()
+        };
+        events.clip(&ctx_news_ad, None);
+
+        thread::sleep(Duration::from_millis(300));
+        let received = server.join().unwrap();
+        assert!(received.contains(&"TAKE news Wydanie".to_string()));
+        assert!(received.contains(&"TAKE global Film".to_string()));
+        assert!(received.contains(&"TAKE ad_news".to_string()));
     }
 }

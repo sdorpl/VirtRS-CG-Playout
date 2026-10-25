@@ -36,5 +36,5 @@ COPY seed/vizrs-data /seed/vizrs-data
 COPY seed/ersatztv-config /seed/ersatztv-config
 COPY seed/media /seed/media
 COPY --from=clients /client /seed/client
-COPY etv/templates/graphics-elements/script/vizrs.yml /seed/vizrs.yml
+COPY etv/templates/graphics-elements/script /seed/templates
 ENTRYPOINT ["sh", "/seed/init.sh"]

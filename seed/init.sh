@@ -34,8 +34,6 @@ rm -rf /vizrs-client/*
 cp -R /seed/client/. /vizrs-client/
 chmod 755 /vizrs-client/*
 mkdir -p /ersatztv-config/templates/graphics-elements/script
-# An older stack bind-mounted vizrs.yml from the host; without the file there
-# Docker left an empty directory of that name in the volume.
-rm -rf /ersatztv-config/templates/graphics-elements/script/vizrs.yml
-cp /seed/vizrs.yml /ersatztv-config/templates/graphics-elements/script/vizrs.yml
-echo "seed: ErsatzTV clients and the VizRS graphics element updated"
+# Copy all templates (*.yml) to ErsatzTV script templates directory
+cp -R /seed/templates/. /ersatztv-config/templates/graphics-elements/script/
+echo "seed: ErsatzTV clients and VizRS graphics elements updated"

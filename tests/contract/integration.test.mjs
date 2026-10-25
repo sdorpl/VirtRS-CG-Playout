@@ -95,6 +95,22 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   assert.equal((await cg.health()).sessions, 0, "every session ended");
 });
 
+test("element-specific script session executes custom take and fields", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    on_clip: "TAKE 4001",
+    lead_seconds: 0,
+  });
+  // Client with &take=7303
+  await runClient(`${cg.url}/etv?channel=1&take=7303`, item("/m/Clip1.mp4", "2026-10-24T20:00:00+02:00"), 300);
+  // Client with &take=1001&fields=headline={title}
+  await runClient(`${cg.url}/etv?channel=1&take=1001&fields=headline={title}`, item("/m/Clip2.mp4", "2026-10-24T21:00:00+02:00"), 300);
+  await sleep(100);
+  assert.deepEqual(vizrs.received, ["TAKE 7303", "TAKE 1001 headline=Clip2"]);
+});
+
 test("render size: config default, per-channel override, one capture per size pair", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);

@@ -33,7 +33,7 @@ use crate::http::{self, Request};
 use crate::json::{self, Value};
 use crate::scale::render_size;
 use crate::stream::{self, Control, Format, Options};
-use crate::template::{AdMatcher, ClipContext, js_string};
+use crate::template::{AdMatcher, ClipContext, ShowMatcher, js_string};
 use crate::vizrs::ChannelEvents;
 
 pub const MAX_BODY: usize = 4 * 1024 * 1024;
@@ -132,6 +132,7 @@ fn lock(sessions: &Shared) -> MutexGuard<'_, Sessions> {
 pub struct Server {
     pub config: Arc<Config>,
     ads: Arc<AdMatcher>,
+    shows: Arc<ShowMatcher>,
     browser: Option<String>,
     channels: Mutex<HashMap<String, Arc<ChannelEvents>>>,
     sessions: Shared,
@@ -145,10 +146,15 @@ impl Server {
         for warning in warnings {
             crate::warn!("{warning}");
         }
+        let (shows, show_warnings) = ShowMatcher::new(&config.shows);
+        for warning in show_warnings {
+            crate::warn!("{warning}");
+        }
         let browser = if config.browser.is_empty() { find_browser() } else { Some(config.browser.clone()) };
         Arc::new(Server {
             config: Arc::new(config),
             ads: Arc::new(ads),
+            shows: Arc::new(shows),
             browser,
             channels: Mutex::new(HashMap::new()),
             sessions: Shared::default(),
@@ -159,8 +165,9 @@ impl Server {
 
     fn events_for(&self, channel: &str) -> Arc<ChannelEvents> {
         let mut channels = self.channels.lock().unwrap_or_else(|e| e.into_inner());
-        let events =
-            channels.entry(channel.to_owned()).or_insert_with(|| ChannelEvents::new(Arc::clone(&self.config), Arc::clone(&self.ads)));
+        let events = channels
+            .entry(channel.to_owned())
+            .or_insert_with(|| ChannelEvents::new(Arc::clone(&self.config), Arc::clone(&self.ads), Arc::clone(&self.shows)));
         Arc::clone(events)
     }
 
@@ -404,8 +411,17 @@ impl Server {
         );
 
         // Commands go out in the background; frames start at once.
+        let custom_commands = if let Some(cmd) = request.param("cmd").or_else(|| request.param("command")) {
+            Some(vec![cmd.to_owned()])
+        } else if let Some(take) = request.param("take") {
+            let fields = request.param("fields").map(|f| format!(" {f}")).unwrap_or_default();
+            Some(vec![format!("TAKE {take}{fields}")])
+        } else {
+            None
+        };
+
         let events = self.events_for(&channel);
-        events.session(&ctx);
+        events.session(&ctx, custom_commands.as_deref());
 
         let spec = request.param("render").unwrap_or(&self.config.render_size).to_owned();
         let area = request.param("area").unwrap_or(&self.config.area).to_owned();

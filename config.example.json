@@ -5,6 +5,14 @@
   "on_clip": "TAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}",
   "on_ad": "",
   "ad_match": { "path": "/reklamy/", "title": "" },
+  "shows": [
+    {
+      "show_title": "^(Wiadomości|Serwis)",
+      "on_clip": "TAKE 1001 headline={title}",
+      "on_ad": "",
+      "ad_match": { "path": "/reklamy/", "title": "" }
+    }
+  ],
   "ad_without_element": true,
   "lead_seconds": 6,
   "render_size": "",

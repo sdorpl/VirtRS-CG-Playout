@@ -370,6 +370,56 @@ puste). Pierwsza pozycja z elementem przywraca strony. Wyłącza to
 `ad_without_element: false`. Uwaga: zatrzymanie kanału w ErsatzTV (brak
 widzów) wygląda tak samo i też zdejmuje grafikę – wraca przy kolejnej sesji.
 
+### Elementy graficzne per audycja (`shows`)
+
+Tak jak w przypadku watermarków przypisywanych do pozycji w ErsatzTV, sidecar
+umożliwia zdefiniowanie odrębnych szablonów komend (`on_clip`, `on_ad`) oraz
+reguł wykrywania reklam (`ad_match`) dla konkretnych audycji.
+Służy do tego tablica `shows` w pliku konfiguracyjnym:
+
+```json
+{
+  "on_clip": "TAKE 4001 headline={title}",
+  "on_ad": "",
+  "shows": [
+    {
+      "show_title": "^(Wiadomości|Serwis)",
+      "on_clip": "TAKE 1001 headline={title}|styl=pilne",
+      "on_ad": "TAKE 3001 items=Wracamy po reklamie",
+      "ad_match": { "path": "/reklamy_news/", "title": "" }
+    },
+    {
+      "show_title": "^Sport",
+      "on_clip": "TAKE 5001"
+    }
+  ]
+}
+```
+
+- `show_title` to wyrażenie regularne (case-insensitive) dopasowywane do
+  tytułu audycji (`MediaItem_ShowTitle` z danych ErsatzTV, symbol `{show_title}`).
+- Pierwsza pasująca reguła z listy `shows` zastępuje domyślne `on_clip`, `on_ad`
+  i/lub `ad_match` (pola pominięte przyjmują wartości globalne z konfiguracji).
+- Jeśli audycja nie pasuje do żadnego wpisu z `shows`, stosowane są ustawienia
+  globalne.
+
+### Osobne elementy grafiki w ErsatzTV (`take=<ID>`)
+
+Drugim sposobem – analogicznym do watermarków w ErsatzTV – jest dodanie
+poszczególnych grafik VizRS jako osobnych elementów graficznych **script**
+w ErsatzTV (pliki `.yml` w katalogu `etv/templates/graphics-elements/script/`).
+W adresie URL elementu podaje się numer strony `take=<ID>` oraz opcjonalnie
+wartości pól `fields=...`:
+
+- `http://cg:7700/etv?channel=1&take=3001` (np. VizRS - Ticker)
+- `http://cg:7700/etv?channel=1&take=4001&fields=headline={title}|sub=Potem:+{next_title}+o+{next_start}` (np. VizRS - Belka)
+
+Każdy taki plik pojawia się jako osobna pozycja w menu ErsatzTV
+(**Schedules → pozycja → Graphics Elements**). Dzięki temu w harmonogramie
+można dla każdej audycji zaznaczyć dokładnie te elementy grafiki, które mają się
+wyświetlić (np. audycja 1: Belka + Ticker, audycja 2: sama Belka).
+
+
 ## 4. Uruchamianie w Dockerze
 
 ```sh
@@ -617,6 +667,7 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "on_clip": "TAKE 4001 headline={title}|sub=Potem: {next_title} o {next_start}",
   "on_ad": "",
   "ad_match": { "path": "/reklamy/", "title": "" },
+  "shows": [],
   "ad_without_element": true,
   "lead_seconds": 4,
   "render_size": "",
@@ -626,6 +677,8 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
 }
 ```
 
+Tablica `shows` (opcjonalna) pozwala nadpisać `on_clip`, `on_ad` i `ad_match`
+dla wybranych audycji (§3, Elementy graficzne per audycja).
 Pusty `output_url` = tylko komendy, bez wtapiania. Wzór: `config.example.json`.
 
 Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,

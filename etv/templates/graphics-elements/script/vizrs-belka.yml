@@ -1,0 +1,11 @@
+# VizRS Belka graphics element for ErsatzTV.
+name: VizRS - Belka (4001)
+command: /vizrs/vizrs-etv-client
+args:
+  - http://cg:7700/etv?channel=1&take=4001&fields=headline={title}|sub=Potem:+{next_title}+o+{next_start}
+z_index: 100
+epg_entries: 3
+start_seconds: 0
+duration_seconds: 172800
+pixel_format: rgba
+format: packet

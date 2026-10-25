@@ -245,6 +245,72 @@ impl AdMatcher {
     }
 }
 
+/// Compiled per-show graphics element configuration.
+#[derive(Clone, Debug)]
+pub struct CompiledShow {
+    pattern: Option<Regex>,
+    pub on_clip: Option<String>,
+    pub on_ad: Option<String>,
+    pub ad_matcher: Option<AdMatcher>,
+}
+
+impl CompiledShow {
+    pub fn matches(&self, show_title: &str) -> bool {
+        self.pattern.as_ref().is_some_and(|r| r.is_match(show_title))
+    }
+}
+
+/// Matches clips against per-show graphic elements configurations.
+#[derive(Clone, Debug, Default)]
+pub struct ShowMatcher {
+    shows: Vec<CompiledShow>,
+}
+
+impl ShowMatcher {
+    pub fn new(shows: &[crate::config::ShowOverride]) -> (ShowMatcher, Vec<String>) {
+        let mut warnings = Vec::new();
+        let mut compiled = Vec::new();
+        for (i, show) in shows.iter().enumerate() {
+            let pattern = if show.show_title.is_empty() {
+                None
+            } else {
+                match RegexBuilder::new(&show.show_title).case_insensitive(true).build() {
+                    Ok(regex) => Some(regex),
+                    Err(error) => {
+                        let reason = error.to_string().lines().last().unwrap_or("").trim().to_owned();
+                        warnings.push(format!(
+                            "shows[{i}].show_title \"{}\" is not a valid regular expression ({reason}); it matches nothing",
+                            show.show_title
+                        ));
+                        None
+                    }
+                }
+            };
+
+            let ad_matcher = if let Some(ad_match) = &show.ad_match {
+                let (matcher, ad_warnings) = AdMatcher::new(ad_match);
+                for w in ad_warnings {
+                    warnings.push(format!("shows[{i}].{w}"));
+                }
+                Some(matcher)
+            } else {
+                None
+            };
+
+            compiled.push(CompiledShow { pattern, on_clip: show.on_clip.clone(), on_ad: show.on_ad.clone(), ad_matcher });
+        }
+        (ShowMatcher { shows: compiled }, warnings)
+    }
+
+    /// Finds the first matching show configuration for the given show_title.
+    pub fn find(&self, show_title: &str) -> Option<&CompiledShow> {
+        if show_title.is_empty() {
+            return None;
+        }
+        self.shows.iter().find(|s| s.matches(show_title))
+    }
+}
+
 fn render_line(line: &str, ctx: &ClipContext) -> String {
     // Replaced one after another, as the Node.js build does.
     let next_start: String = ctx.next_start_full.chars().take(5).collect();
@@ -291,5 +357,38 @@ mod tests {
         assert_eq!(stem("/m/.hidden"), ".hidden");
         assert_eq!(stem("plik"), "plik");
         assert_eq!(stem(""), "");
+    }
+
+    #[test]
+    fn show_matcher_overrides_and_warnings() {
+        use crate::config::ShowOverride;
+
+        let (matcher, warnings) = ShowMatcher::new(&[
+            ShowOverride {
+                show_title: "Wiadomości.*".into(),
+                on_clip: Some("TAKE 1001".into()),
+                on_ad: Some("TAKE 2001".into()),
+                ad_match: Some(AdMatch { path: "reklama_news".into(), title: "".into() }),
+            },
+            ShowOverride {
+                show_title: "[bad".into(),
+                on_clip: None,
+                on_ad: None,
+                ad_match: Some(AdMatch { path: "(".into(), title: "".into() }),
+            },
+        ]);
+
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].contains("shows[1].show_title"));
+        assert!(warnings[1].contains("shows[1].ad_match.path"));
+
+        let found = matcher.find("Wiadomości wieczorne").unwrap();
+        assert_eq!(found.on_clip.as_deref(), Some("TAKE 1001"));
+        assert_eq!(found.on_ad.as_deref(), Some("TAKE 2001"));
+        let ad_ctx = ClipContext { source: "/media/reklama_news_1.mp4".into(), ..ClipContext::default() };
+        assert!(found.ad_matcher.as_ref().unwrap().is_ad(&ad_ctx));
+
+        assert!(matcher.find("Inny program").is_none());
+        assert!(matcher.find("").is_none());
     }
 }

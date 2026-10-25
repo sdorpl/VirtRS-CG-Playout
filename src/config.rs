@@ -18,6 +18,21 @@ pub struct AdMatch {
     pub title: String,
 }
 
+/// Per-show overrides for graphics elements: a show matched by `show_title`
+/// (case-insensitive regex on `MediaItem_ShowTitle`) gets its own `on_clip`,
+/// `on_ad` and/or `ad_match` instead of the global settings.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ShowOverride {
+    /// Case-insensitive regex matched against `show_title`.
+    pub show_title: String,
+    /// Override for `on_clip`; `None` = use the global value.
+    pub on_clip: Option<String>,
+    /// Override for `on_ad`; `None` = use the global value.
+    pub on_ad: Option<String>,
+    /// Override for `ad_match`; `None` = use the global value.
+    pub ad_match: Option<AdMatch>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub listen: String,
@@ -27,6 +42,8 @@ pub struct Config {
     pub on_clip: String,
     pub on_ad: String,
     pub ad_match: AdMatch,
+    /// Per-show overrides for `on_clip`, `on_ad` and `ad_match`.
+    pub shows: Vec<ShowOverride>,
     /// An item without the VizRS graphics element (no session after the
     /// previous item ends) is treated as a commercial.
     pub ad_without_element: bool,
@@ -57,6 +74,7 @@ impl Default for Config {
             on_clip: String::new(),
             on_ad: String::new(),
             ad_match: AdMatch::default(),
+            shows: Vec::new(),
             ad_without_element: true,
             lead_seconds: 4.0,
             render_size: String::new(),
@@ -127,6 +145,30 @@ impl Config {
                         }
                         if let Some(v) = value.get("title") {
                             config.ad_match.title = string(v, "ad_match.title")?;
+                        }
+                    }
+                    "shows" => {
+                        let items = value.as_array().ok_or("shows: expected an array")?;
+                        for (i, item) in items.iter().enumerate() {
+                            let prefix = format!("shows[{i}]");
+                            let show_title =
+                                item.get("show_title").map(|v| string(v, &format!("{prefix}.show_title"))).transpose()?.unwrap_or_default();
+                            if show_title.is_empty() {
+                                return Err(format!("{prefix}: show_title is required"));
+                            }
+                            let on_clip = item.get("on_clip").map(|v| string(v, &format!("{prefix}.on_clip"))).transpose()?;
+                            let on_ad = item.get("on_ad").map(|v| string(v, &format!("{prefix}.on_ad"))).transpose()?;
+                            let ad_match = if item.get("ad_match").is_some_and(|v| !v.is_null()) {
+                                let v = item.get("ad_match").unwrap();
+                                let path =
+                                    v.get("path").map(|p| string(p, &format!("{prefix}.ad_match.path"))).transpose()?.unwrap_or_default();
+                                let title =
+                                    v.get("title").map(|t| string(t, &format!("{prefix}.ad_match.title"))).transpose()?.unwrap_or_default();
+                                Some(AdMatch { path, title })
+                            } else {
+                                None
+                            };
+                            config.shows.push(ShowOverride { show_title, on_clip, on_ad, ad_match });
                         }
                     }
                     "ad_without_element" => config.ad_without_element = boolean(value, key)?,
@@ -290,5 +332,38 @@ mod tests {
         assert_eq!(config.listen_addr(), "0.0.0.0:7701");
         config.listen = "[::1]:7700".into();
         assert_eq!(config.listen_addr(), "[::1]:7700");
+    }
+
+    #[test]
+    fn shows_config_parsing() {
+        let file = json::parse(
+            r#"{
+                "shows": [
+                    {
+                        "show_title": "Wiadomości",
+                        "on_clip": "TAKE 1001",
+                        "on_ad": "TAKE 2001",
+                        "ad_match": { "path": "ad_news", "title": "reklama" }
+                    },
+                    {
+                        "show_title": "Kino"
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+        let (config, _) = Config::from_values(Some(&file), &env(&[])).unwrap();
+        assert_eq!(config.shows.len(), 2);
+        assert_eq!(config.shows[0].show_title, "Wiadomości");
+        assert_eq!(config.shows[0].on_clip.as_deref(), Some("TAKE 1001"));
+        assert_eq!(config.shows[0].on_ad.as_deref(), Some("TAKE 2001"));
+        assert_eq!(config.shows[0].ad_match.as_ref().unwrap(), &AdMatch { path: "ad_news".into(), title: "reklama".into() });
+        assert_eq!(config.shows[1].show_title, "Kino");
+        assert_eq!(config.shows[1].on_clip, None);
+        assert_eq!(config.shows[1].on_ad, None);
+        assert_eq!(config.shows[1].ad_match, None);
+
+        let bad = json::parse(r#"{"shows": [{}]}"#).unwrap();
+        assert!(Config::from_values(Some(&bad), &env(&[])).unwrap_err().contains("show_title is required"));
     }
 }
