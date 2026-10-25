@@ -498,8 +498,10 @@ Obraz VizRS ma wariant arm64.
 
 Nakładka ogranicza sidecar do 2 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
 Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), renderuje grafikę
-w 720p i skaluje ją do kanału (`VIZRS_RENDER_SIZE=720p`, §1; pełna ostrość:
-`VIZRS_RENDER_SIZE=` puste), ogranicza animacje do 25 kl./s
+w rozmiarze kanału – na kanale 1080p w pełnym 1080p, bez skalowania
+(`VIZRS_RENDER_SIZE` puste, §1; do wersji 2.1.7 domyślnie 720p; przy braku
+mocy `VIZRS_RENDER_SIZE=720p` oszczędza ok. 30% CPU na klatkę kosztem
+ostrości), ogranicza animacje do 25 kl./s
 (`VIZRS_MAX_FPS=25`, §5), daje ErsatzTV
 wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
@@ -522,13 +524,14 @@ od wersji 2.1.4. Ustaw preset w profilu FFmpeg jawnie – puste pole to
 `/output` (mniej ciągłych animacji, mniejsze rozmiary kanału) daje więcej
 niż podnoszenie `CG_CPUS`.
 
-Ustawienia nakładki (render 720p, `VIZRS_MAX_FPS=25`) to dokładnie warunki,
-w których domyślny tryb `frames` (§1) dał na x86 najrówniejszy ruch przy
-mniejszym CPU przeglądarki. Na A1 nie był jeszcze mierzony: sprawdź go
-benchmarkiem (§8, `BENCH_RENDER=720p BENCH_MAX_FPS=25`); `even_percent`
-wyraźnie poniżej 90% albo ostrzeżenia o nienarysowanych klatkach w logu
-oznaczają, że A1 nie nadąża – wtedy `VIZRS_AREA` (§1), niższe `VIZRS_MAX_FPS`
-albo `VIZRS_CAPTURE_MODE=screencast`.
+Render 1080p kosztuje Chromium ok. 40% więcej CPU na klatkę niż 720p (§1),
+a na x86 pełne 1080p w 25 kl./s nie zawsze rysowało się w czasie klatki
+(§8). Na A1 sprawdź to benchmarkiem (§8, `BENCH_MAX_FPS=25`, dla porównania
+`BENCH_RENDER=720p`); `even_percent` wyraźnie poniżej 90% albo ostrzeżenia
+o nienarysowanych klatkach w logu oznaczają, że A1 nie nadąża – wtedy
+`VIZRS_AREA` (§1; tylko pasek zamiast całego kanału, ostrość bez zmian),
+wyższe `CG_CPUS`, niższe `VIZRS_MAX_FPS`, `VIZRS_RENDER_SIZE=720p` albo
+`VIZRS_CAPTURE_MODE=screencast`.
 
 Limity darmowego planu (Always Free): 4 OCPU i 24 GB łącznie na wszystkie
 instancje A1, 200 GB dysków, 10 TB ruchu wychodzącego miesięcznie – średnio
