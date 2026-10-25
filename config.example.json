@@ -7,5 +7,6 @@
   "ad_match": { "path": "/reklamy/", "title": "" },
   "ad_without_element": true,
   "lead_seconds": 6,
-  "render_size": ""
+  "render_size": "",
+  "max_fps": 0
 }

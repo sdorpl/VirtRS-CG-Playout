@@ -63,6 +63,8 @@ services:
       # Graphics render size, scaled to the channel: "" = channel size, 720p, 1280x720.
       # Per channel: &render=720p in the element URL (vizrs.yml).
       VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
+      # Capture rate limit, e.g. 25 on a 50 fps channel: half the PNG work; empty = channel rate.
+      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-}
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb
     ports:

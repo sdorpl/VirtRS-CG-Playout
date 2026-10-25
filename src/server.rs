@@ -179,6 +179,7 @@ impl Server {
             out_width: width,
             out_height: height,
             fps,
+            max_fps: self.config.max_fps,
             browser: self.browser.clone(),
             no_sandbox: self.config.no_sandbox,
             extra_args: self.config.browser_args.clone(),

@@ -61,6 +61,11 @@ pub fn every_nth_frame(fps: f64) -> u32 {
     (BROWSER_FPS / fps.max(1.0)).floor().max(1.0) as u32
 }
 
+/// The channel rate, at most `max` (0 = no limit).
+pub fn capped_fps(fps: f64, max: f64) -> f64 {
+    if max > 0.0 { fps.min(max) } else { fps }
+}
+
 /// When Chromium drew a screencast frame (`metadata.timestamp`, seconds since
 /// the epoch), on the monotonic clock; arrival time if missing or off.
 pub fn drawn_at(timestamp: Option<f64>) -> Instant {
@@ -91,6 +96,8 @@ pub struct CaptureOptions {
     pub out_width: u32,
     pub out_height: u32,
     pub fps: f64,
+    /// Capture rate limit (`max_fps`); 0 = the channel rate.
+    pub max_fps: f64,
     pub browser: Option<String>,
     pub no_sandbox: bool,
     pub extra_args: Vec<String>,
@@ -231,9 +238,10 @@ impl Capture {
         if fps <= state.fps {
             return;
         }
-        let before = every_nth_frame(state.fps);
+        let max = self.options.max_fps;
+        let before = every_nth_frame(capped_fps(state.fps, max));
         state.fps = fps;
-        if every_nth_frame(fps) == before {
+        if every_nth_frame(capped_fps(fps, max)) == before {
             return;
         }
         crate::info!("burn-in {}: capturing for {} fps", self.key(), Value::Number(fps));
@@ -428,7 +436,7 @@ impl Capture {
         // Not faster than the channel needs: half the PNG work at 24–30 fps.
         let screencast = |active: bool| -> Result<u32, String> {
             if active {
-                let n = every_nth_frame(self.fps());
+                let n = every_nth_frame(capped_fps(self.fps(), self.options.max_fps));
                 call("Page.stopScreencast", json::object([]))?;
                 let params = json::object([
                     ("format", "png".into()),
@@ -566,6 +574,13 @@ mod tests {
         for (fps, n) in [(0.0, 60), (1.0, 60), (24.0, 2), (25.0, 2), (29.97, 2), (30.0, 2), (50.0, 1), (60.0, 1), (100.0, 1)] {
             assert_eq!(every_nth_frame(fps), n, "{fps}");
         }
+    }
+
+    #[test]
+    fn max_fps_lowers_the_screencast_rate() {
+        assert_eq!(every_nth_frame(capped_fps(50.0, 25.0)), 2);
+        assert_eq!(every_nth_frame(capped_fps(25.0, 50.0)), 2);
+        assert_eq!(every_nth_frame(capped_fps(50.0, 0.0)), 1);
     }
 
     #[test]

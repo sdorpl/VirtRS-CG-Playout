@@ -15,6 +15,7 @@
   "ad_without_element": true,
   "lead_seconds": 4,
   "render_size": "",
+  "max_fps": 0,
   "browser": "",
   "no_sandbox": false,
   "browser_args": []
@@ -39,6 +40,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "max_fps": 0,
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -67,6 +69,7 @@
     "ad_without_element": true,
     "lead_seconds": 1,
     "render_size": "",
+    "max_fps": 0,
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -96,6 +99,7 @@
     "ad_without_element": false,
     "lead_seconds": 4,
     "render_size": "720p",
+    "max_fps": 0,
     "browser": "",
     "no_sandbox": true,
     "browser_args": [
@@ -129,6 +133,7 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "max_fps": 0,
     "browser": "",
     "no_sandbox": false,
     "browser_args": []
@@ -164,6 +169,7 @@
     "ad_without_element": true,
     "lead_seconds": 2.5,
     "render_size": "",
+    "max_fps": 0,
     "browser": "",
     "no_sandbox": false,
     "browser_args": [],
@@ -207,11 +213,39 @@
     "ad_without_element": true,
     "lead_seconds": 4,
     "render_size": "",
+    "max_fps": 0,
     "browser": "/usr/bin/chromium",
     "no_sandbox": false,
     "browser_args": [
      "--x"
     ]
+   }
+  },
+  {
+   "file": null,
+   "env": {
+    "VIZRS_MAX_FPS": "25"
+   },
+   "config": {
+    "listen": "0.0.0.0:7700",
+    "vizrs": {
+     "address": "127.0.0.1:6100",
+     "token": ""
+    },
+    "output_url": "",
+    "on_clip": "",
+    "on_ad": "",
+    "ad_match": {
+     "path": "",
+     "title": ""
+    },
+    "ad_without_element": true,
+    "lead_seconds": 4,
+    "render_size": "",
+    "max_fps": 25,
+    "browser": "",
+    "no_sandbox": false,
+    "browser_args": []
    }
   }
  ]

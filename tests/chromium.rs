@@ -49,6 +49,7 @@ fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> 
         out_width: out.0,
         out_height: out.1,
         fps: 25.0,
+        max_fps: 0.0,
         browser: Some(browser),
         no_sandbox,
         extra_args: Vec::new(),

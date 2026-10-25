@@ -90,18 +90,46 @@ fn weights(src: usize, dst: usize) -> Vec<(usize, Vec<f64>)> {
         .collect()
 }
 
-/// One axis of a premultiplied 4-channel image: `count` lines of `src` samples
-/// (`stride` apart within a line, `line` apart between lines) to `dst` samples.
-fn pass(input: &[f64], src: usize, dst: usize, count: usize, along: impl Fn(usize, usize) -> usize, quantize: bool) -> Vec<f64> {
+/// libvips reduces 8-bit images in 8 bits: each pass rounds and clips.
+fn quantized(value: f64) -> f64 {
+    js_round(value).clamp(0.0, 255.0)
+}
+
+/// Horizontal pass over `count` rows of `src` premultiplied RGBA samples to `dst`.
+fn horizontal(input: &[f64], src: usize, dst: usize, count: usize, quantize: bool) -> Vec<f64> {
     let taps = weights(src, dst);
     let mut out = vec![0.0; dst * count * 4];
-    for line in 0..count {
-        for (o, (start, w)) in taps.iter().enumerate() {
-            for c in 0..4 {
-                let value: f64 = w.iter().enumerate().map(|(k, w)| w * input[along(line, start + k) * 4 + c]).sum();
-                // libvips reduces 8-bit images in 8 bits: each pass rounds and clips.
-                out[(line * dst + o) * 4 + c] = if quantize { js_round(value).clamp(0.0, 255.0) } else { value };
+    for (row, out_row) in input.chunks_exact(src * 4).zip(out.chunks_exact_mut(dst * 4)) {
+        for ((start, w), pixel) in taps.iter().zip(out_row.chunks_exact_mut(4)) {
+            let mut sum = [0.0f64; 4];
+            for (w, p) in w.iter().zip(row[start * 4..].chunks_exact(4)) {
+                for c in 0..4 {
+                    sum[c] += w * p[c];
+                }
             }
+            for c in 0..4 {
+                pixel[c] = if quantize { quantized(sum[c]) } else { sum[c] };
+            }
+        }
+    }
+    out
+}
+
+/// Vertical pass: `src` rows of `width` premultiplied RGBA pixels to `dst` rows.
+/// Whole rows at a time, so memory is read in order.
+fn vertical(input: &[f64], src: usize, dst: usize, width: usize, quantize: bool) -> Vec<f64> {
+    let line = width * 4;
+    let taps = weights(src, dst);
+    let mut out = vec![0.0; dst * line];
+    for ((start, w), out_row) in taps.iter().zip(out.chunks_exact_mut(line)) {
+        for (k, w) in w.iter().enumerate() {
+            let row = &input[(start + k) * line..(start + k + 1) * line];
+            for (o, i) in out_row.iter_mut().zip(row) {
+                *o += w * i;
+            }
+        }
+        if quantize {
+            out_row.iter_mut().for_each(|v| *v = quantized(*v));
         }
     }
     out
@@ -119,23 +147,10 @@ pub fn resize(rgba: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8
         })
         .collect();
 
-    let shrink = dw < sw || dh < sh;
-    let result = if shrink {
-        // Vertical first: `count` columns of `sh` samples; the result is stored column-major.
-        let columns = pass(&premultiplied, sh, dh, sw, |x, y| y * sw + x, true);
-        // Then horizontal: `dh` rows of `sw` samples from the column-major buffer.
-        pass(&columns, sw, dw, dh, |y, x| x * dh + y, true)
+    let result = if dw < sw || dh < sh {
+        horizontal(&vertical(&premultiplied, sh, dh, sw, true), sw, dw, dh, true)
     } else {
-        let rows = pass(&premultiplied, sw, dw, sh, |y, x| y * sw + x, false);
-        // Columns of the row result; the output is column-major, transposed below.
-        let cols = pass(&rows, sh, dh, dw, |x, y| y * dw + x, false);
-        let mut out = vec![0.0; dw * dh * 4];
-        for x in 0..dw {
-            for y in 0..dh {
-                out[(y * dw + x) * 4..(y * dw + x) * 4 + 4].copy_from_slice(&cols[(x * dh + y) * 4..(x * dh + y) * 4 + 4]);
-            }
-        }
-        out
+        vertical(&horizontal(&premultiplied, sw, dw, sh, false), sh, dh, dw, false)
     };
 
     let mut out = vec![0u8; dw * dh * 4];

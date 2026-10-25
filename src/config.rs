@@ -34,6 +34,8 @@ pub struct Config {
     pub lead_seconds: f64,
     /// Size Chromium renders /output at: "" = channel size, "720p", "1280x720".
     pub render_size: String,
+    /// Upper limit of the capture rate, e.g. 25 on small ARM hosts; 0 = the channel rate.
+    pub max_fps: f64,
     pub browser: String,
     pub no_sandbox: bool,
     /// Extra Chromium flags, e.g. fewer raster threads on small ARM hosts.
@@ -54,6 +56,7 @@ impl Default for Config {
             ad_without_element: true,
             lead_seconds: 4.0,
             render_size: String::new(),
+            max_fps: 0.0,
             browser: String::new(),
             no_sandbox: false,
             browser_args: Vec::new(),
@@ -123,6 +126,7 @@ impl Config {
                     "ad_without_element" => config.ad_without_element = boolean(value, key)?,
                     "lead_seconds" => config.lead_seconds = number(value, key)?,
                     "render_size" => config.render_size = string(value, key)?,
+                    "max_fps" => config.max_fps = number(value, key)?,
                     "browser" => config.browser = string(value, key)?,
                     "no_sandbox" => config.no_sandbox = boolean(value, key)?,
                     "browser_args" => {
@@ -171,6 +175,12 @@ impl Config {
         if let Some(v) = env("VIZRS_RENDER_SIZE") {
             config.render_size = v;
         }
+        if let Some(v) = env("VIZRS_MAX_FPS").filter(|v| !v.is_empty()) {
+            match v.trim().parse() {
+                Ok(fps) => config.max_fps = fps,
+                Err(_) => warnings.push(format!("VIZRS_MAX_FPS=\"{v}\" is not a number; using {}", config.max_fps)),
+            }
+        }
         if let Some(v) = env("VIZRS_BROWSER").filter(|v| !v.is_empty()) {
             config.browser = v;
         }
@@ -208,6 +218,7 @@ impl Config {
             ("ad_without_element", self.ad_without_element.into()),
             ("lead_seconds", self.lead_seconds.into()),
             ("render_size", self.render_size.as_str().into()),
+            ("max_fps", self.max_fps.into()),
             ("browser", self.browser.as_str().into()),
             ("no_sandbox", self.no_sandbox.into()),
             ("browser_args", self.browser_args.iter().map(String::as_str).collect::<Vec<_>>().into()),

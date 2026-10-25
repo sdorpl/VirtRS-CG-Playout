@@ -360,7 +360,10 @@ QEMU idzie tylko instalacja pakietów obrazu.
 Obraz VizRS ma wariant arm64.
 
 Nakładka ogranicza sidecar do 1,5 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
-Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), daje ErsatzTV
+Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), renderuje grafikę
+w 720p i skaluje ją do kanału (`VIZRS_RENDER_SIZE=720p`, §1; pełna ostrość:
+`VIZRS_RENDER_SIZE=` puste), ogranicza animacje do 25 kl./s
+(`VIZRS_MAX_FPS=25`, §5), daje ErsatzTV
 wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
 sprzętowego kodera: w profilu FFmpeg ErsatzTV ustaw **Hardware Acceleration:
@@ -460,7 +463,8 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "ad_match": { "path": "/reklamy/", "title": "" },
   "ad_without_element": true,
   "lead_seconds": 4,
-  "render_size": ""
+  "render_size": "",
+  "max_fps": 0
 }
 ```
 
@@ -470,15 +474,24 @@ Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 `VIZRS_TOKEN`, `VIZRS_OUTPUT_URL`, `VIZRS_ON_CLIP`, `VIZRS_ON_AD`
 (`\n` rozdziela linie), `VIZRS_AD_PATH`, `VIZRS_AD_TITLE`, `VIZRS_AD_WITHOUT_ELEMENT=0`
 (wyłącza reklamę po braku elementu), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
-(`720p`, `1280x720`, puste = rozmiar kanału; §1),
+(`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_MAX_FPS`
+(górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
+kanału),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.
 
 Nieznana opcja w pliku trafia do logu jako ostrzeżenie. Zły typ wartości
 (np. `"no_sandbox": "yes"`) zatrzymuje start z nazwą opcji; liczbę można
-podać także jako tekst (`"lead_seconds": "6"`). `LEAD_SECONDS`, który nie
-jest liczbą, daje ostrzeżenie i zostawia poprzednią wartość.
+podać także jako tekst (`"lead_seconds": "6"`). `LEAD_SECONDS`
+i `VIZRS_MAX_FPS`, które nie są liczbą, dają ostrzeżenie i zostawiają
+poprzednią wartość.
+
+`max_fps` ogranicza, ile klatek na sekundę Chromium wysyła ze screencastu
+(co n-ta klatka z 60 na sekundę, §1): przy `25` kanał 50 kl./s dostaje
+animacje w 25 kl./s (każda klatka grafiki dwa razy), a Chromium koduje
+i sidecar dekoduje o połowę mniej PNG. Kanały 24–30 kl./s i tak dostają
+co drugą klatkę, więc `25` ich nie zmienia.
 
 `ad_match.path` i `ad_match.title` to wyrażenia regularne składni
 [`regex`](https://docs.rs/regex/latest/regex/#syntax), bez rozróżniania
