@@ -328,3 +328,65 @@ test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS out
   const copy = ["-i", "/m/News.mp4", "-c", "copy", ...hls];
   assert.deepEqual((await runWrapper(copy, env)).args, copy);
 });
+
+test("ffmpeg overlay with hardware acceleration: ErsatzTV's NVIDIA and VAAPI graphs", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
+  const etv = http.createServer((request, response) => {
+    const child = spawn("python3", ["-I", CLIENT, `${cg.url}/etv?channel=1`]);
+    child.stdout.resume();
+    child.stdin.end(JSON.stringify(item("/m/News.mp4", "2026-10-24T20:00:00+02:00")));
+    response.writeHead(200);
+    response.flushHeaders();
+    response.on("close", () => child.kill());
+  });
+  const etvPort = await listen(etv);
+  t.after(() => etv.close());
+  const dir = mkdtempSync(path.join(os.tmpdir(), "virtrs-ffmpeg-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const ffmpeg = path.join(dir, "ffmpeg");
+  writeFileSync(ffmpeg, FAKE_FFMPEG);
+  chmodSync(ffmpeg, 0o755);
+  const env = {
+    VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50",
+    FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "2",
+  };
+
+  // Filter graphs as ErsatzTV builds them (hardware input options stay with the media input).
+  const cases = [
+    {
+      input: ["-init_hw_device", "cuda", "-hwaccel", "cuda", "-hwaccel_output_format", "cuda"],
+      filter: "[0:0]hwupload,scale_cuda=8:4:format=yuv420p,setsar=1[v_m0];[1:0]format=yuva420p,hwupload_cuda[v_s0];[v_m0][v_s0]overlay_cuda=x=0:y=0[v_o0]",
+      expected: "[0:0]hwupload,scale_cuda=8:4:format=yuv420p,setsar=1[v_m0];[1:0]format=yuva420p,hwupload_cuda[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay_cuda=x=0:y=0[v_o0]",
+      encoder: "h264_nvenc",
+    },
+    {
+      input: ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-vaapi_device", "/dev/dri/renderD128"],
+      filter: "[0:0]scale_vaapi=8:4:format=nv12,hwdownload,format=nv12[v_m0];[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=format=0,format=nv12|p010le|vaapi,hwupload[v_o0]",
+      expected: "[0:0]scale_vaapi=8:4:format=nv12,hwdownload,format=nv12[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay=format=0,format=nv12|p010le|vaapi,hwupload[v_o0]",
+      encoder: "h264_vaapi",
+    },
+    {
+      input: ["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-vaapi_device", "/dev/dri/renderD128"],
+      filter: "[0:0]scale_vaapi=8:4:format=nv12[v_m0];[1:0]format=yuva420p,hwupload[v_s0];[v_m0][v_s0]overlay_vaapi[v_o0]",
+      expected: "[0:0]scale_vaapi=8:4:format=nv12[v_m0];[1:0]format=yuva420p,hwupload[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay_vaapi[v_o0]",
+      encoder: "h264_vaapi",
+    },
+  ];
+  const hls = ["-g", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"];
+  for (const { input, filter, expected, encoder } of cases) {
+    const result = await runWrapper([
+      ...input, "-i", "/m/News.mp4", "-headers", "x-etv-frame-rate:25/1\r\n", "-t", "44000ms",
+      "-i", `http://127.0.0.1:${etvPort}/internal/graphics/1/7?exp=1&sig=x`,
+      "-filter_complex", filter, "-map", "[v_o0]", "-vcodec", encoder, ...hls,
+    ], env);
+    const pipe = result.args.find((arg) => arg.startsWith("pipe:"));
+    assert.deepEqual(result.args, [
+      ...input, "-i", "/m/News.mp4", "-t", "44000ms",
+      "-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", "8x4", "-framerate", "50", "-i", pipe,
+      "-filter_complex", expected, "-map", "[v_o0]", "-vcodec", encoder, "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8",
+    ], encoder);
+    assert.equal(result.read, 2 * yuvaSize(8, 4), encoder);
+  }
+});

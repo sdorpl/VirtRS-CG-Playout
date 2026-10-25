@@ -1,0 +1,16 @@
+# VAAPI for ErsatzTV (Intel iGPU/Arc, AMD; needs the Mesa or Intel media driver on the host):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+#
+# Then in ErsatzTV: Settings → FFmpeg Profiles → Hardware Acceleration: Vaapi,
+# VAAPI Device /dev/dri/renderD128, VAAPI Driver: iHD (Intel Broadwell and
+# newer), i965 (older Intel) or RadeonSI (AMD).
+# Only ErsatzTV uses the GPU; the sidecar's Chromium stays on the CPU.
+#
+# Several GPUs: VAAPI_DEVICE picks the host render node (ls -l /dev/dri/by-path);
+# inside the container it is always /dev/dri/renderD128.
+
+services:
+  ersatztv:
+    devices:
+      - ${VAAPI_DEVICE:-/dev/dri/renderD128}:/dev/dri/renderD128

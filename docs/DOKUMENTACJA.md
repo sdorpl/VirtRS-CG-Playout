@@ -142,7 +142,8 @@ ErsatzTV ── ffmpeg ──► vizrs-ffmpeg.py ── -i pipe:N (yuva420p) ◄
    jako `pipe:N`. Są to surowe klatki `yuva420p` w rozmiarze kanału,
    w tempie kanału z `lead_seconds` zapasu (§1). Opcje płótna (`-headers`,
    `-protocol_whitelist`, kodek, format) znikają, a `-t` i reszta komendy
-   zostają, łącznie z filtrem nakładania ErsatzTV (`overlay_cuda` itd.).
+   zostają, łącznie z filtrami sprzętowymi i filtrem nakładania ErsatzTV
+   (`overlay`, `overlay_cuda` przy NVENC, `overlay_vaapi` itd., §4).
 5. Gdy ffmpeg kończy kawałek, sidecar kończy sesję elementu, a nakładka po
    0,5 s zamyka płótno. ErsatzTV kończy wtedy element „script” jak bez
    nakładki.
@@ -287,7 +288,8 @@ grafiki ErsatzTV: `/usr/local/bin/ffmpeg` albo `VIZRS_CG_URL=` (puste).
 Przed otwarciem portów zmień `VIZRS_TOKEN` i `VIZRS_OUTPUT_TOKEN`.
 Ustawienia stałe dla danej maszyny (nazwa projektu, nakładki, porty, tokeny)
 trzymaj w pliku `.env` obok compose (poza gitem), np.
-`COMPOSE_PROJECT_NAME=virtrs`, `COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml`,
+`COMPOSE_PROJECT_NAME=virtrs`, `COMPOSE_FILE=docker-compose.yml:docker-compose.nvidia.yml`
+(albo `…:docker-compose.vaapi.yml`),
 `VIZRS_PORT=8789` – wtedy samo `docker compose pull && docker compose up -d --build`
 odtwarza ten sam stos.
 Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
@@ -310,8 +312,8 @@ Bez sekretów: nie ma tu plików `*-secrets.json`, kluczy `data-protection`,
 logów, cache ani indeksu wyszukiwania (ErsatzTV buduje go przy pierwszym
 starcie – ostrzeżenie `Search index failed to initialize` jest wtedy
 normalne). Profil FFmpeg koduje programowo (Hardware Acceleration: None),
-żeby kanał ruszył na każdej maszynie; z kartą NVIDIA przełącz go na Nvidia
-(niżej). Tokeny VizRS ustawiasz jak zwykle w `.env`.
+żeby kanał ruszył na każdej maszynie; z kartą NVIDIA przełącz go na Nvidia,
+z Intel albo AMD na Vaapi (niżej). Tokeny VizRS ustawiasz jak zwykle w `.env`.
 
 Odświeżenie danych startowych z działającej instancji: zatrzymaj ErsatzTV
 (`docker compose stop ersatztv`, baza bez otwartego WAL), skopiuj z wolumenów
@@ -403,8 +405,33 @@ Sprawdzenie: `docker compose exec ersatztv nvidia-smi` i
 Komunikat `could not select device driver "nvidia"` oznacza starą wersję nakładki
 albo brak specyfikacji CDI. Grafika się nie
 zmienia – trafia do ffmpeg ErsatzTV jako surowe klatki (§1), więc sidecar i jego
-Chromium nie potrzebują GPU. Karty konsumenckie ograniczają liczbę
+Chromium nie potrzebują GPU. ErsatzTV wysyła je na kartę (`format=yuva420p,hwupload_cuda`)
+i nakłada `overlay_cuda`; `VIZRS_FFMPEG_FPS` działa też na klatkach CUDA. Karty konsumenckie ograniczają liczbę
 równoległych sesji NVENC, czyli kanałów transkodowanych naraz.
+
+### VAAPI (Intel, AMD)
+
+Koduje ErsatzTV; jego obraz ma `vainfo` i sterowniki `iHD`, `i965`
+i `radeonsi`. Na hoście wystarczy sterownik jądra (`/dev/dri/renderD128`):
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+```
+
+potem w **Settings → FFmpeg Profiles**: **Hardware Acceleration** = **Vaapi**,
+**VAAPI Device** = `/dev/dri/renderD128`, **VAAPI Driver** = `iHD` (Intel od
+Broadwella), `i965` (starsze Intel) albo `RadeonSI` (AMD). Przy kilku kartach
+`VAAPI_DEVICE` wskazuje węzeł hosta (`ls -l /dev/dri/by-path`); w kontenerze
+to zawsze `/dev/dri/renderD128`. ErsatzTV działa w kontenerze jako root, więc
+grupa `render` nie jest potrzebna.
+Sprawdzenie: `docker compose exec ersatztv vainfo --display drm --device /dev/dri/renderD128`
+i `docker compose exec ersatztv ffmpeg -hide_banner -vaapi_device /dev/dri/renderD128 -f lavfi -i testsrc2 -t 3 -vf format=nv12,hwupload -c:v h264_vaapi -f null -`.
+
+Z grafiką ErsatzTV pobiera obraz z karty (`hwdownload`), nakłada grafikę
+programowo (`overlay`) i wysyła z powrotem do kodera (`hwupload`); przy
+napisach używa `overlay_vaapi`. Nakładka ffmpeg (§1) działa w obu wariantach
+tak samo jak z NVENC: podmienia tylko wejście grafiki, a `VIZRS_FFMPEG_FPS`
+wstawia `fps` przed filtrem nakładania. Sidecar nie potrzebuje GPU.
 
 ## 5. Uruchamianie bez Dockera, konfiguracja
 
