@@ -90,46 +90,86 @@ fn weights(src: usize, dst: usize) -> Vec<(usize, Vec<f64>)> {
         .collect()
 }
 
-/// libvips reduces 8-bit images in 8 bits: each pass rounds and clips.
-fn quantized(value: f64) -> f64 {
-    js_round(value).clamp(0.0, 255.0)
+// The passes run in single precision on whole pixels (`[f32; 4]`, vectorised
+// by the compiler), with each axis' weights in one flat table: a ticker is a
+// new frame at every frame, so this runs 25 times a second. Within the
+// vectors' tolerance of libvips.
+type Pixel = [f32; 4];
+
+/// `weights` of one axis, flat: output `i` reads `len[i]` pixels from
+/// `start[i]` with the weights from `offset[i]`.
+struct Taps {
+    start: Vec<usize>,
+    offset: Vec<usize>,
+    len: Vec<usize>,
+    weight: Vec<f32>,
 }
 
-/// Horizontal pass over `count` rows of `src` premultiplied RGBA samples to `dst`.
-fn horizontal(input: &[f64], src: usize, dst: usize, count: usize, quantize: bool) -> Vec<f64> {
-    let taps = weights(src, dst);
-    let mut out = vec![0.0; dst * count * 4];
-    for (row, out_row) in input.chunks_exact(src * 4).zip(out.chunks_exact_mut(dst * 4)) {
-        for ((start, w), pixel) in taps.iter().zip(out_row.chunks_exact_mut(4)) {
-            let mut sum = [0.0f64; 4];
-            for (w, p) in w.iter().zip(row[start * 4..].chunks_exact(4)) {
+impl Taps {
+    fn new(src: usize, dst: usize) -> Taps {
+        let mut taps =
+            Taps { start: Vec::with_capacity(dst), offset: Vec::with_capacity(dst), len: Vec::with_capacity(dst), weight: Vec::new() };
+        for (start, w) in weights(src, dst) {
+            taps.start.push(start);
+            taps.offset.push(taps.weight.len());
+            taps.len.push(w.len());
+            taps.weight.extend(w.iter().map(|&w| w as f32));
+        }
+        taps
+    }
+
+    fn of(&self, i: usize) -> (usize, &[f32]) {
+        (self.start[i], &self.weight[self.offset[i]..self.offset[i] + self.len[i]])
+    }
+}
+
+/// Rounded as `Math.round` and clipped to a byte; a cast instead of `floor`,
+/// which is a library call on baseline x86-64.
+fn to_byte(x: f32) -> u8 {
+    (x.clamp(0.0, 255.0) + 0.5) as u8
+}
+
+/// libvips reduces 8-bit images in 8 bits: each pass rounds and clips.
+fn quantized(p: Pixel) -> Pixel {
+    p.map(|v| f32::from(to_byte(v)))
+}
+
+/// Horizontal pass over `count` rows of `src` premultiplied RGBA pixels to `dst`.
+fn horizontal(input: &[Pixel], src: usize, dst: usize, count: usize, quantize: bool) -> Vec<Pixel> {
+    let taps = Taps::new(src, dst);
+    let mut out = vec![[0.0; 4]; dst * count];
+    for (row, out_row) in input.chunks_exact(src).zip(out.chunks_exact_mut(dst)) {
+        for (i, pixel) in out_row.iter_mut().enumerate() {
+            let (start, w) = taps.of(i);
+            let mut sum = [0.0f32; 4];
+            for (w, p) in w.iter().zip(&row[start..]) {
                 for c in 0..4 {
                     sum[c] += w * p[c];
                 }
             }
-            for c in 0..4 {
-                pixel[c] = if quantize { quantized(sum[c]) } else { sum[c] };
-            }
+            *pixel = if quantize { quantized(sum) } else { sum };
         }
     }
     out
 }
 
 /// Vertical pass: `src` rows of `width` premultiplied RGBA pixels to `dst` rows.
-/// Whole rows at a time, so memory is read in order.
-fn vertical(input: &[f64], src: usize, dst: usize, width: usize, quantize: bool) -> Vec<f64> {
-    let line = width * 4;
-    let taps = weights(src, dst);
-    let mut out = vec![0.0; dst * line];
-    for ((start, w), out_row) in taps.iter().zip(out.chunks_exact_mut(line)) {
-        for (k, w) in w.iter().enumerate() {
-            let row = &input[(start + k) * line..(start + k + 1) * line];
-            for (o, i) in out_row.iter_mut().zip(row) {
-                *o += w * i;
+/// All taps of a pixel at once: each output pixel is written once.
+fn vertical(input: &[Pixel], src: usize, dst: usize, width: usize, quantize: bool) -> Vec<Pixel> {
+    let taps = Taps::new(src, dst);
+    let mut out = vec![[0.0; 4]; dst * width];
+    for (i, out_row) in out.chunks_exact_mut(width).enumerate() {
+        let (start, w) = taps.of(i);
+        let rows = &input[start * width..(start + w.len()) * width];
+        for (x, pixel) in out_row.iter_mut().enumerate() {
+            let mut sum = [0.0f32; 4];
+            for (k, w) in w.iter().enumerate() {
+                let p = rows[k * width + x];
+                for c in 0..4 {
+                    sum[c] += w * p[c];
+                }
             }
-        }
-        if quantize {
-            out_row.iter_mut().for_each(|v| *v = quantized(*v));
+            *pixel = if quantize { quantized(sum) } else { sum };
         }
     }
     out
@@ -139,11 +179,11 @@ fn vertical(input: &[f64], src: usize, dst: usize, width: usize, quantize: bool)
 /// Shrinking goes as `vips_reduce` (vertical, then horizontal, each pass in 8 bits),
 /// enlarging as one bicubic step without rounding in between.
 pub fn resize(rgba: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
-    let premultiplied: Vec<f64> = rgba
+    let premultiplied: Vec<Pixel> = rgba
         .chunks_exact(4)
-        .flat_map(|p| {
-            let a = f64::from(p[3]) / 255.0;
-            [f64::from(p[0]) * a, f64::from(p[1]) * a, f64::from(p[2]) * a, f64::from(p[3])]
+        .map(|p| {
+            let a = f32::from(p[3]) / 255.0;
+            [f32::from(p[0]) * a, f32::from(p[1]) * a, f32::from(p[2]) * a, f32::from(p[3])]
         })
         .collect();
 
@@ -154,13 +194,14 @@ pub fn resize(rgba: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8
     };
 
     let mut out = vec![0u8; dw * dh * 4];
-    for (pixel, p) in out.chunks_exact_mut(4).zip(result.chunks_exact(4)) {
+    for (pixel, p) in out.chunks_exact_mut(4).zip(&result) {
         let a = p[3].clamp(0.0, 255.0);
-        let alpha = js_round(a) as u8;
+        let alpha = to_byte(a);
         // A pixel that ends up transparent carries no colour, as from libvips.
         if alpha > 0 {
+            let k = 255.0 / a;
             for c in 0..3 {
-                pixel[c] = js_round(p[c] * 255.0 / a).clamp(0.0, 255.0) as u8;
+                pixel[c] = to_byte(p[c] * k);
             }
         }
         pixel[3] = alpha;

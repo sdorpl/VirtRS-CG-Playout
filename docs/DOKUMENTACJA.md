@@ -35,8 +35,12 @@ Chromium renderuje `/output` w tym samym rozmiarze. Opcja `render_size`
 (`http://cg:7700/etv?channel=1&render=720p`, ma pierwszeństwo) każe
 renderować w innym rozmiarze, a sidecar skaluje widoczne prostokąty do
 rozmiaru kanału tak jak libvips: przy zmniejszaniu filtr Lanczos3, przy
-powiększaniu bicubic, z premultiplikacją alfy (piksele w ±1 od libvips).
-Skalowane są tylko widoczne prostokąty, nie cała klatka.
+powiększaniu bicubic, z premultiplikacją alfy (piksele w ±2 od libvips;
+obliczenia w pojedynczej precyzji). Skalowane są tylko widoczne prostokąty,
+nie cała klatka. Przy ciągłej animacji (przewijany ticker) każda klatka jest
+nowa i przechodzi przez skalowanie: na Ampere A1 klatka z tickerem i belką
+720p → 1080p to ok. 17 ms skalowania (do wersji 2.1.3 ok. 42 ms) i ok. 32 ms
+całej obróbki w sidecarze.
 
 | Wartość | Rozmiar renderowania |
 |---|---|
@@ -174,6 +178,17 @@ Warunki i różnice:
 - Kolory: klatki są w BT.709 (od 720 linii) albo BT.601, w zakresie
   ograniczonym, z alfą prostą (nie premultiplikowaną). Ścieżka ErsatzTV
   konwertowała zawsze w BT.601, więc w HD kolory grafiki są teraz wierniejsze.
+- Kanał musi mieć silnik strumieniowania, który podaje ffmpeg płótno grafiki
+  przez HTTP (`/internal/graphics/…`) – jak kanał 1 z bazy startowej
+  (`Channel.StreamingEngine = 1`). Przy drugim silniku ErsatzTV podaje
+  grafikę na stdin (`-f rawvideo -pix_fmt bgra … -i -`): nakładka jej nie
+  rozpoznaje i puszcza oryginalną komendę, więc grafika idzie wolniejszą
+  ścieżką ErsatzTV, a `/health` sidecara pokazuje `"overlay":[]` mimo
+  `"sessions":1`. Kanał założony w ErsatzTV od zera trzeba w tym sprawdzić.
+- Tempo transkodowania zależy od tempa grafiki: ffmpeg czeka na klatki
+  z sidecara. Sidecar dławiony limitem CPU (przy ciągłej animacji) spowalnia
+  więc cały kanał poniżej czasu rzeczywistego – odtwarzacz się buforuje.
+  Daj sidecarowi zapas CPU (`CG_CPUS` na A1, §4).
 - Pozycja z innymi elementami grafiki, ale bez elementu VizRS, startuje
   o 2 s później (nakładka czeka na sesję) i leci ścieżką ErsatzTV.
 - Na wejściu surowe klatki kosztują pasmo, ale nie CPU: 1080p to ok. 5 MB
@@ -395,7 +410,7 @@ bez dodatkowych pakietów. Na x86 binarka arm64 kompiluje się krzyżowo (ok. 40
 QEMU idzie tylko instalacja pakietów obrazu.
 Obraz VizRS ma wariant arm64.
 
-Nakładka ogranicza sidecar do 1,5 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
+Nakładka ogranicza sidecar do 2 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
 Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), renderuje grafikę
 w 720p i skaluje ją do kanału (`VIZRS_RENDER_SIZE=720p`, §1; pełna ostrość:
 `VIZRS_RENDER_SIZE=` puste), ogranicza animacje do 25 kl./s
@@ -409,9 +424,15 @@ None**, libx264, preset `veryfast` (`superfast` przy kilku kanałach albo
 i w zaporze maszyny (`firewalld`/`iptables`).
 
 Grafika na A1 kosztuje głównie przy animacji: przesuwający się pasek 1080p
-to ok. 2 rdzenie Chromium (pomiar na x86), więc przy limicie `CG_CPUS`
-animacje gubią klatki, a obraz statyczny (logo, plansza, zegar co sekundę)
-prawie nic nie kosztuje. Bez widzów przechwytywanie stoi (§1). Lżejsze
+to ok. 2 rdzenie Chromium (pomiar na x86); obraz statyczny (logo, plansza,
+zegar co sekundę) prawie nic nie kosztuje. Z nakładką ffmpeg ciągła animacja
+przy zbyt niskim `CG_CPUS` spowalnia transkodowanie (ffmpeg czeka na klatki
+grafiki, §1). Pomiar na 4 OCPU, kanał 1080p25, przewijany ticker w VizRS,
+render 720p: z presetem x264 `medium` (pusty preset w profilu) kanał szedł
+ok. 0,5× czasu rzeczywistego, z `superfast` i sidecarem 1,5 CPU ok. 0,8–1×
+(sidecar dławiony ok. 30% czasu); stąd domyślne 2 CPU i szybsze skalowanie
+od wersji 2.1.4. Ustaw preset w profilu FFmpeg jawnie – puste pole to
+`medium`, za wolne na A1. Bez widzów przechwytywanie stoi (§1). Lżejsze
 `/output` (mniej ciągłych animacji, mniejsze rozmiary kanału) daje więcej
 niż podnoszenie `CG_CPUS`.
 

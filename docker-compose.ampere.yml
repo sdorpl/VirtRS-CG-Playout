@@ -9,9 +9,11 @@
 # in its FFmpeg profile use Hardware Acceleration: None and preset veryfast
 # (or superfast for several channels / 1080p50).
 #
-# CPU split for 4 OCPUs: the sidecar (Chromium + PNG decode) is capped so
-# ffmpeg always keeps most of the cores. Under load the graphics drop frames;
-# the video never stalls. Scale the numbers with the shape (CG_CPUS, ...).
+# CPU split for 4 OCPUs: the sidecar (Chromium, PNG decode, scaling) is
+# capped so ffmpeg keeps most of the cores. With the ffmpeg overlay ffmpeg
+# waits for the graphics frames: a sidecar starved by a continuous animation
+# (a ticker) slows the whole channel below real time, so it gets 2 CPUs.
+# Scale the numbers with the shape (CG_CPUS, ...).
 
 services:
   vizrs:
@@ -21,7 +23,7 @@ services:
   cg:
     image: ${CG_IMAGE:-ghcr.io/sdorpl/virtrs-cg:latest}
     platform: linux/arm64
-    cpus: ${CG_CPUS:-1.5}
+    cpus: ${CG_CPUS:-2}
     mem_limit: ${CG_MEMORY:-2g}
     environment:
       # Chromium: software raster on fewer threads.
