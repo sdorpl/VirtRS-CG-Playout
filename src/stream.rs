@@ -14,7 +14,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::area::Layout;
-use crate::frames::Source;
+use crate::frames::{Picture, Source};
 use crate::packets::repeat_packet;
 
 const TICK: Duration = Duration::from_millis(20);
@@ -121,6 +121,9 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
     let mut base = air.unwrap_or(now);
     let mut sent: u64 = 0;
     let mut sent_seq: Option<u64> = None;
+    // Raw frames: the picture shown, held while it lasts so its PNG is decoded
+    // (and its yuva420p frame built) once, not on every output frame.
+    let mut held: Option<(u64, Arc<Picture>)> = None;
 
     // Moment of output frame `n` (signed: the lead's frames are before `base`).
     let moment = |base: Instant, n: u64| {
@@ -155,7 +158,11 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
             let frame = frame_at(base, sent);
             let written = if let Format::Yuva { layout, hd } = &options.format {
                 sent += 1;
-                out.write_all(&frame.picture().yuva(layout, *hd))
+                let picture = match &held {
+                    Some((seq, picture)) if *seq == frame.seq => Arc::clone(picture),
+                    _ => Arc::clone(&held.insert((frame.seq, frame.picture())).1),
+                };
+                out.write_all(&picture.yuva(layout, *hd))
             } else if sent_seq != Some(frame.seq) {
                 sent_seq = Some(frame.seq);
                 sent += 1;
@@ -247,6 +254,32 @@ mod tests {
         assert_eq!(sent, 6);
         assert_eq!(out.len(), 6 * 20);
         assert!(out.chunks(20).all(|frame| frame[12 + 1] == 255));
+    }
+
+    #[test]
+    fn raw_stream_decodes_a_png_once_while_it_is_shown() {
+        use crate::frames::Decode;
+        use std::sync::atomic::AtomicUsize;
+        let decodes = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&decodes);
+        let decode: Arc<Decode> = Arc::new(move |_, _: &[u8]| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            Ok(vec![Rect { x: 0, y: 0, w: 1, h: 1, pixels: vec![255; 4] }])
+        });
+        let history = History::new(Duration::from_secs(5));
+        history.set_png(vec![1], Instant::now() - Duration::from_secs(2), &decode);
+        let control = Control::new(false);
+        let closer = Arc::clone(&control);
+        let timer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            closer.close();
+        });
+        let mut out = Vec::new();
+        let format = Format::Yuva { layout: Layout::whole(4, 2), hd: false };
+        let sent = stream_frames(&history, &mut out, &Options { fps: 25.0, lead_seconds: 0.2, format, air: None }, &control);
+        timer.join().unwrap();
+        assert!(sent >= 8, "sent {sent}");
+        assert_eq!(decodes.load(Ordering::Relaxed), 1);
     }
 
     /// Chromium draws every 40 ms; each picture arrives decoded 0–85 ms later.
