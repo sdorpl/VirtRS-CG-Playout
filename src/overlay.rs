@@ -20,11 +20,16 @@
 // With VIZRS_FFMPEG_PRESET a software encoder (libx264, libx265) without a
 // preset gets `-preset:v <preset>`: ErsatzTV's next streaming engine leaves
 // the preset of the FFmpeg profile out, so x264 runs at `medium`.
+// With VIZRS_FFMPEG_READRATE_CATCHUP an HLS playlist input read at `-readrate`
+// (ErsatzTV's MPEG-TS stream of a channel, read from its own HLS) gets
+// `-readrate_catchup <rate>`: without it ffmpeg never makes up a stall at the
+// live edge, so the stream falls further behind real time with every one.
 //
 //     VIZRS_CG_URL       sidecar, e.g. http://cg:7700 (empty: no overlay)
 //     VIZRS_FFMPEG       real ffmpeg (default /usr/local/bin/ffmpeg)
 //     VIZRS_FFMPEG_FPS   channel frame rate, e.g. 50 (empty: the media's rate)
 //     VIZRS_FFMPEG_PRESET  x264/x265 preset, e.g. veryfast (empty: ErsatzTV's)
+//     VIZRS_FFMPEG_READRATE_CATCHUP  catch-up rate of HLS inputs, e.g. 2 (empty: none)
 //
 // A static binary, so it runs in the ErsatzTV image of any architecture
 // without extra packages. A canvas over https goes to plain ffmpeg.
@@ -82,6 +87,8 @@ pub struct Settings {
     pub fps: String,
     /// Preset of software encoders without one; empty = ErsatzTV's.
     pub preset: String,
+    /// Catch-up rate of HLS playlist inputs read at `-readrate`; empty = ffmpeg's.
+    pub catchup: String,
 }
 
 impl Settings {
@@ -92,6 +99,7 @@ impl Settings {
             sidecar: var("VIZRS_CG_URL").trim_end_matches('/').to_owned(),
             fps: var("VIZRS_FFMPEG_FPS").trim().to_owned(),
             preset: var("VIZRS_FFMPEG_PRESET").trim().to_owned(),
+            catchup: var("VIZRS_FFMPEG_READRATE_CATCHUP").trim().to_owned(),
         }
     }
 }
@@ -247,9 +255,45 @@ pub fn with_preset(args: Vec<OsString>, preset: &str) -> Vec<OsString> {
     out
 }
 
-/// The command with the forced rate and preset, when set.
+/// An HLS playlist input read at `-readrate` without a catch-up rate gets
+/// `-readrate_catchup <rate>` after its `-readrate`.
+pub fn with_catchup(args: Vec<OsString>, rate: &str) -> Vec<OsString> {
+    if rate.is_empty() {
+        return args;
+    }
+    let mut out = Vec::with_capacity(args.len() + 2);
+    // Index in `out` after the value of the pending input's `-readrate`.
+    let mut readrate: Option<usize> = None;
+    let mut has_catchup = false;
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "-i" && i + 1 < args.len() {
+            let playlist = args[i + 1].to_str().is_some_and(|input| input.split('?').next().is_some_and(|path| path.ends_with(".m3u8")));
+            if let (Some(at), false, true) = (readrate, has_catchup, playlist) {
+                out.splice(at..at, ["-readrate_catchup".into(), rate.into()]);
+            }
+            out.extend([arg.clone(), args[i + 1].clone()]);
+            (readrate, has_catchup) = (None, false);
+            i += 2;
+            continue;
+        }
+        out.push(arg.clone());
+        if arg == "-readrate" && i + 1 < args.len() {
+            out.push(args[i + 1].clone());
+            readrate = Some(out.len());
+            i += 2;
+            continue;
+        }
+        has_catchup |= arg == "-readrate_catchup";
+        i += 1;
+    }
+    out
+}
+
+/// The command with the forced rate, preset and catch-up rate, when set.
 fn adjusted(args: Vec<OsString>, settings: &Settings) -> Vec<OsString> {
-    with_preset(with_rate(args, &settings.fps), &settings.preset)
+    with_catchup(with_preset(with_rate(args, &settings.fps), &settings.preset), &settings.catchup)
 }
 
 /// `/internal/graphics/<channel>/<item>`: the channel, still percent-encoded.
@@ -476,7 +520,7 @@ fn take_over(settings: &Settings, channel: &str, header_rate: &str, place: bool)
     Ok((frames, open_frames(&settings.sidecar, &path)?))
 }
 
-/// Replaces this process with the real ffmpeg (at the forced rate and preset, if any).
+/// Replaces this process with the real ffmpeg (at the forced rate, preset and catch-up rate, if any).
 fn plain(settings: &Settings, args: Vec<OsString>) -> ! {
     let error = Command::new(&settings.ffmpeg).args(adjusted(args, settings)).exec();
     log(format_args!("{}: {error}", settings.ffmpeg.to_string_lossy()));
@@ -485,7 +529,7 @@ fn plain(settings: &Settings, args: Vec<OsString>) -> ! {
 
 /// The overlay: `vizrs-ffmpeg <ffmpeg arguments>`; returns the exit code.
 pub fn run(settings: &Settings, args: Vec<OsString>) -> i32 {
-    // Not a canvas transcode: plain ffmpeg, at the forced rate and preset when set.
+    // Not a canvas transcode: plain ffmpeg, at the forced rate, preset and catch-up rate when set.
     let Some(canvas) = find_canvas(&args).filter(|_| !settings.sidecar.is_empty()) else { plain(settings, args) };
 
     let headers = parse_headers(&args[canvas.start..canvas.index]);
@@ -602,6 +646,41 @@ mod tests {
         assert_eq!(with_preset(nvenc.clone(), "superfast"), nvenc);
         let canvas = args(&["-f", "rawvideo", "-i", "pipe:0", "-c:v", "ffv1", "-f", "nut", "pipe:1"]);
         assert_eq!(with_preset(canvas.clone(), "superfast"), canvas);
+    }
+
+    #[test]
+    fn catchup_only_for_hls_inputs_at_a_readrate() {
+        let hybrid = "http://localhost:8409/iptv/channel/4.m3u8?mode=segmenter&subtitles=false";
+        let reader =
+            args(&["-nostdin", "-readrate", "1.0", "-readrate_initial_burst", "6", "-i", hybrid, "-c", "copy", "-f", "mpegts", "pipe:1"]);
+        assert_eq!(
+            with_catchup(reader.clone(), "2"),
+            args(&[
+                "-nostdin",
+                "-readrate",
+                "1.0",
+                "-readrate_catchup",
+                "2",
+                "-readrate_initial_burst",
+                "6",
+                "-i",
+                hybrid,
+                "-c",
+                "copy",
+                "-f",
+                "mpegts",
+                "pipe:1"
+            ])
+        );
+        assert_eq!(with_catchup(reader.clone(), ""), reader);
+        let own = args(&["-readrate", "1.0", "-readrate_catchup", "1.5", "-i", "a.m3u8", "-f", "mpegts", "o"]);
+        assert_eq!(with_catchup(own.clone(), "2"), own);
+        // The transcode of a media file, and a playlist read without a readrate.
+        let media =
+            args(&["-readrate", "1.0", "-i", "http://localhost:8409/internal/media/1?sig=x", "-i", "b.m3u8", "-f", "hls", "o.m3u8"]);
+        assert_eq!(with_catchup(media.clone(), "2"), media);
+        let second = args(&["-i", "a.mp4", "-readrate", "1", "-i", "b.m3u8", "o"]);
+        assert_eq!(with_catchup(second, "2"), args(&["-i", "a.mp4", "-readrate", "1", "-readrate_catchup", "2", "-i", "b.m3u8", "o"]));
     }
 
     #[test]

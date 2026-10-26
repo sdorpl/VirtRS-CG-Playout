@@ -311,7 +311,7 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
   assert.deepEqual((await runWrapper(["-version"], env)).args, ["-version"]);
 });
 
-test("ffmpeg overlay at a forced rate and preset: fps before the overlay, -r on the HLS output, -preset:v after libx264", async (t) => {
+test("ffmpeg overlay at a forced rate, preset and catch-up: fps before the overlay, -r on the HLS output, -preset:v after libx264, -readrate_catchup on HLS inputs", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
   const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
@@ -331,7 +331,7 @@ test("ffmpeg overlay at a forced rate and preset: fps before the overlay, -r on 
   writeFileSync(ffmpeg, FAKE_FFMPEG);
   chmodSync(ffmpeg, 0o755);
   const env = {
-    VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50", VIZRS_FFMPEG_PRESET: "superfast",
+    VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50", VIZRS_FFMPEG_PRESET: "superfast", VIZRS_FFMPEG_READRATE_CATCHUP: "2",
     FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "2",
   };
   const hls = ["-g", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"];
@@ -365,6 +365,13 @@ test("ffmpeg overlay at a forced rate and preset: fps before the overlay, -r on 
   assert.deepEqual((await runWrapper(canvasEncoder, env)).args, canvasEncoder);
   const copy = ["-i", "/m/News.mp4", "-c", "copy", ...hls];
   assert.deepEqual((await runWrapper(copy, env)).args, copy);
+  // ErsatzTV's MPEG-TS stream, read from its own HLS: catches up after a stall.
+  const playlist = "http://localhost:8409/iptv/channel/1.m3u8?mode=segmenter&subtitles=false";
+  const ts = ["-readrate", "1.0", "-readrate_initial_burst", "6", "-i", playlist, "-map", "0", "-c", "copy", "-f", "mpegts", "pipe:1"];
+  assert.deepEqual(
+    (await runWrapper(ts, env)).args,
+    ["-readrate", "1.0", "-readrate_catchup", "2", "-readrate_initial_burst", "6", "-i", playlist, "-map", "0", "-c", "copy", "-f", "mpegts", "pipe:1"],
+  );
 });
 
 test("graphics area: frames of the area overlaid at its place; full frames when the graph cannot place them", async (t) => {

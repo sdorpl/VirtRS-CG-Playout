@@ -207,7 +207,9 @@ ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄─
 ```
 
 1. Wywołanie bez wejścia płótna grafiki (`-i http://…/internal/graphics/<kanał>/<pozycja>`)
-   idzie do prawdziwego ffmpeg bez zmian (`exec`). Płótno z parametrem
+   idzie do prawdziwego ffmpeg bez zmian (`exec`; poza jawnie włączonymi
+   `VIZRS_FFMPEG_FPS`, `VIZRS_FFMPEG_PRESET`, `VIZRS_FFMPEG_READRATE_CATCHUP`
+   niżej). Płótno z parametrem
    `region` (same watermarki, bez elementu VizRS) też, podobnie płótno po
    `https` (ErsatzTV podaje `http://localhost`).
 2. Nakładka sama otwiera płótno z nagłówkami ErsatzTV i odczytuje je do
@@ -275,6 +277,27 @@ Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
 | `VIZRS_FFMPEG` | `/usr/local/bin/ffmpeg` | prawdziwy ffmpeg |
 | `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
 | `VIZRS_FFMPEG_PRESET` | – (compose A1: `veryfast`) | preset kodera programowego (libx264, libx265), np. `superfast`; puste = preset ErsatzTV |
+| `VIZRS_FFMPEG_READRATE_CATCHUP` | – (compose: `2`) | tempo nadrabiania strumienia MPEG-TS kanału po przestoju (`-readrate_catchup`); puste = bez nadrabiania |
+
+#### Nadrabianie strumienia MPEG-TS (`VIZRS_FFMPEG_READRATE_CATCHUP`)
+
+W trybie kanału MPEG-TS (TS hybrid) ErsatzTV czyta własne HLS kanału osobnym
+ffmpeg: `-readrate 1.0 -readrate_initial_burst 6 -i …/iptv/channel/N.m3u8?mode=segmenter
+-c copy -f mpegts`. ffmpeg 8 bez `-readrate_catchup` nie nadrabia przestoju:
+gdy czytnik dojdzie do krawędzi playlisty, stracony czas przepada na zawsze.
+Silnik next dzieli pozycje na kawałki po 44 s, a każdy kawałek startuje kilka
+sekund bez nowego segmentu (start ffmpeg, przewinięcie materiału), więc
+strumień `.ts` zostaje coraz bardziej za czasem rzeczywistym, a bufor
+odtwarzacza się wyczerpuje – widz widzi lagi i buforowanie, choć transkodowanie
+idzie 1×. Z `VIZRS_FFMPEG_READRATE_CATCHUP=2` nakładka dopisuje
+`-readrate_catchup 2` za `-readrate` wejścia, które jest playlistą HLS
+(`.m3u8`); po przestoju czytnik nadrabia do 2× i wraca do zapasu z
+`-readrate_initial_burst`. Transkodowanie materiałów (`-readrate` wejścia
+pliku) i komenda z własnym `-readrate_catchup` zostają bez zmian. Opcja wymaga
+ffmpeg 7.1 lub nowszego (obraz ErsatzTV ma 8.1). Pomiar 2026-10-26 (A1,
+kanał 1600×900@25, `4.ts`): bez nadrabiania strumień szedł 0,86–0,92× i po
+150 s był 11 s za zegarem; z `2` trzymał stały zapas +6 s (+4 s na chwilę
+przy zmianie kawałka).
 
 #### Preset kodera (`VIZRS_FFMPEG_PRESET`)
 

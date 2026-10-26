@@ -99,6 +99,9 @@ services:
       # x264/x265 preset added by the overlay, e.g. veryfast; empty = ErsatzTV's
       # (the next streaming engine passes none: x264 runs at medium).
       VIZRS_FFMPEG_PRESET: ${VIZRS_FFMPEG_PRESET:-}
+      # Catch-up rate of the MPEG-TS channel stream (ErsatzTV reads its own HLS at
+      # -readrate 1): without it each stall is lost and the stream lags. Empty = none.
+      VIZRS_FFMPEG_READRATE_CATCHUP: ${VIZRS_FFMPEG_READRATE_CATCHUP-2}
     volumes:
       # Holds templates/…/script/vizrs.yml, written by seed.
       - ersatztv-config:/config
