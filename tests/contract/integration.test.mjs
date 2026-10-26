@@ -311,7 +311,7 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
   assert.deepEqual((await runWrapper(["-version"], env)).args, ["-version"]);
 });
 
-test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS output", async (t) => {
+test("ffmpeg overlay at a forced rate and preset: fps before the overlay, -r on the HLS output, -preset:v after libx264", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
   const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
@@ -331,7 +331,7 @@ test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS out
   writeFileSync(ffmpeg, FAKE_FFMPEG);
   chmodSync(ffmpeg, 0o755);
   const env = {
-    VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50",
+    VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50", VIZRS_FFMPEG_PRESET: "superfast",
     FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "2",
   };
   const hls = ["-g", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"];
@@ -340,20 +340,26 @@ test("ffmpeg overlay at a forced rate: fps before the overlay, -r on the HLS out
   const overlay = await runWrapper([
     "-i", "/m/News.mp4", "-headers", "x-etv-frame-rate:25/1\r\n",
     "-i", `http://127.0.0.1:${etvPort}/internal/graphics/1/7?exp=1&sig=x`,
-    "-filter_complex", filter, "-map", "[v_o0]", ...hls,
+    "-filter_complex", filter, "-map", "[v_o0]", "-vcodec", "libx264", ...hls,
   ], env);
   const pipe = overlay.args.find((arg) => arg.startsWith("pipe:"));
   assert.deepEqual(overlay.args, [
     "-i", "/m/News.mp4",
     "-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", "8x4", "-framerate", "50", "-i", pipe,
     "-filter_complex", "[0:0]scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay=x=0:y=0[v_o0]",
-    "-map", "[v_o0]", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8",
+    "-map", "[v_o0]", "-vcodec", "libx264", "-preset:v", "superfast", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8",
   ]);
   assert.equal(overlay.read, 2 * yuvaSize(8, 4));
   assert.equal((await cg.health()).captures[0].fps, 50, "the capture follows the overlay's rate");
 
-  // Items without the canvas: only the output rate.
-  assert.deepEqual((await runWrapper(["-i", "/m/Ad.mp4", ...hls], env)).args, ["-i", "/m/Ad.mp4", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"]);
+  // Items without the canvas: the output rate and the preset.
+  assert.deepEqual(
+    (await runWrapper(["-i", "/m/Ad.mp4", "-vcodec", "libx264", ...hls], env)).args,
+    ["-i", "/m/Ad.mp4", "-vcodec", "libx264", "-preset:v", "superfast", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"],
+  );
+  // A preset of ErsatzTV's own stays.
+  const own = ["-i", "/m/Ad.mp4", "-vcodec", "libx264", "-preset:v", "veryfast", "-f", "null", "-"];
+  assert.deepEqual((await runWrapper(own, env)).args, own);
   // Not a transcode to HLS (the canvas encoder, copies): unchanged.
   const canvasEncoder = ["-f", "rawvideo", "-i", "pipe:0", "-c:v", "ffv1", "-f", "nut", "pipe:1"];
   assert.deepEqual((await runWrapper(canvasEncoder, env)).args, canvasEncoder);

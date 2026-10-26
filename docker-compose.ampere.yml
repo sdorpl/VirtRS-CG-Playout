@@ -5,9 +5,11 @@
 #
 # The sidecar image (amd64 + arm64) comes from CI (tags v*). Without a
 # published image, add --build to `up`: it builds on the A1 itself.
-# There is no hardware encoder, so ErsatzTV encodes with libx264 on the CPU;
-# in its FFmpeg profile use Hardware Acceleration: None and preset veryfast
-# (or superfast for several channels / 1080p50).
+# There is no hardware encoder, so ErsatzTV encodes with libx264 on the CPU
+# (FFmpeg profile: Hardware Acceleration None). The next streaming engine
+# ignores the profile's preset (x264 would run at medium, too slow here), so
+# the ffmpeg overlay sets it: VIZRS_FFMPEG_PRESET, veryfast by default
+# (superfast for several channels, 1080p50/60 media or a continuous ticker).
 #
 # CPU split for 4 OCPUs: the sidecar (Chromium, PNG decode, scaling) is
 # capped so ffmpeg keeps most of the cores. With the ffmpeg overlay ffmpeg
@@ -40,6 +42,8 @@ services:
     platform: linux/arm64
     # Higher CPU priority than the graphics when the cores are busy.
     cpu_shares: 2048
+    environment:
+      VIZRS_FFMPEG_PRESET: ${VIZRS_FFMPEG_PRESET:-veryfast}
     tmpfs: !override
       # HLS segments in RAM (24 GB on the free shape); keeps the boot volume idle.
       - /transcode:size=${TRANSCODE_TMPFS:-4g}

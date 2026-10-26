@@ -17,10 +17,14 @@
 // With VIZRS_FFMPEG_FPS every transcode to HLS runs at that rate (ErsatzTV
 // takes the rate from the media): the video gets `fps=N` before the graphics
 // overlay, so the graphics move at N frames per second, and the output `-r N`.
+// With VIZRS_FFMPEG_PRESET a software encoder (libx264, libx265) without a
+// preset gets `-preset:v <preset>`: ErsatzTV's next streaming engine leaves
+// the preset of the FFmpeg profile out, so x264 runs at `medium`.
 //
 //     VIZRS_CG_URL       sidecar, e.g. http://cg:7700 (empty: no overlay)
 //     VIZRS_FFMPEG       real ffmpeg (default /usr/local/bin/ffmpeg)
 //     VIZRS_FFMPEG_FPS   channel frame rate, e.g. 50 (empty: the media's rate)
+//     VIZRS_FFMPEG_PRESET  x264/x265 preset, e.g. veryfast (empty: ErsatzTV's)
 //
 // A static binary, so it runs in the ErsatzTV image of any architecture
 // without extra packages. A canvas over https goes to plain ffmpeg.
@@ -45,6 +49,8 @@ use crate::sys;
 const DEFAULT_FFMPEG: &str = "/usr/local/bin/ffmpeg";
 const CLAIM_WAIT_MS: u32 = 2000;
 const SCRIPT_END: Duration = Duration::from_millis(500);
+const CODEC: [&str; 3] = ["-vcodec", "-c:v", "-codec:v"];
+const PRESET_ENCODERS: [&str; 2] = ["libx264", "libx265"];
 const COPY: [(&str, &str); 4] = [("-c", "copy"), ("-c:v", "copy"), ("-vcodec", "copy"), ("-codec:v", "copy")];
 // Options of the canvas input that do not apply to the raw frames.
 const DROP_WITH_VALUE: [&str; 16] = [
@@ -74,6 +80,8 @@ pub struct Settings {
     pub sidecar: String,
     /// Forced channel frame rate; empty = the media's.
     pub fps: String,
+    /// Preset of software encoders without one; empty = ErsatzTV's.
+    pub preset: String,
 }
 
 impl Settings {
@@ -83,6 +91,7 @@ impl Settings {
             ffmpeg: std::env::var_os("VIZRS_FFMPEG").unwrap_or_else(|| DEFAULT_FFMPEG.into()),
             sidecar: var("VIZRS_CG_URL").trim_end_matches('/').to_owned(),
             fps: var("VIZRS_FFMPEG_FPS").trim().to_owned(),
+            preset: var("VIZRS_FFMPEG_PRESET").trim().to_owned(),
         }
     }
 }
@@ -220,6 +229,29 @@ pub fn with_rate(args: Vec<OsString>, fps: &str) -> Vec<OsString> {
     out
 }
 
+/// A software video encoder without a preset gets `-preset:v <preset>`.
+pub fn with_preset(args: Vec<OsString>, preset: &str) -> Vec<OsString> {
+    let has_preset = args.iter().any(|a| a.to_str().is_some_and(|a| a == "-preset" || a.starts_with("-preset:")));
+    if preset.is_empty() || has_preset {
+        return args;
+    }
+    let mut out = Vec::with_capacity(args.len() + 2);
+    let mut previous: Option<&OsString> = None;
+    for arg in &args {
+        out.push(arg.clone());
+        if previous.is_some_and(|p| CODEC.iter().any(|c| p == c)) && PRESET_ENCODERS.iter().any(|e| arg == e) {
+            out.extend(["-preset:v".into(), preset.into()]);
+        }
+        previous = Some(arg);
+    }
+    out
+}
+
+/// The command with the forced rate and preset, when set.
+fn adjusted(args: Vec<OsString>, settings: &Settings) -> Vec<OsString> {
+    with_preset(with_rate(args, &settings.fps), &settings.preset)
+}
+
 /// `/internal/graphics/<channel>/<item>`: the channel, still percent-encoded.
 fn canvas_channel(path: &str) -> Option<&str> {
     let (channel, item) = path.strip_prefix("/internal/graphics/")?.split_once('/')?;
@@ -286,7 +318,7 @@ pub struct Frames {
 }
 
 /// The command with the canvas input replaced by raw frames from `pipe:<fd>`.
-pub fn overlay_args(args: &[OsString], canvas: &Canvas, fd: i32, frames: &Frames, fps: &str) -> Vec<OsString> {
+pub fn overlay_args(args: &[OsString], canvas: &Canvas, fd: i32, frames: &Frames) -> Vec<OsString> {
     let options = &args[canvas.start..canvas.index];
     let mut out: Vec<OsString> = args[..canvas.start].to_vec();
     let mut i = 0;
@@ -307,7 +339,7 @@ pub fn overlay_args(args: &[OsString], canvas: &Canvas, fd: i32, frames: &Frames
     if !frames.areas.is_empty() && !at_origin {
         out = with_areas(&out, input_number(args, canvas.index), &frames.areas).unwrap_or(out);
     }
-    with_rate(out, fps)
+    out
 }
 
 /// `application/x-www-form-urlencoded` value, as `urllib.parse.urlencode`.
@@ -444,16 +476,16 @@ fn take_over(settings: &Settings, channel: &str, header_rate: &str, place: bool)
     Ok((frames, open_frames(&settings.sidecar, &path)?))
 }
 
-/// Replaces this process with the real ffmpeg (at the forced rate, if any).
+/// Replaces this process with the real ffmpeg (at the forced rate and preset, if any).
 fn plain(settings: &Settings, args: Vec<OsString>) -> ! {
-    let error = Command::new(&settings.ffmpeg).args(with_rate(args, &settings.fps)).exec();
+    let error = Command::new(&settings.ffmpeg).args(adjusted(args, settings)).exec();
     log(format_args!("{}: {error}", settings.ffmpeg.to_string_lossy()));
     std::process::exit(127)
 }
 
 /// The overlay: `vizrs-ffmpeg <ffmpeg arguments>`; returns the exit code.
 pub fn run(settings: &Settings, args: Vec<OsString>) -> i32 {
-    // Not a canvas transcode: plain ffmpeg, at the forced rate when set.
+    // Not a canvas transcode: plain ffmpeg, at the forced rate and preset when set.
     let Some(canvas) = find_canvas(&args).filter(|_| !settings.sidecar.is_empty()) else { plain(settings, args) };
 
     let headers = parse_headers(&args[canvas.start..canvas.index]);
@@ -474,7 +506,7 @@ pub fn run(settings: &Settings, args: Vec<OsString>) -> i32 {
     // Forwarded to ffmpeg from here on; the child starts with them unblocked.
     sys::block_signals(&FORWARDED);
     let mut command = Command::new(&settings.ffmpeg);
-    command.args(overlay_args(&args, &canvas, fd, &frames, &settings.fps));
+    command.args(adjusted(overlay_args(&args, &canvas, fd, &frames), settings));
     // SAFETY: only async-signal-safe calls in the forked child.
     unsafe {
         command.pre_exec(move || sys::ffmpeg_child_setup(fd));
@@ -552,6 +584,24 @@ mod tests {
         assert_eq!(with_rate(hls.clone(), ""), hls);
         let copy = args(&["-i", "a", "-c:v", "copy", "-f", "hls", "o"]);
         assert_eq!(with_rate(copy.clone(), "50"), copy);
+    }
+
+    #[test]
+    fn preset_only_for_software_encoders_without_one() {
+        let x264 = args(&["-i", "a", "-vcodec", "libx264", "-b:v", "1500k", "-f", "hls", "o"]);
+        assert_eq!(
+            with_preset(x264.clone(), "superfast"),
+            args(&["-i", "a", "-vcodec", "libx264", "-preset:v", "superfast", "-b:v", "1500k", "-f", "hls", "o"])
+        );
+        assert_eq!(with_preset(x264.clone(), ""), x264);
+        let x265 = args(&["-i", "a", "-c:v", "libx265", "o"]);
+        assert_eq!(with_preset(x265, "veryfast"), args(&["-i", "a", "-c:v", "libx265", "-preset:v", "veryfast", "o"]));
+        let own = args(&["-i", "a", "-vcodec", "libx264", "-preset:v", "medium", "o"]);
+        assert_eq!(with_preset(own.clone(), "superfast"), own);
+        let nvenc = args(&["-i", "a", "-vcodec", "h264_nvenc", "o"]);
+        assert_eq!(with_preset(nvenc.clone(), "superfast"), nvenc);
+        let canvas = args(&["-f", "rawvideo", "-i", "pipe:0", "-c:v", "ffv1", "-f", "nut", "pipe:1"]);
+        assert_eq!(with_preset(canvas.clone(), "superfast"), canvas);
     }
 
     #[test]

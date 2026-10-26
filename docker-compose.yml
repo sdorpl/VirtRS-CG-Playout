@@ -96,6 +96,9 @@ services:
       VIZRS_CG_URL: ${VIZRS_CG_URL-http://cg:7700}
       # Channel frame rate forced by the overlay, e.g. 50; empty = the media's rate.
       VIZRS_FFMPEG_FPS: ${VIZRS_FFMPEG_FPS:-}
+      # x264/x265 preset added by the overlay, e.g. veryfast; empty = ErsatzTV's
+      # (the next streaming engine passes none: x264 runs at medium).
+      VIZRS_FFMPEG_PRESET: ${VIZRS_FFMPEG_PRESET:-}
     volumes:
       # Holds templates/…/script/vizrs.yml, written by seed.
       - ersatztv-config:/config

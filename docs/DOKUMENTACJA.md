@@ -274,6 +274,19 @@ Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
 | `VIZRS_CG_URL` | – (compose: `http://cg:7700`) | adres sidecara; puste = nakładka tylko przekazuje wywołania do ffmpeg |
 | `VIZRS_FFMPEG` | `/usr/local/bin/ffmpeg` | prawdziwy ffmpeg |
 | `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
+| `VIZRS_FFMPEG_PRESET` | – (compose A1: `veryfast`) | preset kodera programowego (libx264, libx265), np. `superfast`; puste = preset ErsatzTV |
+
+#### Preset kodera (`VIZRS_FFMPEG_PRESET`)
+
+Silnik strumieniowania next (`Channel.StreamingEngine = 1`, wymagany przez
+nakładkę) nie przekazuje do ffmpeg presetu ani profilu z profilu FFmpeg
+ErsatzTV. Bez sprzętowego kodera x264 koduje wtedy w presecie `medium`, za
+wolnym na A1 (§4). Z `VIZRS_FFMPEG_PRESET=veryfast` nakładka dopisuje
+`-preset:v veryfast` zaraz po `-vcodec libx264` (albo `libx265`) w każdym
+wywołaniu, także bez grafiki VizRS. Komenda, która ma już `-preset`, i kodery
+sprzętowe (NVENC, VAAPI) zostają bez zmian. Sprawdzenie: nagłówek x264
+w strumieniu (`grep -a -o "x264 - core.\{0,400\}"` na nagranym `.ts`) pokazuje
+`subme=7 … trellis=1` przy `medium`, `subme=2` przy `veryfast`, `subme=1` przy `superfast`.
 
 #### Klatkaż kanału (`VIZRS_FFMPEG_FPS`)
 
@@ -561,9 +574,13 @@ ostrości), ogranicza animacje do 25 kl./s
 wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
 sprzętowego kodera: w profilu FFmpeg ErsatzTV ustaw **Hardware Acceleration:
-None**, libx264, preset `veryfast` (`superfast` przy kilku kanałach albo
-1080p50). Na darmowym kształcie 4 OCPU realnie jeden kanał 1080p albo dwa
-720p transkodowane jednocześnie. Otwórz porty w liście bezpieczeństwa VCN
+None**, libx264. Preset ustawia nakładka (`VIZRS_FFMPEG_PRESET`, w compose
+A1 domyślnie `veryfast`; §1), bo silnik next pomija preset z profilu.
+`superfast` daje przy kilku kanałach, materiałach 1080p50/60 albo ciągłym
+tickerze. Przy materiałach o różnym klatkażu (np. 25 i 60 kl./s) włącz
+w profilu **Normalize Framerate**: silnik next wstawia wtedy `fps` przed
+skalowaniem i nie skaluje zbędnych klatek. Na darmowym kształcie 4 OCPU
+realnie jeden kanał 1080p albo dwa 720p transkodowane jednocześnie. Otwórz porty w liście bezpieczeństwa VCN
 i w zaporze maszyny (`firewalld`/`iptables`).
 
 Grafika na A1 kosztuje głównie przy animacji: przesuwający się pasek 1080p
@@ -571,11 +588,13 @@ to ok. 2 rdzenie Chromium (pomiar na x86); obraz statyczny (logo, plansza,
 zegar co sekundę) prawie nic nie kosztuje. Z nakładką ffmpeg ciągła animacja
 przy zbyt niskim `CG_CPUS` spowalnia transkodowanie (ffmpeg czeka na klatki
 grafiki, §1). Pomiar na 4 OCPU, kanał 1080p25, przewijany ticker w VizRS,
-render 720p: z presetem x264 `medium` (pusty preset w profilu) kanał szedł
-ok. 0,5× czasu rzeczywistego, z `superfast` i sidecarem 1,5 CPU ok. 0,8–1×
-(sidecar dławiony ok. 30% czasu); stąd domyślne 2 CPU i szybsze skalowanie
-od wersji 2.1.4. Ustaw preset w profilu FFmpeg jawnie – puste pole to
-`medium`, za wolne na A1. Bez widzów przechwytywanie stoi (§1). Lżejsze
+render 720p: z presetem x264 `medium` kanał szedł ok. 0,5× czasu
+rzeczywistego, z `superfast` i sidecarem 1,5 CPU ok. 0,8–1× (sidecar dławiony
+ok. 30% czasu); stąd domyślne 2 CPU i szybsze skalowanie od wersji 2.1.4.
+Pomiar 2026-10-26 (kanał 1600×900@25 na silniku next, materiały 720p25
+i 1080p60, ticker, render 720p): `medium` (preset z profilu pominięty)
+0,7–0,85×, ErsatzTV ok. 2,5 rdzenia; `VIZRS_FFMPEG_PRESET=veryfast`
+0,92–1×, 1,6 rdzenia; `superfast` z Normalize Framerate ≥1×, 1,3 rdzenia. Bez widzów przechwytywanie stoi (§1). Lżejsze
 `/output` (mniej ciągłych animacji, mniejsze rozmiary kanału) daje więcej
 niż podnoszenie `CG_CPUS`.
 
