@@ -208,8 +208,8 @@ ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄─
 
 1. Wywołanie bez wejścia płótna grafiki (`-i http://…/internal/graphics/<kanał>/<pozycja>`)
    idzie do prawdziwego ffmpeg bez zmian (`exec`; poza jawnie włączonymi
-   `VIZRS_FFMPEG_FPS`, `VIZRS_FFMPEG_PRESET`, `VIZRS_FFMPEG_READRATE_CATCHUP`
-   niżej). Płótno z parametrem
+   `VIZRS_FFMPEG_FPS`, `VIZRS_FFMPEG_PRESET`, `VIZRS_FFMPEG_READRATE_CATCHUP`,
+   `VIZRS_FFMPEG_FPS_BLEND` niżej). Płótno z parametrem
    `region` (same watermarki, bez elementu VizRS) też, podobnie płótno po
    `https` (ErsatzTV podaje `http://localhost`).
 2. Nakładka sama otwiera płótno z nagłówkami ErsatzTV i odczytuje je do
@@ -278,6 +278,7 @@ Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
 | `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
 | `VIZRS_FFMPEG_PRESET` | – (compose A1: `veryfast`) | preset kodera programowego (libx264, libx265), np. `superfast`; puste = preset ErsatzTV |
 | `VIZRS_FFMPEG_READRATE_CATCHUP` | – (compose: `2`) | tempo nadrabiania strumienia MPEG-TS kanału po przestoju (`-readrate_catchup`); puste = bez nadrabiania |
+| `VIZRS_FFMPEG_FPS_BLEND` | – (compose: `1`) | `1` = zmiana klatkażu materiału z mieszaniem klatek (`framerate` zamiast `fps`); puste = `fps` |
 
 #### Nadrabianie strumienia MPEG-TS (`VIZRS_FFMPEG_READRATE_CATCHUP`)
 
@@ -298,6 +299,23 @@ ffmpeg 7.1 lub nowszego (obraz ErsatzTV ma 8.1). Pomiar 2026-10-26 (A1,
 kanał 1600×900@25, `4.ts`): bez nadrabiania strumień szedł 0,86–0,92× i po
 150 s był 11 s za zegarem; z `2` trzymał stały zapas +6 s (+4 s na chwilę
 przy zmianie kawałka).
+
+#### Płynna zmiana klatkażu (`VIZRS_FFMPEG_FPS_BLEND`)
+
+Kanał 25 kl./s z materiałem 60 kl./s (albo 30, 29,97) dostaje od ErsatzTV
+(**Normalize Framerate**) filtr `fps=25`: bierze on na przemian co 2. i co 3.
+klatkę źródła, więc klatki wychodzą równo co 40 ms, ale ruch skacze o 33
+i 50 ms – przy ruchu kamery obraz wyraźnie „laguje” (judder), choć strumień
+jest technicznie równy. Z `VIZRS_FFMPEG_FPS_BLEND=1` nakładka zmienia
+w transkodowaniu do HLS pierwszy filtr łańcucha wideo materiału
+`[0:0]fps=25,…` na `[0:0]framerate=fps=25,…`: klatka wyjściowa leżąca między
+dwiema klatkami źródła jest ich mieszanką ważoną czasem, więc ruch jest
+równy (z lekką smugą przy szybkim ruchu). Klatki, które trafiają dokładnie
+w klatkę wyjścia (materiał 25 albo 50 kl./s), i cięcia scen przechodzą bez
+mieszania. Inne użycia `fps` (np. to z `VIZRS_FFMPEG_FPS` przed nakładaniem
+grafiki) i `fps` z opcjami zostają bez zmian. Pomiar 2026-10-26 (A1,
+20 s materiału 1080p60 → 1600×900@25, x264 `superfast`): 23,2 s CPU z `fps`,
+23,6 s z `framerate` (+2%).
 
 #### Preset kodera (`VIZRS_FFMPEG_PRESET`)
 

@@ -353,7 +353,7 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
   assert.deepEqual((await runWrapper(["-version"], env)).args, ["-version"]);
 });
 
-test("ffmpeg overlay at a forced rate, preset and catch-up: fps before the overlay, -r on the HLS output, -preset:v after libx264, -readrate_catchup on HLS inputs", async (t) => {
+test("ffmpeg overlay at a forced rate, blending, preset and catch-up: fps before the overlay, -r on the HLS output, framerate for the media rate, -preset:v after libx264, -readrate_catchup on HLS inputs", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
   const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0.4 });
@@ -374,10 +374,10 @@ test("ffmpeg overlay at a forced rate, preset and catch-up: fps before the overl
   chmodSync(ffmpeg, 0o755);
   const env = {
     VIZRS_FFMPEG: ffmpeg, VIZRS_CG_URL: cg.url, VIZRS_FFMPEG_FPS: "50", VIZRS_FFMPEG_PRESET: "superfast", VIZRS_FFMPEG_READRATE_CATCHUP: "2",
-    FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "2",
+    VIZRS_FFMPEG_FPS_BLEND: "1", FRAME_BYTES: String(yuvaSize(8, 4)), FRAMES: "2",
   };
   const hls = ["-g", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8"];
-  const filter = "[0:0]scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=x=0:y=0[v_o0]";
+  const filter = "[0:0]fps=25,scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=x=0:y=0[v_o0]";
 
   const overlay = await runWrapper([
     "-i", "/m/News.mp4", "-headers", "x-etv-frame-rate:25/1\r\n",
@@ -388,7 +388,7 @@ test("ffmpeg overlay at a forced rate, preset and catch-up: fps before the overl
   assert.deepEqual(overlay.args, [
     "-i", "/m/News.mp4",
     "-f", "rawvideo", "-pix_fmt", "yuva420p", "-video_size", "8x4", "-framerate", "50", "-i", pipe,
-    "-filter_complex", "[0:0]scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay=x=0:y=0[v_o0]",
+    "-filter_complex", "[0:0]framerate=fps=25,scale=8:4[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay=x=0:y=0[v_o0]",
     "-map", "[v_o0]", "-vcodec", "libx264", "-preset:v", "superfast", "-g", "50", "-r", "50", "-f", "hls", "-hls_time", "4", "/t/ffmpeg.m3u8",
   ]);
   assert.equal(overlay.read, 2 * yuvaSize(8, 4));

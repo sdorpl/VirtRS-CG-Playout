@@ -106,6 +106,9 @@ services:
       # Catch-up rate of the MPEG-TS channel stream (ErsatzTV reads its own HLS at
       # -readrate 1): without it each stall is lost and the stream lags. Empty = none.
       VIZRS_FFMPEG_READRATE_CATCHUP: ${VIZRS_FFMPEG_READRATE_CATCHUP-2}
+      # 1 = the media's frame rate conversion blends frames (framerate instead of
+      # fps): 60/30 fps media on a 25 fps channel move evenly. Empty = fps.
+      VIZRS_FFMPEG_FPS_BLEND: ${VIZRS_FFMPEG_FPS_BLEND-1}
     volumes:
       # Holds templates/…/script/vizrs.yml, written by seed.
       - ersatztv-config:/config
