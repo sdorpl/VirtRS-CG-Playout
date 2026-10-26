@@ -411,17 +411,20 @@ impl Server {
         );
 
         // Commands go out in the background; frames start at once.
+        let page = request.param("page").or_else(|| request.param("take"));
         let custom_commands = if let Some(cmd) = request.param("cmd").or_else(|| request.param("command")) {
             Some(vec![cmd.to_owned()])
-        } else if let Some(take) = request.param("page").or_else(|| request.param("take")) {
+        } else if let Some(take) = page {
             let fields = request.param("fields").map(|f| format!(" {f}")).unwrap_or_default();
             Some(vec![format!("TAKE {take}{fields}")])
         } else {
             None
         };
+        // A page element is timed to its item and taken out before its end; a `cmd` is not.
+        let page = page.filter(|_| request.param("cmd").or_else(|| request.param("command")).is_none());
 
         let events = self.events_for(&channel);
-        events.session(&ctx, custom_commands.as_deref());
+        events.session(&ctx, custom_commands.as_deref(), page);
 
         let spec = request.param("render").unwrap_or(&self.config.render_size).to_owned();
         let area = request.param("area").unwrap_or(&self.config.area).to_owned();

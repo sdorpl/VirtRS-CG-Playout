@@ -95,20 +95,32 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   assert.equal((await cg.health()).sessions, 0, "every session ended");
 });
 
-test("element-specific script session executes custom take and fields", async (t) => {
+test("page elements: TAKE page_in_seconds after the item's start, OUT page_out_seconds before its stop", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
   const cg = await sidecar(t, {
     vizrs: { address: vizrs.address, token: "" },
     on_clip: "TAKE 4001",
     lead_seconds: 0,
+    page_in_seconds: 0.8,
+  }, { VIZRS_PAGE_OUT_SECONDS: "0.3" });
+  const now = Date.now();
+  const timed = (path, length) => ({
+    ...item(path, new Date(now).toISOString()),
+    MediaItem_Stop: new Date(now + length).toISOString(),
   });
   // Client with &take=7303
-  await runClient(`${cg.url}/etv?channel=1&take=7303`, item("/m/Clip1.mp4", "2026-10-24T20:00:00+02:00"), 300);
-  // Client with &take=1001&fields=headline={title}
-  await runClient(`${cg.url}/etv?channel=1&take=1001&fields=headline={title}`, item("/m/Clip2.mp4", "2026-10-24T21:00:00+02:00"), 300);
-  await sleep(100);
-  assert.deepEqual(vizrs.received, ["TAKE 7303", "TAKE 1001 headline=Clip2"]);
+  await runClient(`${cg.url}/etv?channel=1&take=7303`, timed("/m/Clip1.mp4", 2500), 100);
+  // Client with &page=1001&fields=headline={title}
+  await runClient(`${cg.url}/etv?channel=1&page=1001&fields=headline={title}`, timed("/m/Clip2.mp4", 2500), 100);
+  assert.deepEqual(vizrs.received, [], "nothing before page_in_seconds");
+  // Past items and items shorter than in + out never go on air.
+  await runClient(`${cg.url}/etv?channel=1&take=5001`, item("/m/Old.mp4", "2026-10-24T20:00:00+02:00"), 100);
+  await runClient(`${cg.url}/etv?channel=1&take=5002`, timed("/m/Short.mp4", 500), 100);
+  await sleep(now + 1300 - Date.now());
+  assert.deepEqual([...vizrs.received].sort(), ["TAKE 1001 headline=Clip2", "TAKE 7303"]);
+  await sleep(now + 2500 - Date.now());
+  assert.deepEqual(vizrs.received.slice(2).sort(), ["OUT 1001", "OUT 7303"]);
 });
 
 test("render size: config default, per-channel override, one capture per size pair", async (t) => {

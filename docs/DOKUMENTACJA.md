@@ -461,6 +461,22 @@ gotowe pliki `.yml` (`page-<ID>.yml`). Każda strona pojawia się jako osobna
 pozycja w menu ErsatzTV (**Schedules → pozycja → Graphics Elements**),
 co pozwala zaznaczyć dowolną kombinację grafik dla każdej audycji z osobna.
 
+Element strony (`page=`/`take=`) jest wiązany z czasem pozycji
+w harmonogramie (`MediaItem_Start`, `MediaItem_Stop`):
+
+- **IN**: `TAKE <ID>` idzie `page_in_seconds` (domyślnie 10 s) po starcie
+  pozycji; widz dołączający później wywołuje go od razu,
+- **OUT**: `OUT <ID>` idzie `page_out_seconds` (domyślnie 10 s) przed jej
+  końcem.
+
+Kolejne sesje tej samej pozycji (ErsatzTV transkoduje ją kawałkami, widzowie
+dołączają) nie planują strony ponownie; kilka elementów stron na jednej
+pozycji planuje się niezależnie. Pozycja krótsza niż `page_in_seconds` +
+`page_out_seconds` albo już w ostatnich `page_out_seconds` nie dostaje
+strony wcale. Bez czasów pozycji w danych ErsatzTV `TAKE` idzie od razu, bez
+`OUT`. Pozycja rozpoznana jako reklama (`ad_match`) dostaje `on_ad` jak
+zwykle. Element z `cmd=` nie jest planowany – komenda idzie od razu.
+
 ## 4. Uruchamianie w Dockerze
 
 ```sh
@@ -716,6 +732,8 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "ad_match": { "path": "/reklamy/", "title": "" },
   "shows": [],
   "ad_without_element": true,
+  "page_in_seconds": 10,
+  "page_out_seconds": 10,
   "lead_seconds": 4,
   "render_size": "",
   "area": "",
@@ -731,7 +749,8 @@ Pusty `output_url` = tylko komendy, bez wtapiania. Wzór: `config.example.json`.
 Zmienne środowiskowe (nadpisują plik): `LISTEN`, `VIZRS_ADDRESS`,
 `VIZRS_TOKEN`, `VIZRS_OUTPUT_URL`, `VIZRS_ON_CLIP`, `VIZRS_ON_AD`
 (`\n` rozdziela linie), `VIZRS_AD_PATH`, `VIZRS_AD_TITLE`, `VIZRS_AD_WITHOUT_ELEMENT=0`
-(wyłącza reklamę po braku elementu), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
+(wyłącza reklamę po braku elementu), `VIZRS_PAGE_IN_SECONDS`,
+`VIZRS_PAGE_OUT_SECONDS` (IN i OUT elementów stron, §3), `LEAD_SECONDS`, `VIZRS_RENDER_SIZE`
 (`720p`, `1280x720`, puste = rozmiar kanału; §1), `VIZRS_AREA` (obszary
 grafiki `SZERxWYS+X+Y` po przecinku, np. `1920x140+0+930,160x160+1690+30`,
 puste = cały kanał; §1), `VIZRS_MAX_FPS`
@@ -743,8 +762,8 @@ kanału), `VIZRS_CAPTURE_MODE` (`frames` albo `screencast`, niżej),
 
 Nieznana opcja w pliku trafia do logu jako ostrzeżenie. Zły typ wartości
 (np. `"no_sandbox": "yes"`) zatrzymuje start z nazwą opcji; liczbę można
-podać także jako tekst (`"lead_seconds": "6"`). `LEAD_SECONDS`
-i `VIZRS_MAX_FPS`, które nie są liczbą, dają ostrzeżenie i zostawiają
+podać także jako tekst (`"lead_seconds": "6"`). `LEAD_SECONDS`,
+`VIZRS_PAGE_IN_SECONDS`, `VIZRS_PAGE_OUT_SECONDS` i `VIZRS_MAX_FPS`, które nie są liczbą, dają ostrzeżenie i zostawiają
 poprzednią wartość.
 
 `max_fps` ogranicza, ile klatek na sekundę Chromium wysyła ze screencastu

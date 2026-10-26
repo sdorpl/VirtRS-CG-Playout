@@ -62,6 +62,9 @@ services:
       VIZRS_AD_PATH: ${VIZRS_AD_PATH:-/(ads|commercials|reklamy)/}
       # Schedule items without the VizRS element count as ads (0 = off).
       VIZRS_AD_WITHOUT_ELEMENT: ${VIZRS_AD_WITHOUT_ELEMENT:-1}
+      # Page elements (&page=ID): TAKE this long after the item's start, OUT this long before its end.
+      VIZRS_PAGE_IN_SECONDS: ${VIZRS_PAGE_IN_SECONDS:-10}
+      VIZRS_PAGE_OUT_SECONDS: ${VIZRS_PAGE_OUT_SECONDS:-10}
       # Player buffer vs. graphics delay: ErsatzTV may run this far ahead of the clock.
       LEAD_SECONDS: ${LEAD_SECONDS:-4}
       # Graphics render size, scaled to the channel: "" = channel size, 720p, 1280x720, 1080p.

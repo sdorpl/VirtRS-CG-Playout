@@ -1,6 +1,8 @@
 // VizRS TCP client (line protocol, default port 6100) and the per-channel
 // logic of clip and ad events: ads are played without graphics, the pages
-// taken out come back with the first regular clip.
+// taken out come back with the first regular clip. A page element of its own
+// (`page=`/`take=`) goes on air `page_in_seconds` after its item's start and
+// out `page_out_seconds` before its end.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -124,6 +126,11 @@ struct Batch {
 
 struct State {
     last_key: Option<String>,
+    /// The item of the latest session (or the ad after it), for the gap check.
+    last_item: Option<String>,
+    /// Page elements scheduled, with their item's stop (epoch ms): the next
+    /// pieces of the same item do not schedule them again.
+    pages: Vec<(String, i64)>,
     active: usize,
     /// Bumped by every session start and end: a pending gap check of an older
     /// generation does nothing (the `clearTimeout` of the Node.js build).
@@ -157,7 +164,7 @@ impl ChannelEvents {
             config,
             ads,
             shows,
-            state: Mutex::new(State { last_key: None, active: 0, gap_generation: 0 }),
+            state: Mutex::new(State { last_key: None, last_item: None, pages: Vec::new(), active: 0, gap_generation: 0 }),
             queue: Mutex::new(queue),
         })
     }
@@ -166,19 +173,25 @@ impl ChannelEvents {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    fn sender(&self) -> Sender<Batch> {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     fn enqueue(&self, batch: Batch) {
-        let _ = self.queue.lock().unwrap_or_else(|e| e.into_inner()).send(batch);
+        let _ = self.sender().send(batch);
     }
 
     /// A script session of the channel starts; call `ended` when it is over.
-    /// `custom_commands` overrides on_clip for this specific session (e.g. from ?take=ID&fields=...).
-    pub fn session(&self, ctx: &ClipContext, custom_commands: Option<&[String]>) {
+    /// `custom_commands` overrides on_clip for this specific session (e.g. from ?take=ID&fields=...);
+    /// with `page` (the pages of `?page=`/`?take=`) they are timed to the item and taken out before its end.
+    pub fn session(&self, ctx: &ClipContext, custom_commands: Option<&[String]>, page: Option<&str>) {
         {
             let mut state = self.state();
             state.active += 1;
             state.gap_generation += 1;
+            state.last_item = Some(format!("{}|{}", ctx.source, ctx.start));
         }
-        self.clip(ctx, custom_commands);
+        self.clip(ctx, custom_commands, page);
     }
 
     /// A session ended. When no session follows by the item's stop (ErsatzTV
@@ -203,7 +216,7 @@ impl ChannelEvents {
             thread::sleep(delay);
             let gap = {
                 let state = events.state();
-                state.gap_generation == generation && state.active == 0 && state.last_key.as_deref() == Some(key.as_str())
+                state.gap_generation == generation && state.active == 0 && state.last_item.as_deref() == Some(key.as_str())
             };
             if gap {
                 events.ad(&ctx);
@@ -213,7 +226,11 @@ impl ChannelEvents {
 
     /// An item without the element: graphics out and `on_ad`, as for a matched ad.
     fn ad(&self, ctx: &ClipContext) {
-        self.state().last_key = Some(format!("ad|{}", ctx.stop));
+        {
+            let mut state = self.state();
+            state.last_key = Some(format!("ad|{}", ctx.stop));
+            state.last_item = state.last_key.clone();
+        }
         let ad_ctx = ClipContext { title: String::new(), show_title: String::new(), source: String::new(), duration: 0.0, ..ctx.clone() };
         let show = self.shows.find(&ctx.show_title);
         let on_ad = show.and_then(|s| s.on_ad.as_deref()).unwrap_or(&self.config.on_ad);
@@ -223,11 +240,14 @@ impl ChannelEvents {
     /// Events for a clip that starts (or is joined) now. ErsatzTV starts the
     /// script again when a new session joins the same item; that does not send
     /// the commands twice (and does not restart the animations).
-    fn clip(&self, ctx: &ClipContext, custom_commands: Option<&[String]>) {
+    fn clip(&self, ctx: &ClipContext, custom_commands: Option<&[String]>, page: Option<&str>) {
         let key = match custom_commands {
             Some(cmds) => format!("{}|{}|{}", ctx.source, ctx.start, cmds.join(";")),
             None => format!("{}|{}", ctx.source, ctx.start),
         };
+        if let (Some(page), Some(cmds)) = (page, custom_commands) {
+            return self.page(ctx, key, cmds, page);
+        }
         {
             let mut state = self.state();
             if state.last_key.as_deref() == Some(key.as_str()) {
@@ -236,10 +256,7 @@ impl ChannelEvents {
             state.last_key = Some(key);
         }
         let show = self.shows.find(&ctx.show_title);
-        let ad = match show.and_then(|s| s.ad_matcher.as_ref()) {
-            Some(matcher) => matcher.is_ad(ctx),
-            None => self.ads.is_ad(ctx),
-        };
+        let ad = self.ads_for(ctx);
         let commands = if ad {
             let on_ad = show.and_then(|s| s.on_ad.as_deref()).unwrap_or(&self.config.on_ad);
             render_commands(on_ad, ctx)
@@ -250,6 +267,60 @@ impl ChannelEvents {
             render_commands(on_clip, ctx)
         };
         self.enqueue(Batch { ad, commands });
+    }
+
+    /// A page element of its own: `TAKE` `page_in_seconds` after the item's
+    /// start, `OUT` `page_out_seconds` before its stop (joined late: at once).
+    /// Several page elements on one item are scheduled once each.
+    fn page(&self, ctx: &ClipContext, key: String, commands: &[String], page: &str) {
+        let ad = self.ads_for(ctx);
+        let stop = time::parse_iso(&ctx.stop);
+        {
+            let mut state = self.state();
+            let now = time::now_ms();
+            state.pages.retain(|(_, stop)| *stop > now);
+            if state.pages.iter().any(|(k, _)| *k == key) {
+                return;
+            }
+            state.pages.push((key, stop.unwrap_or(i64::MAX)));
+        }
+        if ad {
+            return self.clip(ctx, None, None);
+        }
+
+        let commands: Vec<String> = commands.iter().flat_map(|c| render_commands(c, ctx)).collect();
+        let seconds = |s: f64| (s.max(0.0) * 1000.0) as i64;
+        let (Some(start), Some(stop)) = (time::parse_iso(&ctx.start), stop) else {
+            // No schedule times: on air at once, out with the next ad.
+            return self.enqueue(Batch { ad: false, commands });
+        };
+        let take_at = start + seconds(self.config.page_in_seconds);
+        let out_at = stop - seconds(self.config.page_out_seconds);
+        let now = time::now_ms();
+        if take_at >= out_at || now >= out_at {
+            crate::debug!("VizRS page {page}: item too short or ending, not taken");
+            return;
+        }
+
+        let queue = self.sender();
+        let out = format!("OUT {page}");
+        let _ = thread::Builder::new().name("vizrs-page".into()).spawn(move || {
+            let wait_until = |at: i64| thread::sleep(Duration::from_millis((at - time::now_ms()).max(0) as u64));
+            wait_until(take_at);
+            if queue.send(Batch { ad: false, commands }).is_err() {
+                return;
+            }
+            wait_until(out_at);
+            let _ = queue.send(Batch { ad: false, commands: vec![out] });
+        });
+    }
+
+    /// Whether the item is an ad, by the show's rule or the global one.
+    fn ads_for(&self, ctx: &ClipContext) -> bool {
+        match self.shows.find(&ctx.show_title).and_then(|s| s.ad_matcher.as_ref()) {
+            Some(matcher) => matcher.is_ad(ctx),
+            None => self.ads.is_ad(ctx),
+        }
     }
 }
 
@@ -418,7 +489,7 @@ mod tests {
             start: "2026-10-25T12:00:00Z".into(),
             ..ClipContext::default()
         };
-        events.clip(&ctx_news, None);
+        events.clip(&ctx_news, None, None);
 
         // Clip not matching any show (uses global)
         let ctx_other = ClipContext {
@@ -428,7 +499,7 @@ mod tests {
             start: "2026-10-25T13:00:00Z".into(),
             ..ClipContext::default()
         };
-        events.clip(&ctx_other, None);
+        events.clip(&ctx_other, None, None);
 
         // Ad matching show's ad_match
         let ctx_news_ad = ClipContext {
@@ -438,12 +509,52 @@ mod tests {
             start: "2026-10-25T12:15:00Z".into(),
             ..ClipContext::default()
         };
-        events.clip(&ctx_news_ad, None);
+        events.clip(&ctx_news_ad, None, None);
 
         thread::sleep(Duration::from_millis(300));
         let received = server.join().unwrap();
         assert!(received.contains(&"TAKE news Wydanie".to_string()));
         assert!(received.contains(&"TAKE global Film".to_string()));
         assert!(received.contains(&"TAKE ad_news".to_string()));
+    }
+
+    #[test]
+    fn page_elements_in_after_start_out_before_stop() {
+        let (address, server) = fake_multi(4);
+        let mut config = Config::default();
+        config.vizrs.address = address;
+        config.page_in_seconds = 0.3;
+        config.page_out_seconds = 0.3;
+        let config = Arc::new(config);
+        let (ads, _) = AdMatcher::new(&config.ad_match);
+        let (shows, _) = ShowMatcher::new(&config.shows);
+        let events = ChannelEvents::new(config, Arc::new(ads), Arc::new(shows));
+
+        let now = time::now_ms();
+        let item = |source: &str, length: i64| ClipContext {
+            source: source.into(),
+            start: time::iso_time(now),
+            stop: time::iso_time(now + length),
+            ..ClipContext::default()
+        };
+        let take = |page: &str| vec![format!("TAKE {page}")];
+        let clip = item("/m/a.mp4", 1200);
+        events.clip(&clip, Some(&take("3001")), Some("3001"));
+        events.clip(&clip, Some(&take("7303")), Some("7303"));
+        // The next piece of the same item: scheduled already.
+        events.clip(&clip, Some(&take("3001")), Some("3001"));
+        // Shorter than in + out: never on air.
+        events.clip(&item("/m/b.mp4", 500), Some(&take("5001")), Some("5001"));
+
+        thread::sleep(Duration::from_millis(150));
+        assert!(!server.is_finished(), "nothing before page_in_seconds");
+        let received = server.join().unwrap();
+        let mut takes = received[..2].to_vec();
+        takes.sort();
+        assert_eq!(takes, ["TAKE 3001", "TAKE 7303"]);
+        let mut outs = received[2..].to_vec();
+        outs.sort();
+        assert_eq!(outs, ["OUT 3001", "OUT 7303"]);
+        assert!(time::now_ms() - now >= 900, "out page_out_seconds before the stop");
     }
 }
