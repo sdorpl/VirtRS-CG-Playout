@@ -480,6 +480,18 @@ Grafika każdego elementu VizRS (ogólny **VizRS** z `on_clip` i elementy stron
   → `OUT 4001`) idzie `out_seconds` (domyślnie 10 s) przed jej końcem.
   Komendy bez `TAKE` (np. samo `UPDATE`) nie mają `OUT`.
 
+Czasy liczą się w osi wideo pozycji, nie według zegara. ErsatzTV transkoduje
+pozycję z wyprzedzeniem (na s2 ok. 30 s przed startem w harmonogramie), a jej
+klatki pokazują grafikę z chwili, w której powstają (`lead_seconds` wstecz,
+§1). Sidecar wysyła więc `TAKE` wtedy, gdy transkodowanie dochodzi do
+`in_seconds` pozycji, a `OUT` – gdy dochodzi do `out_seconds` przed jej końcem.
+Animacje wejścia i zejścia trafiają w te miejsca wideo, zamiast wypaść poza
+nie (grafika ucięta na końcu pozycji i wskakująca na ostro na początku
+następnej). Oś bierze się z pierwszej sesji pozycji: czas emisji
+(`MediaItem_Start` + `MediaItem_StreamSeek`), gdy sesja przyszła najwyżej
+`lead_seconds` + 2 s przed nim, inaczej chwila startu sesji – tak jak tempo
+strumienia klatek.
+
 Kolejne sesje tej samej pozycji (ErsatzTV transkoduje ją kawałkami, widzowie
 dołączają) nie wysyłają komend ponownie; kilka elementów na jednej pozycji
 planuje się niezależnie. Pozycja krótsza niż `in_seconds` + `out_seconds`

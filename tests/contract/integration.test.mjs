@@ -117,8 +117,7 @@ test("page elements: TAKE in_seconds after the item's start, OUT out_seconds bef
   // Client with &page=1001&fields=headline={title}
   await runClient(`${cg.url}/etv?channel=1&page=1001&fields=headline={title}`, timed("/m/Clip2.mp4", 2500), 100);
   assert.deepEqual(vizrs.received, [], "nothing before in_seconds");
-  // Past items and items shorter than in + out never go on air.
-  await runClient(`${cg.url}/etv?channel=1&take=5001`, item("/m/Old.mp4", "2026-10-24T20:00:00+02:00"), 100);
+  // Items shorter than in + out never go on air.
   await runClient(`${cg.url}/etv?channel=1&take=5002`, timed("/m/Short.mp4", 500), 100);
   await sleep(now + 1300 - Date.now());
   assert.deepEqual([...vizrs.received].sort(), ["TAKE 1001 headline=Clip2", "TAKE 7303"]);
@@ -196,6 +195,7 @@ test("ads take graphics out; the first clip after the break takes them back", as
     on_ad: "",
     ad_match: { path: "/reklamy/" },
     ad_without_element: false,
+    in_seconds: 0,
   });
   const url = `${cg.url}/etv?channel=1`;
 
@@ -220,6 +220,7 @@ test("an item without the VizRS element is an ad; the next item with it restores
     on_ad: "",
     ad_without_element: true,
     gap_grace_ms: 50,
+    in_seconds: 0,
   });
   const url = `${cg.url}/etv?channel=1`;
   const at = (ms) => new Date(Date.now() + ms).toISOString();

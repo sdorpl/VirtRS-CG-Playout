@@ -29,6 +29,12 @@ const EARLY: Duration = Duration::from_secs(2);
 /// An air time this far in the past is a wrong clock (or stale data) too.
 const WRONG: Duration = Duration::from_secs(10);
 
+/// Whether a stream's timeline is the air time (epoch ms) of its frame 0, not
+/// its start: at most the lead and `EARLY` ahead of now, at most `WRONG` behind.
+pub fn air_is_timeline(air_ms: f64, now_ms: f64, lead_s: f64) -> bool {
+    air_ms <= now_ms + (lead_s + EARLY.as_secs_f64()) * 1000.0 && air_ms + WRONG.as_secs_f64() * 1000.0 >= now_ms
+}
+
 /// How far back the streams of `lead_seconds` take pictures.
 pub fn history(lead_seconds: f64) -> Duration {
     Duration::from_secs_f64(lead_seconds.max(0.0)) + SAMPLE_DELAY + LATE + Duration::from_millis(500)
@@ -117,7 +123,7 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
     let lead = (options.lead_seconds * options.fps).round().max(0.0) as u64;
     let lead_s = lead as f64 * frame_s;
     let now = Instant::now();
-    let air = options.air.and_then(instant_of).filter(|&base| base <= now + Duration::from_secs_f64(lead_s) + EARLY && base + WRONG >= now);
+    let air = options.air.filter(|&air| air_is_timeline(air, crate::time::now_ms() as f64, lead_s)).and_then(instant_of);
     let mut base = air.unwrap_or(now);
     let mut sent: u64 = 0;
     let mut sent_seq: Option<u64> = None;

@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use crate::config::Config;
 use crate::json::{self, Value};
+use crate::stream;
 use crate::template::{AdMatcher, ClipContext, ShowMatcher, js_string, render_commands};
 use crate::time;
 
@@ -298,13 +299,23 @@ impl ChannelEvents {
     /// The commands `in_seconds` after the item's start (joined late: at once)
     /// and `OUT` of their pages `out_seconds` before its stop. An item shorter
     /// than both, or already in its last `out_seconds`, gets no graphics.
+    /// Times follow the session's frame timeline, not the clock: ErsatzTV
+    /// transcodes an item up to ~30 s ahead of its schedule, and its frames
+    /// show the graphics of the moment they are made (`lead_seconds` back), so
+    /// the animations land at those times in the item's video.
     fn timed(&self, ctx: &ClipContext, stop: Option<i64>, commands: Vec<String>, generation: u64) {
         let ms = |s: f64| (s.max(0.0) * 1000.0) as i64;
-        let start = time::parse_iso(&ctx.start);
-        let take_at = start.map(|start| start + ms(self.config.in_seconds));
-        let pages = taken_pages(&commands);
-        let out_at = stop.filter(|_| self.config.out_seconds >= 0.0 && !pages.is_empty()).map(|stop| stop - ms(self.config.out_seconds));
         let now = time::now_ms();
+        let lead = self.config.lead_seconds.max(0.0);
+        // Frame 0 of the session is item time `air`; it is made at `base`, less the lead.
+        let air = ctx.air_ms();
+        let base = air.filter(|&air| stream::air_is_timeline(air, now as f64, lead)).unwrap_or(now as f64);
+        let made_at = |item_ms: i64| (base + (item_ms as f64 - air.unwrap_or(base)) - lead * 1000.0) as i64;
+        let start = time::parse_iso(&ctx.start);
+        let take_at = start.map(|start| made_at(start + ms(self.config.in_seconds)));
+        let pages = taken_pages(&commands);
+        let out_at =
+            stop.filter(|_| self.config.out_seconds >= 0.0 && !pages.is_empty()).map(|stop| made_at(stop - ms(self.config.out_seconds)));
         if let Some(out_at) = out_at {
             if now >= out_at || take_at.is_some_and(|take_at| take_at >= out_at) {
                 crate::debug!("VizRS: {} too short or ending, graphics not taken", ctx.title);
@@ -547,6 +558,36 @@ mod tests {
     }
 
     #[test]
+    fn elements_follow_the_transcode_ahead_of_the_schedule() {
+        let (address, server) = fake_multi(2);
+        let mut config = Config::default();
+        config.vizrs.address = address;
+        config.in_seconds = 0.5;
+        config.out_seconds = 0.5;
+        config.lead_seconds = 0.2;
+        let config = Arc::new(config);
+        let (ads, _) = AdMatcher::new(&config.ad_match);
+        let (shows, _) = ShowMatcher::new(&config.shows);
+        let events = ChannelEvents::new(config, Arc::new(ads), Arc::new(shows));
+
+        // ErsatzTV transcodes the item 30 s before it is on air: its frames
+        // show the graphics of now, so TAKE and OUT go by the transcode.
+        let now = time::now_ms();
+        let ctx = ClipContext {
+            source: "/m/a.mp4".into(),
+            start: time::iso_time(now + 30_000),
+            stop: time::iso_time(now + 31_600),
+            ..ClipContext::default()
+        };
+        events.clip(&ctx, Some(&["TAKE 3003".into()]));
+        thread::sleep(Duration::from_millis(150));
+        assert!(!server.is_finished(), "TAKE in_seconds - lead_seconds into the transcode");
+        assert_eq!(server.join().unwrap(), ["TAKE 3003", "OUT 3003"]);
+        let elapsed = time::now_ms() - now;
+        assert!((800..2000).contains(&elapsed), "OUT 0.9 s into the transcode, not 30 s: {elapsed} ms");
+    }
+
+    #[test]
     fn taken_pages_for_out() {
         let commands = ["TAKE 4001 headline=a|b=c".into(), "UPDATE 2001 t=x".into(), "take 3001,4001".into(), "TAKE".into()];
         assert_eq!(taken_pages(&commands), ["4001", "3001"]);
@@ -560,6 +601,7 @@ mod tests {
         config.on_clip = "TAKE 4001 headline={title}".into();
         config.in_seconds = 0.3;
         config.out_seconds = 0.3;
+        config.lead_seconds = 0.0;
         let config = Arc::new(config);
         let (ads, _) = AdMatcher::new(&config.ad_match);
         let (shows, _) = ShowMatcher::new(&config.shows);
