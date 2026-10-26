@@ -76,6 +76,9 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
     vizrs: { address: vizrs.address, token: "secret" },
     on_clip: "TAKE 4001 headline={title}",
     lead_seconds: 0.4,
+    // At once and never out, as before in/out_seconds (the items are in the past).
+    in_seconds: 0,
+    out_seconds: -1,
   });
   const url = `${cg.url}/etv?channel=1`;
 
@@ -95,15 +98,15 @@ test("client streams frames paced by the clock, commands reach VizRS once per it
   assert.equal((await cg.health()).sessions, 0, "every session ended");
 });
 
-test("page elements: TAKE page_in_seconds after the item's start, OUT page_out_seconds before its stop", async (t) => {
+test("page elements: TAKE in_seconds after the item's start, OUT out_seconds before its stop", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
   const cg = await sidecar(t, {
     vizrs: { address: vizrs.address, token: "" },
     on_clip: "TAKE 4001",
     lead_seconds: 0,
-    page_in_seconds: 0.8,
-  }, { VIZRS_PAGE_OUT_SECONDS: "0.3" });
+    in_seconds: 0.8,
+  }, { VIZRS_OUT_SECONDS: "0.3" });
   const now = Date.now();
   const timed = (path, length) => ({
     ...item(path, new Date(now).toISOString()),
@@ -113,7 +116,7 @@ test("page elements: TAKE page_in_seconds after the item's start, OUT page_out_s
   await runClient(`${cg.url}/etv?channel=1&take=7303`, timed("/m/Clip1.mp4", 2500), 100);
   // Client with &page=1001&fields=headline={title}
   await runClient(`${cg.url}/etv?channel=1&page=1001&fields=headline={title}`, timed("/m/Clip2.mp4", 2500), 100);
-  assert.deepEqual(vizrs.received, [], "nothing before page_in_seconds");
+  assert.deepEqual(vizrs.received, [], "nothing before in_seconds");
   // Past items and items shorter than in + out never go on air.
   await runClient(`${cg.url}/etv?channel=1&take=5001`, item("/m/Old.mp4", "2026-10-24T20:00:00+02:00"), 100);
   await runClient(`${cg.url}/etv?channel=1&take=5002`, timed("/m/Short.mp4", 500), 100);
@@ -121,6 +124,29 @@ test("page elements: TAKE page_in_seconds after the item's start, OUT page_out_s
   assert.deepEqual([...vizrs.received].sort(), ["TAKE 1001 headline=Clip2", "TAKE 7303"]);
   await sleep(now + 2500 - Date.now());
   assert.deepEqual(vizrs.received.slice(2).sort(), ["OUT 1001", "OUT 7303"]);
+});
+
+test("two VizRS elements on one piece: one session carries the graphics, the other is transparent", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    output_url: "http://127.0.0.1:9/output",
+    lead_seconds: 0,
+  });
+  const clip = item("/m/News.mp4", "2026-10-24T20:00:00+02:00");
+  const generic = runClient(`${cg.url}/etv?channel=1`, clip, 800);
+  const ticker = runClient(`${cg.url}/etv?channel=1&page=3003`, clip, 800);
+  await sleep(300);
+  const claim = () => fetch(`${cg.url}/ffmpeg?channel=1&wait=0`).then((r) => r.status);
+  assert.equal(await claim(), 200);
+  assert.equal(await claim(), 404, "only one session of the piece has frames");
+  await Promise.all([generic, ticker]);
+  // The next piece (another seek) gets a carrier again.
+  const next = runClient(`${cg.url}/etv?channel=1&page=3003`, { ...clip, MediaItem_StreamSeek: "00:00:44" }, 600);
+  await sleep(300);
+  assert.equal(await claim(), 200);
+  await next;
 });
 
 test("render size: config default, per-channel override, one capture per size pair", async (t) => {
@@ -263,6 +289,9 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
     output_url: "http://127.0.0.1:9/output",
     on_clip: "TAKE 4001 headline={title}",
     lead_seconds: 0.4,
+    // At once and never out, as before in/out_seconds (the items are in the past).
+    in_seconds: 0,
+    out_seconds: -1,
   });
 
   // ErsatzTV stand-in: the canvas request starts the script element with the item's data.

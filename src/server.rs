@@ -16,7 +16,7 @@
 //                         the channel, or with area=1 its graphics areas
 //   GET  /health          captures and sessions
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Read;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -119,6 +119,10 @@ struct Sessions {
     waiters: HashMap<String, Vec<Waiter>>,
     /// Channels whose ffmpeg runs through the overlay: their sessions start held.
     overlay: Vec<String>,
+    /// Pieces (channel, item, seek) whose graphics one session carries: the
+    /// other VizRS elements of the piece send transparent frames, or ErsatzTV
+    /// (or the overlay) would draw the same /output twice.
+    carriers: HashSet<String>,
     next_id: u64,
     next_waiter: u64,
 }
@@ -411,26 +415,25 @@ impl Server {
         );
 
         // Commands go out in the background; frames start at once.
-        let page = request.param("page").or_else(|| request.param("take"));
         let custom_commands = if let Some(cmd) = request.param("cmd").or_else(|| request.param("command")) {
             Some(vec![cmd.to_owned()])
-        } else if let Some(take) = page {
+        } else if let Some(take) = request.param("page").or_else(|| request.param("take")) {
             let fields = request.param("fields").map(|f| format!(" {f}")).unwrap_or_default();
             Some(vec![format!("TAKE {take}{fields}")])
         } else {
             None
         };
-        // A page element is timed to its item and taken out before its end; a `cmd` is not.
-        let page = page.filter(|_| request.param("cmd").or_else(|| request.param("command")).is_none());
 
         let events = self.events_for(&channel);
-        events.session(&ctx, custom_commands.as_deref(), page);
+        events.session(&ctx, custom_commands.as_deref());
 
+        let piece = format!("{channel}|{}|{}", ctx.start, ctx.seek);
+        let carrier = lock(&self.sessions).carriers.insert(piece.clone());
         let spec = request.param("render").unwrap_or(&self.config.render_size).to_owned();
         let area = request.param("area").unwrap_or(&self.config.area).to_owned();
-        let capture = match self.capture_for(ctx.width, ctx.height, fps, &spec, &area) {
-            Graphics::Capture(capture) => Some(capture),
-            Graphics::Empty => None,
+        let capture = match carrier.then(|| self.capture_for(ctx.width, ctx.height, fps, &spec, &area)) {
+            Some(Graphics::Capture(capture)) => Some(capture),
+            _ => None,
         };
         if let Some(capture) = &capture {
             capture.acquire();
@@ -484,6 +487,9 @@ impl Server {
         }
         if let Some(capture) = &capture {
             capture.release();
+        }
+        if carrier {
+            lock(&self.sessions).carriers.remove(&piece);
         }
         events.ended(&ctx);
     }

@@ -14,8 +14,8 @@
     }
   ],
   "ad_without_element": true,
-  "page_in_seconds": 10,
-  "page_out_seconds": 10,
+  "in_seconds": 10,
+  "out_seconds": 10,
   "lead_seconds": 6,
   "render_size": "",
   "area": "",

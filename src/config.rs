@@ -47,10 +47,10 @@ pub struct Config {
     /// An item without the VizRS graphics element (no session after the
     /// previous item ends) is treated as a commercial.
     pub ad_without_element: bool,
-    /// A page element of its own (`page=`/`take=`) goes on air this long after its item's start…
-    pub page_in_seconds: f64,
-    /// …and out this long before its stop.
-    pub page_out_seconds: f64,
+    /// The graphics of an item go on air this long after its start…
+    pub in_seconds: f64,
+    /// …and out (`OUT` of the pages taken) this long before its stop; < 0 = no `OUT`.
+    pub out_seconds: f64,
     /// How far the packet stream may run ahead of real time (ErsatzTV burst).
     pub lead_seconds: f64,
     /// Size Chromium renders /output at: "" = channel size, "720p", "1280x720".
@@ -80,8 +80,8 @@ impl Default for Config {
             ad_match: AdMatch::default(),
             shows: Vec::new(),
             ad_without_element: true,
-            page_in_seconds: 10.0,
-            page_out_seconds: 10.0,
+            in_seconds: 10.0,
+            out_seconds: 10.0,
             lead_seconds: 4.0,
             render_size: String::new(),
             area: String::new(),
@@ -178,8 +178,8 @@ impl Config {
                         }
                     }
                     "ad_without_element" => config.ad_without_element = boolean(value, key)?,
-                    "page_in_seconds" => config.page_in_seconds = number(value, key)?,
-                    "page_out_seconds" => config.page_out_seconds = number(value, key)?,
+                    "in_seconds" => config.in_seconds = number(value, key)?,
+                    "out_seconds" => config.out_seconds = number(value, key)?,
                     "lead_seconds" => config.lead_seconds = number(value, key)?,
                     "render_size" => config.render_size = string(value, key)?,
                     "area" => config.area = string(value, key)?,
@@ -230,9 +230,7 @@ impl Config {
                 Err(_) => warnings.push(format!("LEAD_SECONDS=\"{v}\" is not a number; using {}", config.lead_seconds)),
             }
         }
-        for (name, seconds) in
-            [("VIZRS_PAGE_IN_SECONDS", &mut config.page_in_seconds), ("VIZRS_PAGE_OUT_SECONDS", &mut config.page_out_seconds)]
-        {
+        for (name, seconds) in [("VIZRS_IN_SECONDS", &mut config.in_seconds), ("VIZRS_OUT_SECONDS", &mut config.out_seconds)] {
             if let Some(v) = env(name).filter(|v| !v.is_empty()) {
                 match v.trim().parse() {
                     Ok(value) => *seconds = value,
@@ -343,15 +341,14 @@ mod tests {
     }
 
     #[test]
-    fn page_in_and_out_seconds() {
-        assert_eq!((Config::default().page_in_seconds, Config::default().page_out_seconds), (10.0, 10.0));
-        let file = json::parse(r#"{"page_in_seconds":5,"page_out_seconds":"15"}"#).unwrap();
+    fn in_and_out_seconds() {
+        assert_eq!((Config::default().in_seconds, Config::default().out_seconds), (10.0, 10.0));
+        let file = json::parse(r#"{"in_seconds":5,"out_seconds":"15"}"#).unwrap();
         let (config, _) = Config::from_values(Some(&file), &env(&[])).unwrap();
-        assert_eq!((config.page_in_seconds, config.page_out_seconds), (5.0, 15.0));
-        let (config, warnings) =
-            Config::from_values(Some(&file), &env(&[("VIZRS_PAGE_IN_SECONDS", "0"), ("VIZRS_PAGE_OUT_SECONDS", "x")])).unwrap();
-        assert_eq!((config.page_in_seconds, config.page_out_seconds), (0.0, 15.0));
-        assert_eq!(warnings, ["VIZRS_PAGE_OUT_SECONDS=\"x\" is not a number; using 15"]);
+        assert_eq!((config.in_seconds, config.out_seconds), (5.0, 15.0));
+        let (config, warnings) = Config::from_values(Some(&file), &env(&[("VIZRS_IN_SECONDS", "0"), ("VIZRS_OUT_SECONDS", "x")])).unwrap();
+        assert_eq!((config.in_seconds, config.out_seconds), (0.0, 15.0));
+        assert_eq!(warnings, ["VIZRS_OUT_SECONDS=\"x\" is not a number; using 15"]);
     }
 
     #[test]
