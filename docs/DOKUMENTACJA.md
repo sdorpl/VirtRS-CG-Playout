@@ -48,6 +48,10 @@ całej obróbki w sidecarze.
 | `720p`, `720`, `540p`… | ta wysokość w proporcjach kanału (1080p → 1280×720) |
 | `1280x720` | dokładnie ten rozmiar (zachowaj proporcje kanału, inaczej obraz się rozciągnie) |
 
+W `docker-compose.yml` `VIZRS_RENDER_SIZE` jest domyślnie puste: grafika ma
+rozdzielczość kanału ustawioną w ErsatzTV (do wersji 2.1.9 domyślnie `1080p`,
+skalowane do kanału).
+
 Mniejszy rozmiar renderowania oznacza mniej pracy Chromium przy każdej
 zmienionej klatce kosztem ostrości tekstu, a większy niż kanał daje
 supersampling. Na grafikę statyczną nie ma wpływu, bo nie generuje klatek.
