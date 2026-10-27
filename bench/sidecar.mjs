@@ -30,10 +30,8 @@ const WARMUP = Number(env.BENCH_WARMUP || 10);
 const DURATION = Number(env.BENCH_DURATION || 30);
 const SCENE = env.BENCH_URL ? "url" : env.BENCH_SCENE || "animated";
 const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
-// Sidecar options under test: render_size, capture_mode, max_fps.
-const RENDER = env.BENCH_RENDER || "";
+// Sidecar option under test: capture_mode (the graphics have the channel's size and rate).
 const CAPTURE = env.BENCH_CAPTURE || "frames";
-const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
 // Graphics areas (WxH+X+Y, comma-separated): the marker goes to the top-left
 // corner of the first, ffmpeg asks for their frames.
 const AREA = env.BENCH_AREA || "";
@@ -76,15 +74,9 @@ function descendantsCpu(pid) {
   return [...pids].reduce((sum, child) => sum + all.get(child).cpu, 0);
 }
 
-/**
- * Marker of bench/scene.html: 16 cells of 8x8 px at the render size, sampled
- * in their middle at the channel size; returns a reader of `(x, y) -> [white,
- * opaque]` per cell, or null.
- */
-function markerPoints(render) {
-  const [rw, rh] = render.split("x").map(Number);
-  const [bx, by] = [Math.round((AX / WIDTH) * rw), Math.round((AY / HEIGHT) * rh)];
-  return Array.from({ length: 16 }, (_, bit) => [Math.floor(((bx + 8 * bit + 4) * WIDTH) / rw), Math.floor(((by + 4) * HEIGHT) / rh)]);
+/** Marker of bench/scene.html: the middles of its 16 cells of 8x8 px, in channel pixels. */
+function markerPoints() {
+  return Array.from({ length: 16 }, (_, bit) => [AX + 8 * bit + 4, AY + 4]);
 }
 
 /** Animation step from 16 [white, opaque] samples, or null without the marker. */
@@ -218,23 +210,19 @@ const data = { Resolution: { Width: WIDTH, Height: HEIGHT }, FrameRate: FPS, Med
 
 async function run(mode) {
   const fps = mode === "ffmpeg" ? FFMPEG_FPS : FPS;
-  // The scene moves at most as often as the sidecar captures (max_fps), like VizRS ?fps=.
-  const sceneFps = MAX_FPS > 0 ? Math.min(fps, MAX_FPS) : fps;
   const cg = await startSidecar(
     {
       vizrs: { address: "127.0.0.1:9", token: "" },
-      output_url: sceneUrl(sceneFps),
+      output_url: sceneUrl(fps),
       lead_seconds: 1,
-      render_size: RENDER,
       capture_mode: CAPTURE,
-      max_fps: MAX_FPS,
       area: AREA,
     },
     { VIZRS_BROWSER: browser, VIZRS_BROWSER_NO_SANDBOX: "1" },
   );
   const script = await fetch(`${cg.url}/etv?channel=1`, { method: "POST", body: JSON.stringify(data) });
   const started = (await cg.health()).captures[0] ?? {};
-  const points = markerPoints(started.render ?? `${WIDTH}x${HEIGHT}`);
+  const points = markerPoints();
   // The frames ffmpeg gets: the graphics area (area=1), or the channel.
   // Several areas: stacked, the first one on top (where the marker is).
   const areas = started.area ? started.area.split(",").map((g) => g.split(/[x+]/).map(Number)) : [[WIDTH, HEIGHT, 0, 0]];
@@ -280,18 +268,16 @@ async function run(mode) {
     build: path.basename(env.VIRTRS_CG_BIN || "virtrs-cg"),
     mode,
     size: `${WIDTH}x${HEIGHT}`,
-    render: capture.render,
     area: capture.area ?? "",
     fps,
     capture: capture.mode,
-    max_fps: MAX_FPS,
     scene: SCENE,
     cpu_percent: Math.round(((u1.cpu - u0.cpu) / seconds) * 1000) / 10,
     browser_cpu_percent: Math.round(((c1 - c0) / seconds) * 1000) / 10,
     rss_mb: Math.round(u1.rss_mb),
     pictures_per_s: Math.round(((seq1 - seq0) / seconds) * 10) / 10,
     mb_per_s: Math.round(((bytes - b0) / seconds / 1e6) * 10) / 10,
-    ...(SCENE === "animated" ? motion(steps, Math.max(1, Math.round(fps / sceneFps))) : {}),
+    ...(SCENE === "animated" ? motion(steps, 1) : {}),
   };
 }
 

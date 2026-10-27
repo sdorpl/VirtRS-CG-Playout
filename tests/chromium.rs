@@ -37,22 +37,15 @@ fn serial() -> MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn capture(url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
-    capture_in(CaptureMode::Screencast, url, render, out, idle)
+fn capture(url: String, size: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
+    capture_in(CaptureMode::Screencast, url, size, idle)
 }
 
-fn capture_in(mode: CaptureMode, url: String, render: (u32, u32), out: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
-    capture_area(mode, url, render, out, Vec::new(), idle)
+fn capture_in(mode: CaptureMode, url: String, size: (u32, u32), idle: Duration) -> Option<Arc<Capture>> {
+    capture_area(mode, url, size, Vec::new(), idle)
 }
 
-fn capture_area(
-    mode: CaptureMode,
-    url: String,
-    render: (u32, u32),
-    out: (u32, u32),
-    areas: Vec<Area>,
-    idle: Duration,
-) -> Option<Arc<Capture>> {
+fn capture_area(mode: CaptureMode, url: String, size: (u32, u32), areas: Vec<Area>, idle: Duration) -> Option<Arc<Capture>> {
     let Some(browser) = find_browser() else {
         eprintln!("no Chromium: skipped");
         return None;
@@ -61,13 +54,10 @@ fn capture_area(
     let no_sandbox = std::env::var("VIZRS_BROWSER_NO_SANDBOX").as_deref() == Ok("1");
     Some(Capture::start(CaptureOptions {
         url,
-        width: render.0,
-        height: render.1,
-        out_width: out.0,
-        out_height: out.1,
+        width: size.0,
+        height: size.1,
         areas,
         fps: 25.0,
-        max_fps: 0.0,
         mode,
         browser: Some(browser),
         no_sandbox,
@@ -96,7 +86,7 @@ fn boxes(capture: &Capture) -> Vec<(u32, u32, u32, u32)> {
 #[test]
 fn chromium_capture_gives_the_visible_box_of_a_transparent_page() {
     let _serial = serial();
-    let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
+    let Some(capture) = capture(serve(PAGE), (640, 360), Duration::from_secs(30)) else { return };
     // A cold browser may first send a half-painted frame; the picture must settle on the page.
     until("the red box", || boxes(&capture) == [(40, 300, 400, 60)]);
     assert_eq!(&capture.current().picture().rects[0].pixels[..4], &[255, 0, 0, 255]);
@@ -106,7 +96,7 @@ fn chromium_capture_gives_the_visible_box_of_a_transparent_page() {
 #[test]
 fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
     let _serial = serial();
-    let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
+    let Some(capture) = capture(serve(PAGE), (640, 360), Duration::from_millis(200)) else { return };
     capture.acquire();
     until("a first frame", || !capture.current().picture().rects.is_empty());
     capture.release();
@@ -121,25 +111,6 @@ fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
     capture.stop();
 }
 
-#[test]
-fn chromium_capture_renders_smaller_and_scales_to_the_channel() {
-    let _serial = serial();
-    // Proportional layout, like VizRS scaling its 1920x1080 stage to the viewport.
-    const SCALED: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
-<div style="position:absolute;left:10%;top:80%;width:50%;height:10%;background:rgb(255,0,0)"></div></body></html>"#;
-    let Some(capture) = capture(serve(SCALED), (320, 180), (640, 360), Duration::from_secs(30)) else { return };
-    until("the scaled box", || !capture.current().picture().rects.is_empty());
-
-    // Red box 32,144 160x18 at 320x180, plus 4 px margin, doubled.
-    let frame = capture.current().picture();
-    let rect = &frame.rects[0];
-    assert_eq!((rect.x, rect.y, rect.w, rect.h), (56, 280, 336, 52));
-    let middle = (((rect.h >> 1) * rect.w + (rect.w >> 1)) * 4) as usize;
-    assert_eq!(&rect.pixels[middle..middle + 4], &[255, 0, 0, 255]);
-    assert_eq!(capture.key(), "640x360 (render 320x180)");
-    capture.stop();
-}
-
 /// An animation at the channel rate: the screencast takes every second frame
 /// at 25 fps (and screenshots the final state after 150 ms of quiet, without
 /// holding back the screencast acks), so new pictures keep coming.
@@ -151,7 +122,7 @@ fn chromium_capture_follows_an_animation_at_the_channel_rate() {
 <script>const box = document.getElementById("box");
 (function step(t) { box.style.left = (t / 10 % 500) + "px"; requestAnimationFrame(step); })(0);</script>
 </body></html>"#;
-    let Some(capture) = capture(serve(ANIMATED), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
+    let Some(capture) = capture(serve(ANIMATED), (640, 360), Duration::from_secs(30)) else { return };
     until("a first frame", || !capture.current().picture().rects.is_empty());
     thread::sleep(Duration::from_secs(1));
     let seq = capture.current().seq;
@@ -167,7 +138,7 @@ fn chromium_capture_follows_an_animation_at_the_channel_rate() {
 #[test]
 fn chromium_frames_capture_shows_the_page_pauses_and_resumes() {
     let _serial = serial();
-    let Some(capture) = capture_in(CaptureMode::Frames, serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
+    let Some(capture) = capture_in(CaptureMode::Frames, serve(PAGE), (640, 360), Duration::from_millis(200)) else { return };
     capture.acquire();
     until("the red box", || boxes(&capture) == [(40, 300, 400, 60)]);
     eprintln!("capture mode: {}", capture.mode().name());
@@ -191,7 +162,7 @@ fn chromium_frames_capture_draws_on_the_frame_grid_of_the_channel() {
 <script>const box = document.getElementById("box");
 (function step(t) { box.style.left = (Math.floor(t / 40 + 0.001) % 600) + "px"; requestAnimationFrame(step); })(0);</script>
 </body></html>"#;
-    let Some(capture) = capture_in(CaptureMode::Frames, serve(STEPS), (640, 360), (640, 360), Duration::from_secs(30)) else { return };
+    let Some(capture) = capture_in(CaptureMode::Frames, serve(STEPS), (640, 360), Duration::from_secs(30)) else { return };
     until("a first frame", || !capture.current().picture().rects.is_empty());
     thread::sleep(Duration::from_secs(2));
     if capture.mode() != CaptureMode::Frames {
@@ -225,7 +196,7 @@ fn chromium_frames_capture_draws_on_the_frame_grid_of_the_channel() {
 }
 
 /// A graphics area: Chromium draws only that part, the rectangles keep the
-/// channel's coordinates, graphics outside it are cut off; also rendered smaller.
+/// channel's coordinates, graphics outside it are cut off.
 #[test]
 fn chromium_capture_of_a_graphics_area() {
     let _serial = serial();
@@ -234,19 +205,18 @@ fn chromium_capture_of_a_graphics_area() {
 <div style="position:absolute;left:10%;top:85%;width:25%;height:10%;background:rgb(255,0,0)"></div>
 <div style="position:absolute;left:50%;top:10%;width:20%;height:20%;background:rgb(0,0,255)"></div></body></html>"#;
     let area = Area { x: 0, y: 280, w: 640, h: 80 };
-    for (mode, render) in [(CaptureMode::Screencast, (640, 360)), (CaptureMode::Frames, (640, 360)), (CaptureMode::Screencast, (320, 180))]
-    {
+    for mode in [CaptureMode::Screencast, CaptureMode::Frames] {
         let url = serve(STRIP);
-        let Some(capture) = capture_area(mode, url, render, (640, 360), vec![area], Duration::from_secs(30)) else { return };
-        // Red box 64,306 160x36 of the channel; at half size scaled with a margin.
-        let expected = if render == (640, 360) { vec![(64, 306, 160, 36)] } else { vec![(56, 298, 176, 52)] };
+        let Some(capture) = capture_area(mode, url, (640, 360), vec![area], Duration::from_secs(30)) else { return };
+        // Red box 64,306 160x36 of the channel.
+        let expected = vec![(64, 306, 160, 36)];
         until("the box of the area", || boxes(&capture) == expected);
         let rect = &capture.current().picture().rects[0];
         let middle = (((rect.h >> 1) * rect.w + (rect.w >> 1)) * 4) as usize;
         assert_eq!(&rect.pixels[middle..middle + 4], &[255, 0, 0, 255], "{}", mode.name());
         // Still the area after a while (no full-page picture from a screenshot).
         thread::sleep(Duration::from_millis(600));
-        assert_eq!(boxes(&capture), expected, "{} {render:?}", mode.name());
+        assert_eq!(boxes(&capture), expected, "{}", mode.name());
         assert!(capture.key().ends_with("area 640x80+0+280"), "{}", capture.key());
         capture.stop();
     }
@@ -264,7 +234,7 @@ fn chromium_capture_of_two_graphics_areas() {
 <div style="position:absolute;left:300px;top:150px;width:40px;height:40px;background:rgb(0,255,0)"></div></body></html>"#;
     let areas = vec![Area { x: 0, y: 290, w: 640, h: 70 }, Area { x: 540, y: 0, w: 100, h: 80 }];
     for mode in [CaptureMode::Frames, CaptureMode::Screencast] {
-        let Some(capture) = capture_area(mode, serve(TWO), (640, 360), (640, 360), areas.clone(), Duration::from_secs(30)) else { return };
+        let Some(capture) = capture_area(mode, serve(TWO), (640, 360), areas.clone(), Duration::from_secs(30)) else { return };
         let expected = vec![(40, 310, 200, 30), (560, 20, 40, 40)];
         until("both boxes", || {
             let mut found = boxes(&capture);

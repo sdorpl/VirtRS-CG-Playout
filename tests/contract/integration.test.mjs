@@ -148,25 +148,27 @@ test("two VizRS elements on one piece: one session carries the graphics, the oth
   await next;
 });
 
-test("render size: config default, per-channel override, one capture per size pair", async (t) => {
+test("graphics at the channel's size and frame rate: one capture per size and rate, render options ignored", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
   const cg = await sidecar(t, {
     vizrs: { address: vizrs.address, token: "" },
     output_url: "http://127.0.0.1:9/output",
     lead_seconds: 0,
-  }, { VIZRS_RENDER_SIZE: "720p" });
+    render_size: "720p",
+    max_fps: 25,
+  }, { VIZRS_RENDER_SIZE: "720p", VIZRS_MAX_FPS: "25" });
   const hd = { ...item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), Resolution: { Width: 1920, Height: 1080 } };
 
   await runClient(`${cg.url}/etv?channel=1`, hd, 400);
   await runClient(`${cg.url}/etv?channel=2`, hd, 400);
-  await runClient(`${cg.url}/etv?channel=3&render=auto`, hd, 400);
-  await runClient(`${cg.url}/etv?channel=4&render=bogus`, hd, 400);
+  await runClient(`${cg.url}/etv?channel=3&render=720p`, hd, 400);
+  await runClient(`${cg.url}/etv?channel=4`, { ...hd, FrameRate: 50 }, 400);
 
   const { captures } = await cg.health();
-  assert.deepEqual(captures.map(({ size, render }) => [size, render]), [
-    ["1920x1080", "1280x720"],
-    ["1920x1080", "1920x1080"],
+  assert.deepEqual(captures.map(({ size, render, fps }) => [size, render, fps]), [
+    ["1920x1080", undefined, 25],
+    ["1920x1080", undefined, 50],
   ]);
 });
 

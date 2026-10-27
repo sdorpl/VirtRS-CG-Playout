@@ -11,7 +11,7 @@
 # the ffmpeg overlay sets it: VIZRS_FFMPEG_PRESET, veryfast by default
 # (superfast for several channels, 1080p50/60 media or a continuous ticker).
 #
-# CPU split for 4 OCPUs: the sidecar (Chromium, PNG decode, scaling) is
+# CPU split for 4 OCPUs: the sidecar (Chromium, PNG decode) is
 # capped so ffmpeg keeps most of the cores. With the ffmpeg overlay ffmpeg
 # waits for the graphics frames: a sidecar starved by a continuous animation
 # (a ticker) slows the whole channel below real time, so it gets 2 CPUs.
@@ -32,11 +32,6 @@ services:
       VIZRS_BROWSER_ARGS: ${VIZRS_BROWSER_ARGS:---num-raster-threads=2 --disable-smooth-scrolling}
       # A1 cores are slower per thread than x86: a little more player buffer.
       LEAD_SECONDS: ${LEAD_SECONDS:-5}
-      # Chromium renders at the channel size (1080p on a 1080p channel, full
-      # sharpness); VIZRS_RENDER_SIZE=720p saves about a third of the CPU per frame.
-      VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
-      # Animations at 25 frames per second also on 50 fps channels.
-      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-25}
 
   ersatztv:
     platform: linux/arm64

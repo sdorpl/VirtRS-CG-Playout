@@ -8,7 +8,7 @@
   The animated scene also draws a marker at the top-left corner: 16 cells of
   8x8 px, white = 1, black = 0 (bit 0 first), the animation step
   (requestAnimationFrame time / frame length) mod 65536. Black and white survive
-  the scaling of render_size and yuva420p, so every output frame (ETV packets or
+  yuva420p, so every output frame (ETV packets or
   ffmpeg frames) tells whether the motion moved by one step, stood or skipped.
 -->
 <html>

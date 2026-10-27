@@ -5,6 +5,10 @@ use std::path::Path;
 
 use crate::json::{self, Value};
 
+// Removed options (render_size, max_fps): the graphics always have the size
+// and frame rate ErsatzTV broadcasts.
+const SAME_AS_CHANNEL: &str = "graphics always render at the channel's size and frame rate";
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Vizrs {
     pub address: String,
@@ -53,12 +57,8 @@ pub struct Config {
     pub out_seconds: f64,
     /// How far the packet stream may run ahead of real time (ErsatzTV burst).
     pub lead_seconds: f64,
-    /// Size Chromium renders /output at: "" = channel size, "720p", "1280x720".
-    pub render_size: String,
     /// Graphics area of the channel: "" = all of it, "1920x140+0+940" = only that part.
     pub area: String,
-    /// Upper limit of the capture rate, e.g. 25 on small ARM hosts; 0 = the channel rate.
-    pub max_fps: f64,
     /// How Chromium's pictures are taken: "frames" (begin frames, the default) or "screencast".
     pub capture_mode: String,
     pub browser: String,
@@ -83,9 +83,7 @@ impl Default for Config {
             in_seconds: 10.0,
             out_seconds: 10.0,
             lead_seconds: 4.0,
-            render_size: String::new(),
             area: String::new(),
-            max_fps: 0.0,
             capture_mode: "frames".into(),
             browser: String::new(),
             no_sandbox: false,
@@ -181,9 +179,7 @@ impl Config {
                     "in_seconds" => config.in_seconds = number(value, key)?,
                     "out_seconds" => config.out_seconds = number(value, key)?,
                     "lead_seconds" => config.lead_seconds = number(value, key)?,
-                    "render_size" => config.render_size = string(value, key)?,
                     "area" => config.area = string(value, key)?,
-                    "max_fps" => config.max_fps = number(value, key)?,
                     "capture_mode" => config.capture_mode = string(value, key)?,
                     "browser" => config.browser = string(value, key)?,
                     "no_sandbox" => config.no_sandbox = boolean(value, key)?,
@@ -192,6 +188,7 @@ impl Config {
                         config.browser_args = items.iter().map(|v| string(v, "browser_args")).collect::<Result<_, _>>()?;
                     }
                     "gap_grace_ms" => config.gap_grace_ms = Some(number(value, key)?),
+                    "render_size" | "max_fps" => warnings.push(format!("config: \"{key}\" ignored; {SAME_AS_CHANNEL}")),
                     _ => warnings.push(format!("config: unknown option \"{key}\" ignored")),
                 }
             }
@@ -238,16 +235,12 @@ impl Config {
                 }
             }
         }
-        if let Some(v) = env("VIZRS_RENDER_SIZE") {
-            config.render_size = v;
-        }
         if let Some(v) = env("VIZRS_AREA") {
             config.area = v;
         }
-        if let Some(v) = env("VIZRS_MAX_FPS").filter(|v| !v.is_empty()) {
-            match v.trim().parse() {
-                Ok(fps) => config.max_fps = fps,
-                Err(_) => warnings.push(format!("VIZRS_MAX_FPS=\"{v}\" is not a number; using {}", config.max_fps)),
+        for name in ["VIZRS_RENDER_SIZE", "VIZRS_MAX_FPS"] {
+            if env(name).is_some_and(|v| !v.trim().is_empty()) {
+                warnings.push(format!("{name} ignored; {SAME_AS_CHANNEL}"));
             }
         }
         if let Some(v) = env("VIZRS_CAPTURE_MODE").filter(|v| !v.is_empty()) {
@@ -289,9 +282,7 @@ impl Config {
             ("ad_match", json::object([("path", self.ad_match.path.as_str().into()), ("title", self.ad_match.title.as_str().into())])),
             ("ad_without_element", self.ad_without_element.into()),
             ("lead_seconds", self.lead_seconds.into()),
-            ("render_size", self.render_size.as_str().into()),
             ("area", self.area.as_str().into()),
-            ("max_fps", self.max_fps.into()),
             ("capture_mode", self.capture_mode.as_str().into()),
             ("browser", self.browser.as_str().into()),
             ("no_sandbox", self.no_sandbox.into()),
@@ -331,6 +322,17 @@ mod tests {
         let bad = json::parse(r#"{"no_sandbox":"yes"}"#).unwrap();
         assert!(Config::from_values(Some(&bad), &env(&[])).unwrap_err().contains("no_sandbox"));
         assert!(Config::from_values(Some(&Value::Array(vec![])), &env(&[])).is_err());
+    }
+
+    #[test]
+    fn render_size_and_max_fps_are_gone() {
+        let file = json::parse(r#"{"render_size":"720p","max_fps":25}"#).unwrap();
+        let (config, warnings) = Config::from_values(Some(&file), &env(&[("VIZRS_RENDER_SIZE", "720p"), ("VIZRS_MAX_FPS", "25")])).unwrap();
+        assert_eq!(config, Config::default());
+        assert_eq!(warnings.len(), 4);
+        assert!(warnings.iter().all(|w| w.contains("channel's size and frame rate")), "{warnings:?}");
+        let (_, warnings) = Config::from_values(None, &env(&[("VIZRS_RENDER_SIZE", ""), ("VIZRS_MAX_FPS", " ")])).unwrap();
+        assert!(warnings.is_empty());
     }
 
     #[test]

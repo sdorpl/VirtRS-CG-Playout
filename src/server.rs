@@ -1,6 +1,6 @@
 // HTTP side of the sidecar.
 //
-//   POST /etv?channel=1[&render=720p][&area=1920x140+0+940]
+//   POST /etv?channel=1[&area=1920x140+0+940]
 //                         body: ErsatzTV template data (JSON from the script
 //                         element's stdin); reply: endless ETV packet stream
 //   GET  /ffmpeg?channel=1[&wait=2000][&area=1]
@@ -31,7 +31,6 @@ use crate::config::Config;
 use crate::frames::{Empty, Source};
 use crate::http::{self, Request};
 use crate::json::{self, Value};
-use crate::scale::render_size;
 use crate::stream::{self, Control, Format, Options};
 use crate::template::{AdMatcher, ClipContext, ShowMatcher, js_string};
 use crate::vizrs::ChannelEvents;
@@ -175,15 +174,12 @@ impl Server {
         Arc::clone(events)
     }
 
-    /// One capture per channel size, render size and graphics area, shared by the channels that have them.
-    fn capture_for(&self, width: u32, height: u32, fps: f64, spec: &str, area: &str) -> Graphics {
+    /// One capture per channel size, frame rate and graphics area, shared by the channels that have them:
+    /// the graphics always have the size and rate ErsatzTV broadcasts.
+    fn capture_for(&self, width: u32, height: u32, fps: f64, area: &str) -> Graphics {
         if self.config.output_url.is_empty() || width == 0 || height == 0 {
             return Graphics::Empty;
         }
-        let (rw, rh) = render_size(spec, width, height).unwrap_or_else(|error| {
-            crate::warn!("render size: {error}; using {width}x{height}");
-            (width, height)
-        });
         let mode = CaptureMode::parse(&self.config.capture_mode).unwrap_or_else(|error| {
             crate::warn!("{error}; using frames");
             CaptureMode::Frames
@@ -192,20 +188,17 @@ impl Server {
             crate::warn!("{error}; using the whole channel");
             Vec::new()
         });
-        let key = format!("{width}x{height}/{rw}x{rh}/{}", geometries(&areas));
+        let key = format!("{width}x{height}@{fps}/{}", geometries(&areas));
         let mut sessions = lock(&self.sessions);
         if let Some((_, capture)) = sessions.captures.iter().find(|(k, _)| *k == key) {
             return Graphics::Capture(Arc::clone(capture));
         }
         let capture = Capture::start(CaptureOptions {
             url: self.config.output_url.clone(),
-            width: rw,
-            height: rh,
-            out_width: width,
-            out_height: height,
+            width,
+            height,
             areas,
             fps,
-            max_fps: self.config.max_fps,
             mode,
             browser: self.browser.clone(),
             no_sandbox: self.config.no_sandbox,
@@ -226,7 +219,6 @@ impl Server {
             .map(|(_, c)| {
                 json::object([
                     ("size", c.size().into()),
-                    ("render", c.render().into()),
                     ("area", if c.areas().is_empty() { Value::Null } else { geometries(c.areas()).into() }),
                     ("fps", c.fps().into()),
                     ("mode", c.mode().name().into()),
@@ -429,9 +421,11 @@ impl Server {
 
         let piece = format!("{channel}|{}|{}", ctx.start, ctx.seek);
         let carrier = lock(&self.sessions).carriers.insert(piece.clone());
-        let spec = request.param("render").unwrap_or(&self.config.render_size).to_owned();
+        if request.param("render").is_some() {
+            crate::warn!("channel {channel}: render= ignored; graphics always render at the channel's size");
+        }
         let area = request.param("area").unwrap_or(&self.config.area).to_owned();
-        let capture = match carrier.then(|| self.capture_for(ctx.width, ctx.height, fps, &spec, &area)) {
+        let capture = match carrier.then(|| self.capture_for(ctx.width, ctx.height, fps, &area)) {
             Some(Graphics::Capture(capture)) => Some(capture),
             _ => None,
         };

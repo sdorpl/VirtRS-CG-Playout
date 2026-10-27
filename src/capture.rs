@@ -1,5 +1,6 @@
-// Burn-in source: one headless Chromium per channel size renders the VizRS
-// `/output` page with a transparent background. Chromium sends a PNG
+// Burn-in source: one headless Chromium per channel size and frame rate
+// renders the VizRS `/output` page with a transparent background, always at
+// the size of the channel (no scaling). Chromium sends a PNG
 // (DevTools `Page.startScreencast`) only when the page changes; it becomes the
 // current frame for all sessions, with a history as long as the lead of the
 // streams so each output frame can take the picture of its own moment. A PNG
@@ -28,7 +29,6 @@ use crate::json::{self, Value};
 use crate::packets::{Rect, crop};
 use crate::png::decode_png;
 use crate::rects::visible_rects;
-use crate::scale::scale_rects;
 use crate::{base64, sys};
 
 // First start on a cold host (CI runner, small ARM VM) can take 15–20 s.
@@ -101,11 +101,6 @@ pub fn every_nth_frame(fps: f64) -> u32 {
     (BROWSER_FPS / fps.max(1.0)).floor().max(1.0) as u32
 }
 
-/// The channel rate, at most `max` (0 = no limit).
-pub fn capped_fps(fps: f64, max: f64) -> f64 {
-    if max > 0.0 { fps.min(max) } else { fps }
-}
-
 /// When Chromium drew a screencast frame (`metadata.timestamp`, seconds since
 /// the epoch), on the monotonic clock; arrival time if missing or off.
 pub fn drawn_at(timestamp: Option<f64>) -> Instant {
@@ -129,17 +124,12 @@ fn remove_profile(profile: &Path) {
 
 pub struct CaptureOptions {
     pub url: String,
-    /// Render size of the page.
+    /// Size of the page and of the frames: the channel's.
     pub width: u32,
     pub height: u32,
-    /// Size of the frames (the channel).
-    pub out_width: u32,
-    pub out_height: u32,
     /// Graphics areas of the channel (`area`): only they are drawn; none = all of it.
     pub areas: Vec<Area>,
     pub fps: f64,
-    /// Capture rate limit (`max_fps`); 0 = the channel rate.
-    pub max_fps: f64,
     pub mode: CaptureMode,
     pub browser: Option<String>,
     pub no_sandbox: bool,
@@ -219,11 +209,6 @@ impl Capture {
 
     /// Channel size, as `/health` reports it.
     pub fn size(&self) -> String {
-        format!("{}x{}", self.options.out_width, self.options.out_height)
-    }
-
-    /// Render size of the page.
-    pub fn render(&self) -> String {
         format!("{}x{}", self.options.width, self.options.height)
     }
 
@@ -233,7 +218,7 @@ impl Capture {
     }
 
     pub fn key(&self) -> String {
-        let mut key = if self.size() == self.render() { self.size() } else { format!("{} (render {})", self.size(), self.render()) };
+        let mut key = self.size();
         if !self.areas().is_empty() {
             key.push_str(&format!(" area {}", geometries(self.areas())));
         }
@@ -253,9 +238,10 @@ impl Capture {
         if self.no_frames.load(Ordering::Relaxed) { CaptureMode::Screencast } else { self.options.mode }
     }
 
-    /// Frames per second Chromium draws in the frames mode, and at most takes in the screencast.
+    /// Frames per second Chromium draws in the frames mode, and at most takes in the screencast:
+    /// the channel's.
     fn capture_fps(&self) -> f64 {
-        capped_fps(self.fps(), self.options.max_fps).max(1.0)
+        self.fps().max(1.0)
     }
 
     pub fn current(&self) -> Arc<Frame> {
@@ -310,8 +296,7 @@ impl Capture {
         if fps <= state.fps {
             return;
         }
-        let max = self.options.max_fps;
-        let (before, after) = (capped_fps(state.fps, max), capped_fps(fps, max));
+        let (before, after) = (state.fps, fps);
         state.fps = fps;
         let same = match mode {
             CaptureMode::Screencast => every_nth_frame(before) == every_nth_frame(after),
@@ -500,7 +485,7 @@ impl Capture {
         let call = |method: &str, params: Value| devtools.call(method, params, Some(&session), CALL_TIMEOUT);
         let (width, height) = (u64::from(self.options.width), u64::from(self.options.height));
         // A graphics area: the page lays out at full size, Chromium draws only the area.
-        let area = (!self.options.areas.is_empty()).then(|| regions(&self.options, mode == CaptureMode::Frames)[0].0);
+        let area = (!self.options.areas.is_empty()).then(|| regions(&self.options, mode == CaptureMode::Frames)[0]);
         call("Emulation.setDeviceMetricsOverride", self.metrics(area))?;
         // Transparency only through DevTools: `--default-background-color` crashes current renderers.
         let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
@@ -690,7 +675,7 @@ impl Capture {
                 Err(RecvTimeoutError::Timeout) => {
                     let start = slot * frame_ms;
                     let mut changed = false;
-                    for (i, &(clip, _)) in parts.iter().enumerate() {
+                    for (i, &clip) in parts.iter().enumerate() {
                         if switching {
                             devtools.call("Emulation.setDeviceMetricsOverride", self.metrics(Some(clip)), Some(session), CALL_TIMEOUT)?;
                         }
@@ -731,7 +716,7 @@ impl Capture {
                     if window.elapsed() >= MISSED_WINDOW {
                         if missed * 10 > drawn + missed {
                             crate::warn!(
-                                "burn-in {}: {missed} of {} frames not drawn in time; lower max_fps or render_size",
+                                "burn-in {}: {missed} of {} frames not drawn in time; the host is too slow for the channel's rate (graphics area, fewer channels)",
                                 self.key(),
                                 drawn + missed
                             );
@@ -761,7 +746,7 @@ impl Capture {
 
     /// A new picture of the screencast; one of another size (the page resizing) is skipped.
     fn push_png(&self, data: &str, at: Instant) {
-        let (clip, _) = regions(&self.options, false)[0];
+        let clip = regions(&self.options, false)[0];
         if let Some(png) = self.png_of(data, (clip.w, clip.h)) {
             self.history.set_png(png, at, &self.decode);
         }
@@ -786,37 +771,32 @@ fn rectangle(area: Area) -> Value {
     ])
 }
 
-/// Parts of the page drawn into a PNG each: the part at the render size (the
-/// viewport) and the part of the channel it is. No areas: the whole page.
-/// Areas: each of them (`each`, the frames mode) or their bounding box.
-fn regions(o: &CaptureOptions, each: bool) -> Vec<(Area, Area)> {
-    let scale = |area: Area| area.scaled((o.out_width, o.out_height), (o.width, o.height));
+/// Parts of the page drawn into a PNG each (the viewport), in channel
+/// pixels. No areas: the whole page. Areas: each of them (`each`, the frames
+/// mode) or their bounding box.
+fn regions(o: &CaptureOptions, each: bool) -> Vec<Area> {
     match o.areas.as_slice() {
-        [] => vec![(Area { x: 0, y: 0, w: o.width, h: o.height }, Area { x: 0, y: 0, w: o.out_width, h: o.out_height })],
-        areas if each => areas.iter().map(|&area| (scale(area), area)).collect(),
-        areas => vec![(union(&areas.iter().map(|&a| scale(a)).collect::<Vec<_>>()), union(areas))],
+        [] => vec![Area { x: 0, y: 0, w: o.width, h: o.height }],
+        areas if each => areas.to_vec(),
+        areas => vec![union(areas)],
     }
 }
 
-/// Visible rectangles of PNG number `index` (of `regions`) at the channel
-/// size, in channel coordinates, cut to `cut` (the areas, for their bounding box).
-fn decoder(regions: Vec<(Area, Area)>, cut: Vec<Area>) -> Arc<Decode> {
+/// Visible rectangles of PNG number `index` (of `regions`) in channel
+/// coordinates, cut to `cut` (the areas, for their bounding box).
+fn decoder(regions: Vec<Area>, cut: Vec<Area>) -> Arc<Decode> {
     Arc::new(move |index: usize, png: &[u8]| {
-        let &(clip, part) = regions.get(index).ok_or("no such area")?;
-        let (width, height) = (clip.w, clip.h);
+        let &part = regions.get(index).ok_or("no such area")?;
+        let (width, height) = (part.w, part.h);
         let picture = decode_png(png)?;
         if (picture.width, picture.height) != (width, height) {
             return Err(format!("frame {}x{} skipped", picture.width, picture.height));
         }
         let boxes = visible_rects(&picture.rgba, width, height);
-        let mut rects = if (width, height) != (part.w, part.h) {
-            scale_rects(&picture.rgba, width, height, &boxes, part.w, part.h)
-        } else {
-            boxes.into_iter().map(|(x, y, w, h)| Rect { x, y, w, h, pixels: crop(&picture.rgba, width, (x, y, w, h)) }).collect()
-        };
-        for rect in &mut rects {
-            (rect.x, rect.y) = (rect.x + part.x, rect.y + part.y);
-        }
+        let rects = boxes
+            .into_iter()
+            .map(|(x, y, w, h)| Rect { x: x + part.x, y: y + part.y, w, h, pixels: crop(&picture.rgba, width, (x, y, w, h)) })
+            .collect();
         Ok(if cut.len() > 1 { cut_to(rects, &cut) } else { rects })
     })
 }
@@ -836,13 +816,6 @@ mod tests {
         for (fps, n) in [(0.0, 60), (1.0, 60), (24.0, 2), (25.0, 2), (29.97, 2), (30.0, 2), (50.0, 1), (60.0, 1), (100.0, 1)] {
             assert_eq!(every_nth_frame(fps), n, "{fps}");
         }
-    }
-
-    #[test]
-    fn max_fps_lowers_the_screencast_rate() {
-        assert_eq!(every_nth_frame(capped_fps(50.0, 25.0)), 2);
-        assert_eq!(every_nth_frame(capped_fps(25.0, 50.0)), 2);
-        assert_eq!(every_nth_frame(capped_fps(50.0, 0.0)), 1);
     }
 
     #[test]

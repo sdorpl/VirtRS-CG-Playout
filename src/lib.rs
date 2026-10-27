@@ -18,7 +18,6 @@ pub mod overlay;
 pub mod packets;
 pub mod png;
 pub mod rects;
-pub mod scale;
 pub mod server;
 pub mod stream;
 pub mod sync;

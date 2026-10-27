@@ -45,17 +45,6 @@ impl Area {
         Ok((area != Area { x: 0, y: 0, w: width, h: height }).then_some(area))
     }
 
-    /// The same part of a picture of `to` instead of `from` (render size).
-    pub fn scaled(self, from: (u32, u32), to: (u32, u32)) -> Area {
-        if from == to {
-            return self;
-        }
-        let edge = |v: u32, f: u32, t: u32| (f64::from(v) * f64::from(t) / f64::from(f)).round() as u32;
-        let (x, y) = (edge(self.x, from.0, to.0), edge(self.y, from.1, to.1));
-        let (x1, y1) = (edge(self.x + self.w, from.0, to.0).min(to.0), edge(self.y + self.h, from.1, to.1).min(to.1));
-        Area { x, y, w: x1.saturating_sub(x).max(1), h: y1.saturating_sub(y).max(1) }
-    }
-
     /// `WxH+X+Y`, as `/health` shows it.
     pub fn geometry(self) -> String {
         format!("{}x{}+{}+{}", self.w, self.h, self.x, self.y)
@@ -230,10 +219,8 @@ mod tests {
     }
 
     #[test]
-    fn scaled_to_the_render_size() {
+    fn geometry_as_health_shows_it() {
         let ticker = Area { x: 0, y: 940, w: 1920, h: 140 };
-        assert_eq!(ticker.scaled((1920, 1080), (1920, 1080)), ticker);
-        assert_eq!(ticker.scaled((1920, 1080), (1280, 720)), Area { x: 0, y: 627, w: 1280, h: 93 });
         assert_eq!(ticker.geometry(), "1920x140+0+940");
     }
 }

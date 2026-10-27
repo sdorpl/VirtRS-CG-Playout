@@ -17,8 +17,6 @@
   "in_seconds": 10,
   "out_seconds": 10,
   "lead_seconds": 6,
-  "render_size": "",
   "area": "",
-  "max_fps": 0,
   "capture_mode": "frames"
 }
