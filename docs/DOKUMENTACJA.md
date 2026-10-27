@@ -279,7 +279,7 @@ Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
 |---|---|---|
 | `VIZRS_CG_URL` | – (compose: `http://cg:7700`) | adres sidecara; puste = nakładka tylko przekazuje wywołania do ffmpeg |
 | `VIZRS_FFMPEG` | `/usr/local/bin/ffmpeg` | prawdziwy ffmpeg |
-| `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
+| `VIZRS_FFMPEG_FPS` | – (compose: `50`) | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
 | `VIZRS_FFMPEG_PRESET` | – (compose A1: `veryfast`) | preset kodera programowego (libx264, libx265), np. `superfast`; puste = preset ErsatzTV |
 | `VIZRS_FFMPEG_READRATE_CATCHUP` | – (compose: `2`) | tempo nadrabiania strumienia MPEG-TS kanału po przestoju (`-readrate_catchup`); puste = bez nadrabiania |
 | `VIZRS_FFMPEG_FPS_BLEND` | – (compose: `1`) | `1` = zmiana klatkażu materiału z mieszaniem klatek (`framerate` zamiast `fps`); puste = `fps` |
@@ -348,6 +348,11 @@ transkodowanie do HLS:
   komenda oryginalna), żeby cały kanał miał jeden klatkaż;
 - surowe klatki grafiki idą w 50 kl./s, a sidecar przestawia przechwytywanie
   Chromium na każdą klatkę (`/health`: `fps` przechwytywania).
+
+W `docker-compose.yml` `VIZRS_FFMPEG_FPS` i `VIZRS_MAX_FPS` są domyślnie `50`:
+cały stos (kanał ErsatzTV i grafika) idzie w 50 kl./s (do wersji 2.1.9
+klatkaż materiałów i grafika do 30 kl./s). `VIZRS_FFMPEG_FPS=` (puste) wraca
+do klatkażu materiałów.
 
 Inne wywołania (koder płótna ErsatzTV, kopiowanie strumienia `-c copy`,
 remuks do MPEG-TS) zostają bez zmian. Obraz materiału 25 kl./s nie robi się
@@ -655,8 +660,8 @@ Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), renderuje grafikę
 w rozmiarze kanału – na kanale 1080p w pełnym 1080p, bez skalowania
 (`VIZRS_RENDER_SIZE` puste, §1; do wersji 2.1.7 domyślnie 720p; przy braku
 mocy `VIZRS_RENDER_SIZE=720p` oszczędza ok. 30% CPU na klatkę kosztem
-ostrości), ogranicza animacje do 25 kl./s
-(`VIZRS_MAX_FPS=25`, §5), daje ErsatzTV
+ostrości), animuje w 50 kl./s jak kanał (`VIZRS_MAX_FPS=50`, §5; do wersji
+2.1.9 domyślnie 25, co przy braku mocy oszczędza połowę CPU grafiki), daje ErsatzTV
 wyższy priorytet CPU, trzyma `/transcode`
 w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
 sprzętowego kodera: w profilu FFmpeg ErsatzTV ustaw **Hardware Acceleration:

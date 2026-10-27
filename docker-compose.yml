@@ -76,7 +76,7 @@ services:
       # Per channel: &area=1920x140+0+930 in the element URL (vizrs.yml).
       VIZRS_AREA: ${VIZRS_AREA:-}
       # Capture rate limit, e.g. 25 on a 50 fps channel: half the PNG work; empty = channel rate.
-      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-30}
+      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-50}
       # How Chromium's pictures are taken: frames (default: one per channel frame, even
       # motion; chromium-headless-shell) or screencast (60 Hz, every n-th frame).
       VIZRS_CAPTURE_MODE: ${VIZRS_CAPTURE_MODE:-}
@@ -98,8 +98,8 @@ services:
       # ffmpeg overlay (FFmpeg path /vizrs/vizrs-ffmpeg in ErsatzTV): ffmpeg takes
       # the graphics straight from the sidecar. Empty = plain ffmpeg.
       VIZRS_CG_URL: ${VIZRS_CG_URL-http://cg:7700}
-      # Channel frame rate forced by the overlay, e.g. 50; empty = the media's rate.
-      VIZRS_FFMPEG_FPS: ${VIZRS_FFMPEG_FPS:-}
+      # Channel frame rate forced by the overlay; empty = the media's rate.
+      VIZRS_FFMPEG_FPS: ${VIZRS_FFMPEG_FPS-50}
       # x264/x265 preset added by the overlay, e.g. veryfast; empty = ErsatzTV's
       # (the next streaming engine passes none: x264 runs at medium).
       VIZRS_FFMPEG_PRESET: ${VIZRS_FFMPEG_PRESET:-}
