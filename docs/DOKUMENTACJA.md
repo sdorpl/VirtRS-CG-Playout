@@ -492,10 +492,10 @@ Grafika każdego elementu VizRS (ogólny **VizRS** z `on_clip` i elementy stron
 `page=`/`take=`/`cmd=`) jest wiązana z czasem pozycji w harmonogramie
 (`MediaItem_Start`, `MediaItem_Stop`):
 
-- **IN**: komendy idą `in_seconds` (domyślnie 10 s) po starcie pozycji; widz
+- **IN**: komendy idą `in_seconds` (domyślnie 5 s) po starcie pozycji; widz
   dołączający później wywołuje je od razu,
 - **OUT**: `OUT` stron z linii `TAKE` tych komend (np. `TAKE 4001 headline=…`
-  → `OUT 4001`) idzie `out_seconds` (domyślnie 10 s) przed jej końcem.
+  → `OUT 4001`) idzie `out_seconds` (domyślnie 5 s) przed jej końcem.
   Komendy bez `TAKE` (np. samo `UPDATE`) nie mają `OUT`.
 
 Czasy liczą się w osi wideo pozycji, nie według zegara. ErsatzTV transkoduje
@@ -775,8 +775,8 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "ad_match": { "path": "/reklamy/", "title": "" },
   "shows": [],
   "ad_without_element": true,
-  "in_seconds": 10,
-  "out_seconds": 10,
+  "in_seconds": 5,
+  "out_seconds": 5,
   "lead_seconds": 4,
   "render_size": "",
   "area": "",

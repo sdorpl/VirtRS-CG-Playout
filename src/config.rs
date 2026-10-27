@@ -80,8 +80,8 @@ impl Default for Config {
             ad_match: AdMatch::default(),
             shows: Vec::new(),
             ad_without_element: true,
-            in_seconds: 10.0,
-            out_seconds: 10.0,
+            in_seconds: 5.0,
+            out_seconds: 5.0,
             lead_seconds: 4.0,
             render_size: String::new(),
             area: String::new(),
@@ -342,10 +342,10 @@ mod tests {
 
     #[test]
     fn in_and_out_seconds() {
-        assert_eq!((Config::default().in_seconds, Config::default().out_seconds), (10.0, 10.0));
-        let file = json::parse(r#"{"in_seconds":5,"out_seconds":"15"}"#).unwrap();
+        assert_eq!((Config::default().in_seconds, Config::default().out_seconds), (5.0, 5.0));
+        let file = json::parse(r#"{"in_seconds":8,"out_seconds":"15"}"#).unwrap();
         let (config, _) = Config::from_values(Some(&file), &env(&[])).unwrap();
-        assert_eq!((config.in_seconds, config.out_seconds), (5.0, 15.0));
+        assert_eq!((config.in_seconds, config.out_seconds), (8.0, 15.0));
         let (config, warnings) = Config::from_values(Some(&file), &env(&[("VIZRS_IN_SECONDS", "0"), ("VIZRS_OUT_SECONDS", "x")])).unwrap();
         assert_eq!((config.in_seconds, config.out_seconds), (0.0, 15.0));
         assert_eq!(warnings, ["VIZRS_OUT_SECONDS=\"x\" is not a number; using 15"]);

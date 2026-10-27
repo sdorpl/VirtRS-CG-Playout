@@ -64,8 +64,8 @@ services:
       VIZRS_AD_WITHOUT_ELEMENT: ${VIZRS_AD_WITHOUT_ELEMENT:-1}
       # Graphics of an item: commands this long after its start, OUT of the pages
       # taken this long before its end (negative = no OUT).
-      VIZRS_IN_SECONDS: ${VIZRS_IN_SECONDS:-10}
-      VIZRS_OUT_SECONDS: ${VIZRS_OUT_SECONDS:-10}
+      VIZRS_IN_SECONDS: ${VIZRS_IN_SECONDS:-5}
+      VIZRS_OUT_SECONDS: ${VIZRS_OUT_SECONDS:-5}
       # Player buffer vs. graphics delay: ErsatzTV may run this far ahead of the clock.
       LEAD_SECONDS: ${LEAD_SECONDS:-4}
       # Graphics render size, scaled to the channel: "" = channel size, 720p, 1280x720, 1080p.
