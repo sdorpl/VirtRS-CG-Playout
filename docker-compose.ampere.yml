@@ -35,8 +35,8 @@ services:
       # Chromium renders at the channel size (1080p on a 1080p channel, full
       # sharpness); VIZRS_RENDER_SIZE=720p saves about a third of the CPU per frame.
       VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
-      # Animations at 25 frames per second also on 50 fps channels.
-      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-25}
+      # Animations at the 50 fps of the channel; 25 halves the graphics CPU.
+      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-50}
 
   ersatztv:
     platform: linux/arm64
