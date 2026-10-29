@@ -98,7 +98,8 @@ services:
       # ffmpeg overlay (FFmpeg path /vizrs/vizrs-ffmpeg in ErsatzTV): ffmpeg takes
       # the graphics straight from the sidecar. Empty = plain ffmpeg.
       VIZRS_CG_URL: ${VIZRS_CG_URL-http://cg:7700}
-      # Channel frame rate forced by the overlay, e.g. 50; empty = the media's rate.
+      # Channel frame rate forced by the overlay, 50 or 25 (also the target of
+      # Normalize Framerate); empty = the media's rate.
       VIZRS_FFMPEG_FPS: ${VIZRS_FFMPEG_FPS:-}
       # x264/x265 preset added by the overlay, e.g. veryfast; empty = ErsatzTV's
       # (the next streaming engine passes none: x264 runs at medium).
@@ -106,8 +107,9 @@ services:
       # Catch-up rate of the MPEG-TS channel stream (ErsatzTV reads its own HLS at
       # -readrate 1): without it each stall is lost and the stream lags. Empty = none.
       VIZRS_FFMPEG_READRATE_CATCHUP: ${VIZRS_FFMPEG_READRATE_CATCHUP-2}
-      # 1 = the media's frame rate conversion blends frames (framerate instead of
-      # fps): 60/30 fps media on a 25 fps channel move evenly. Empty = fps.
+      # 1 = the frame rate conversion of media faster than the channel blends
+      # frames (framerate instead of fps, rate from ffprobe): 60/30 fps media on
+      # a 50 or 25 fps channel move evenly. Empty = fps.
       VIZRS_FFMPEG_FPS_BLEND: ${VIZRS_FFMPEG_FPS_BLEND-1}
     volumes:
       # Holds templates/…/script/vizrs.yml, written by seed.

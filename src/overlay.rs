@@ -15,8 +15,10 @@
 // original command runs: the item plays with ErsatzTV's graphics path.
 //
 // With VIZRS_FFMPEG_FPS every transcode to HLS runs at that rate (ErsatzTV
-// takes the rate from the media): the video gets `fps=N` before the graphics
-// overlay, so the graphics move at N frames per second, and the output `-r N`.
+// takes the rate from the media): ErsatzTV's conversion of the media's rate
+// (`[0:0]fps=25,…`, Normalize Framerate) converts to N instead, the video gets
+// `fps=N` before the graphics overlay, so the graphics move at N frames per
+// second, and the output `-r N`.
 // With VIZRS_FFMPEG_PRESET a software encoder (libx264, libx265) without a
 // preset gets `-preset:v <preset>`: ErsatzTV's next streaming engine leaves
 // the preset of the FFmpeg profile out, so x264 runs at `medium`.
@@ -28,7 +30,10 @@
 // transcode to HLS (`[0:0]fps=25,…`, ErsatzTV's Normalize Framerate) blends
 // neighbouring frames (`framerate=fps=25`): 60 or 30 fps media at 25 fps take
 // every 2nd and 3rd frame in turn with `fps`, and motion judders. Frames that
-// fall on an output frame (50 or 25 fps media) pass unchanged.
+// fall on an output frame (50 or 25 fps media) pass unchanged. Media no faster
+// than the output keeps `fps` (its frames repeated, not blended): its rate
+// comes from ffprobe, run in the background for the first piece of a media and
+// cached for the next ones (through ErsatzTV's proxy a probe takes seconds).
 //
 //     VIZRS_CG_URL       sidecar, e.g. http://cg:7700 (empty: no overlay)
 //     VIZRS_FFMPEG       real ffmpeg (default /usr/local/bin/ffmpeg)
@@ -45,7 +50,8 @@ use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::os::fd::AsRawFd;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::process::Command;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -60,6 +66,10 @@ use crate::sys;
 const DEFAULT_FFMPEG: &str = "/usr/local/bin/ffmpeg";
 const CLAIM_WAIT_MS: u32 = 2000;
 const SCRIPT_END: Duration = Duration::from_millis(500);
+/// A probe without a result this long ago (failed, or still running) is run again.
+const PROBE_RETRY: Duration = Duration::from_secs(60);
+/// Read timeout of a probe of an http input, in microseconds.
+const PROBE_TIMEOUT_US: &str = "20000000";
 const CODEC: [&str; 3] = ["-vcodec", "-c:v", "-codec:v"];
 const PRESET_ENCODERS: [&str; 2] = ["libx264", "libx265"];
 const COPY: [(&str, &str); 4] = [("-c", "copy"), ("-c:v", "copy"), ("-vcodec", "copy"), ("-codec:v", "copy")];
@@ -229,7 +239,8 @@ pub fn input_number(args: &[OsString], index: usize) -> usize {
     (0..index).filter(|&i| args[i] == "-i").count()
 }
 
-/// A transcode to HLS at `fps`: `fps` before the overlay, `-r` on the output.
+/// A transcode to HLS at `fps`: the media's rate converted to `fps`, `fps`
+/// before the overlay, `-r` on the output.
 pub fn with_rate(args: Vec<OsString>, fps: &str) -> Vec<OsString> {
     let hls = (0..args.len()).find(|&i| pair(&args, i, "-f", "hls"));
     let copy = (0..args.len()).any(|i| COPY.iter().any(|(a, b)| pair(&args, i, a, b)));
@@ -243,8 +254,9 @@ pub fn with_rate(args: Vec<OsString>, fps: &str) -> Vec<OsString> {
             continue;
         }
         if let Some(filter) = out[i + 1].to_str() {
+            let media = media_rate_filter().replace_all(filter, |m: &regex::Captures| format!("{}{}fps={fps}{}", &m[1], &m[2], &m[4]));
             let replaced = overlay_filter()
-                .replacen(filter, 1, |m: &regex::Captures| format!("[{0}]fps={fps}[{0}_fps];[{0}_fps][{1}]{2}", &m[1], &m[2], &m[3]));
+                .replacen(&media, 1, |m: &regex::Captures| format!("[{0}]fps={fps}[{0}_fps];[{0}_fps][{1}]{2}", &m[1], &m[2], &m[3]));
             out[i + 1] = replaced.into_owned().into();
         }
     }
@@ -253,8 +265,9 @@ pub fn with_rate(args: Vec<OsString>, fps: &str) -> Vec<OsString> {
 }
 
 /// A transcode to HLS converts the media's frame rate blending frames:
-/// `[0:0]fps=25,` → `[0:0]framerate=fps=25,`.
-pub fn with_blend(args: Vec<OsString>, blend: bool) -> Vec<OsString> {
+/// `[0:0]fps=25,` → `[0:0]framerate=fps=25,`. Media of a known rate (`source`)
+/// no faster than the output keeps `fps`: its frames are repeated, not blended.
+pub fn with_blend(args: Vec<OsString>, blend: bool, source: Option<f64>) -> Vec<OsString> {
     let hls = (0..args.len()).any(|i| pair(&args, i, "-f", "hls"));
     if !blend || !hls {
         return args;
@@ -265,11 +278,69 @@ pub fn with_blend(args: Vec<OsString>, blend: bool) -> Vec<OsString> {
             continue;
         }
         if let Some(filter) = out[i + 1].to_str() {
-            let replaced = media_rate_filter().replace_all(filter, "${1}${2}framerate=fps=${3}${4}");
+            let replaced = media_rate_filter().replace_all(filter, |m: &regex::Captures| {
+                let slower = source.zip(parse_rate(&m[3])).is_some_and(|(source, output)| source <= output * 1.001);
+                if slower { m[0].to_owned() } else { format!("{}{}framerate=fps={}{}", &m[1], &m[2], &m[3], &m[4]) }
+            });
             out[i + 1] = replaced.into_owned().into();
         }
     }
     out
+}
+
+/// A frame rate: `25`, `30000/1001`; None for `0/0` and other nonsense.
+pub fn parse_rate(text: &str) -> Option<f64> {
+    let (num, den) = text.trim().split_once('/').unwrap_or((text.trim(), "1"));
+    let rate = num.parse::<f64>().ok()? / den.parse::<f64>().ok()?;
+    (rate.is_finite() && rate > 0.0).then_some(rate)
+}
+
+/// The media input whose rate a transcode to HLS converts (`[0:0]fps=25,…`).
+pub fn media_input(args: &[OsString]) -> Option<String> {
+    (0..args.len()).find(|&i| pair(args, i, "-f", "hls"))?;
+    let label = (0..args.len().saturating_sub(1))
+        .filter(|&i| args[i] == "-filter_complex")
+        .find_map(|i| media_rate_filter().captures(args[i + 1].to_str()?).map(|m| m[2].to_owned()))?;
+    let number: usize = label.trim_start_matches('[').split([':', ']']).next()?.parse().ok()?;
+    let index = (0..args.len()).filter(|&i| args[i] == "-i").nth(number)?;
+    args.get(index + 1).map(|input| input.to_string_lossy().into_owned())
+}
+
+/// The video rate in ffprobe's `default=nw=1` output: the average one, else `r_frame_rate`.
+pub fn probed_rate(text: &str) -> Option<f64> {
+    let value = |key: &str| text.lines().find_map(|line| line.strip_prefix(key)).and_then(parse_rate);
+    value("avg_frame_rate=").or_else(|| value("r_frame_rate="))
+}
+
+/// Video rate of the media at `input`, from the cache of earlier pieces. A miss
+/// starts ffprobe (next to ffmpeg) in the background, writing the cache for the
+/// next pieces, and gives None: through ErsatzTV's proxy a probe takes seconds,
+/// too long for the start of a piece.
+fn source_rate(settings: &Settings, input: &str) -> Option<f64> {
+    let dir = std::env::temp_dir().join("vizrs-ffmpeg-rates");
+    let key = input.split('?').next().unwrap_or(input);
+    // FNV-1a: the input without its query (signatures, expiry) names the file.
+    let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+    let file = dir.join(format!("{hash:016x}"));
+    if let Ok(text) = std::fs::read_to_string(&file) {
+        if let Some(rate) = probed_rate(&text) {
+            return Some(rate);
+        }
+        let age = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+        if age.is_some_and(|age| age < PROBE_RETRY) {
+            return None;
+        }
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    let out = std::fs::File::create(&file).ok()?;
+    let mut probe = Command::new(Path::new(&settings.ffmpeg).with_file_name("ffprobe"));
+    probe.args(["-v", "error"]);
+    if input.starts_with("http") {
+        probe.args(["-rw_timeout", PROBE_TIMEOUT_US]);
+    }
+    probe.args(["-select_streams", "v:0", "-show_entries", "stream=r_frame_rate,avg_frame_rate", "-of", "default=nw=1"]);
+    let _ = probe.arg(input).stdin(Stdio::null()).stdout(out).stderr(Stdio::null()).spawn();
+    None
 }
 
 /// A software video encoder without a preset gets `-preset:v <preset>`.
@@ -328,8 +399,10 @@ pub fn with_catchup(args: Vec<OsString>, rate: &str) -> Vec<OsString> {
 
 /// The command with the forced rate, blending, preset and catch-up rate, when set.
 fn adjusted(args: Vec<OsString>, settings: &Settings) -> Vec<OsString> {
-    let rated = with_blend(with_rate(args, &settings.fps), settings.blend);
-    with_catchup(with_preset(rated, &settings.preset), &settings.catchup)
+    let rated = with_rate(args, &settings.fps);
+    let source = if settings.blend { media_input(&rated).and_then(|input| source_rate(settings, &input)) } else { None };
+    let blended = with_blend(rated, settings.blend, source);
+    with_catchup(with_preset(blended, &settings.preset), &settings.catchup)
 }
 
 /// `/internal/graphics/<channel>/<item>`: the channel, still percent-encoded.
@@ -664,26 +737,67 @@ mod tests {
         assert_eq!(with_rate(hls.clone(), ""), hls);
         let copy = args(&["-i", "a", "-c:v", "copy", "-f", "hls", "o"]);
         assert_eq!(with_rate(copy.clone(), "50"), copy);
+        // ErsatzTV's conversion of the media's rate converts to the channel's.
+        let normalized = args(&["-i", "a", "-filter_complex", "[0:0]fps=25,scale=8:4[v];[v][1:0]overlay[o]", "-f", "hls", "o"]);
+        assert_eq!(with_rate(normalized, "50")[3], "[0:0]fps=50,scale=8:4[v];[v]fps=50[v_fps];[v_fps][1:0]overlay[o]");
+    }
+
+    #[test]
+    fn media_rate_and_input() {
+        assert_eq!(parse_rate("30000/1001").map(|r| (r * 1000.0).round()), Some(29970.0));
+        assert_eq!(parse_rate("50"), Some(50.0));
+        assert_eq!(parse_rate("0/0"), None);
+        assert_eq!(parse_rate("x"), None);
+        assert_eq!(probed_rate("r_frame_rate=60/1\navg_frame_rate=60/1\n"), Some(60.0));
+        assert_eq!(probed_rate("r_frame_rate=30/1\navg_frame_rate=0/0\n"), Some(30.0));
+        assert_eq!(probed_rate(""), None);
+        let hls = args(&[
+            "-ss",
+            "1s",
+            "-i",
+            "http://m/1?sig=a",
+            "-i",
+            "pipe:4",
+            "-filter_complex",
+            "[0:1]loudnorm[a]",
+            "-filter_complex",
+            "[0:0]fps=25,scale=8:4[v]",
+            "-f",
+            "hls",
+            "o",
+        ]);
+        assert_eq!(media_input(&hls).as_deref(), Some("http://m/1?sig=a"));
+        let second = args(&["-i", "a", "-i", "b", "-filter_complex", "[1:v]fps=25[v]", "-f", "hls", "o"]);
+        assert_eq!(media_input(&second).as_deref(), Some("b"));
+        assert_eq!(media_input(&args(&["-i", "a", "-filter_complex", "[0:0]fps=25[v]", "-f", "mpegts", "o"])), None);
+        assert_eq!(media_input(&args(&["-i", "a", "-filter_complex", "[0:0]scale=8:4[v]", "-f", "hls", "o"])), None);
     }
 
     #[test]
     fn blend_only_the_media_rate_of_hls_transcodes() {
         let filter = "[0:0]fps=25,scale=1600:900:flags=bicubic,setsar=1[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=25[v_m0_fps];[v_m0_fps][v_s0]overlay=x=0:y=0[v_o0]";
         let hls = args(&["-i", "a", "-filter_complex", "[0:1]loudnorm[a]", "-filter_complex", filter, "-f", "hls", "o.m3u8"]);
-        let blended = with_blend(hls.clone(), true);
+        let blended = with_blend(hls.clone(), true, None);
         assert_eq!(blended[3], "[0:1]loudnorm[a]");
         assert_eq!(
             blended[5],
             "[0:0]framerate=fps=25,scale=1600:900:flags=bicubic,setsar=1[v_m0];[1:0]format=yuva420p[v_s0];[v_m0]fps=25[v_m0_fps];[v_m0_fps][v_s0]overlay=x=0:y=0[v_o0]"
         );
-        assert_eq!(with_blend(hls.clone(), false), hls);
+        assert_eq!(with_blend(hls.clone(), false, None), hls);
+        // Faster media blends; media no faster than the output repeats its frames.
+        assert_eq!(with_blend(hls.clone(), true, Some(30.0)), blended);
+        assert_eq!(with_blend(hls.clone(), true, Some(25.0)), hls);
+        let fifty = args(&["-i", "a", "-filter_complex", "[0:0]fps=50,scale=8:4[v]", "-f", "hls", "o"]);
+        assert_eq!(with_blend(fifty.clone(), true, Some(25.0)), fifty);
+        assert_eq!(with_blend(fifty.clone(), true, Some(60.0))[3], "[0:0]framerate=fps=50,scale=8:4[v]");
         // Not a transcode to HLS, and an fps with options.
         let other = args(&["-i", "a", "-filter_complex", "[0:0]fps=25,scale=8:4[v]", "-f", "mpegts", "o"]);
-        assert_eq!(with_blend(other.clone(), true), other);
+        assert_eq!(with_blend(other.clone(), true, None), other);
         let options = args(&["-i", "a", "-filter_complex", "[0:v]fps=25:round=up[v]", "-f", "hls", "o"]);
-        assert_eq!(with_blend(options.clone(), true), options);
+        assert_eq!(with_blend(options.clone(), true, None), options);
         let label = args(&["-i", "a", "-filter_complex", "[0:v]fps=30000/1001[v]", "-f", "hls", "o"]);
-        assert_eq!(with_blend(label, true)[3], "[0:v]framerate=fps=30000/1001[v]");
+        assert_eq!(with_blend(label.clone(), true, None)[3], "[0:v]framerate=fps=30000/1001[v]");
+        assert_eq!(with_blend(label.clone(), true, Some(29.97)), label);
     }
 
     #[test]

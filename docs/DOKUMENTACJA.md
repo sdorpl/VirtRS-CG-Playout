@@ -275,10 +275,10 @@ Zmienne środowiskowe nakładki (w kontenerze ErsatzTV):
 |---|---|---|
 | `VIZRS_CG_URL` | – (compose: `http://cg:7700`) | adres sidecara; puste = nakładka tylko przekazuje wywołania do ffmpeg |
 | `VIZRS_FFMPEG` | `/usr/local/bin/ffmpeg` | prawdziwy ffmpeg |
-| `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, np. `50`; puste = klatkaż materiałów |
+| `VIZRS_FFMPEG_FPS` | – | wymuszony klatkaż kanału, `50` albo `25` (także cel **Normalize Framerate**); puste = klatkaż materiałów |
 | `VIZRS_FFMPEG_PRESET` | – (compose A1: `veryfast`) | preset kodera programowego (libx264, libx265), np. `superfast`; puste = preset ErsatzTV |
 | `VIZRS_FFMPEG_READRATE_CATCHUP` | – (compose: `2`) | tempo nadrabiania strumienia MPEG-TS kanału po przestoju (`-readrate_catchup`); puste = bez nadrabiania |
-| `VIZRS_FFMPEG_FPS_BLEND` | – (compose: `1`) | `1` = zmiana klatkażu materiału z mieszaniem klatek (`framerate` zamiast `fps`); puste = `fps` |
+| `VIZRS_FFMPEG_FPS_BLEND` | – (compose: `1`) | `1` = zmiana klatkażu materiału szybszego od kanału z mieszaniem klatek (`framerate` zamiast `fps`; klatkaż z `ffprobe`); puste = `fps` |
 
 #### Nadrabianie strumienia MPEG-TS (`VIZRS_FFMPEG_READRATE_CATCHUP`)
 
@@ -313,7 +313,20 @@ dwiema klatkami źródła jest ich mieszanką ważoną czasem, więc ruch jest
 równy (z lekką smugą przy szybkim ruchu). Klatki, które trafiają dokładnie
 w klatkę wyjścia (materiał 25 albo 50 kl./s), i cięcia scen przechodzą bez
 mieszania. Inne użycia `fps` (np. to z `VIZRS_FFMPEG_FPS` przed nakładaniem
-grafiki) i `fps` z opcjami zostają bez zmian. Pomiar 2026-10-26 (A1,
+grafiki) i `fps` z opcjami zostają bez zmian.
+
+Materiał nie szybszy od wyjścia (25 kl./s na kanale 50 albo 25) zostaje przy
+`fps`: jego klatki są powtarzane, nie mieszane – mieszanie co drugiej klatki
+dałoby podwójne krawędzie w ruchu. Klatkaż materiału (`avg_frame_rate`,
+inaczej `r_frame_rate`) podaje `ffprobe` leżący obok ffmpeg (`VIZRS_FFMPEG`
+z nazwą `ffprobe`). Przez pośrednika ErsatzTV (Jellyfin, Plex, Emby) sprawdzenie
+trwa kilka sekund (s2: 6–7 s), więc nie czeka na nie żaden kawałek:
+pierwszy kawałek materiału uruchamia `ffprobe` w tle i idzie z mieszaniem jak
+dotąd, a wynik trafia do pamięci podręcznej (`$TMPDIR/vizrs-ffmpeg-rates/`,
+klucz: adres wejścia bez parametrów zapytania) dla następnych kawałków
+(co 44 s) i powtórek tego samego pliku (np. identów). Sprawdzenie bez wyniku
+(brak `ffprobe`, błąd) jest powtarzane po 60 s; do tego czasu działa
+mieszanie. Pomiar 2026-10-26 (A1,
 20 s materiału 1080p60 → 1600×900@25, x264 `superfast`): 23,2 s CPU z `fps`,
 23,6 s z `framerate` (+2%).
 
@@ -336,6 +349,12 @@ ErsatzTV nie ma ustawienia klatkażu kanału. Bierze klatkaż materiałów, a pr
 25 kl./s ma więc 25 kl./s. Z `VIZRS_FFMPEG_FPS=50` nakładka zmienia każde
 transkodowanie do HLS:
 
+- zmianę klatkażu materiału z **Normalize Framerate** (`[0:0]fps=25,…`)
+  kieruje na klatkaż kanału (`[0:0]fps=50,…`): materiał 30 i 60 kl./s idzie
+  wprost do 50, zamiast przez 25 z każdą klatką powtórzoną, a z
+  `VIZRS_FFMPEG_FPS_BLEND` jest mieszany (niżej); `VIZRS_FFMPEG_FPS=25`
+  ujednolica kanał do 25 kl./s także wtedy, gdy najwolniejszy materiał
+  ma 30;
 - do wideo przed pierwszym filtrem nakładania wstawia `fps=50`
   (`[v_m0][v_s0]overlay…` → `[v_m0]fps=50[v_m0_fps];[v_m0_fps][v_s0]overlay…`),
   więc grafika jest nakładana i porusza się w 50 kl./s, a nie tylko dublowana
