@@ -656,7 +656,7 @@ pub fn run(settings: &Settings, args: Vec<OsString>) -> i32 {
     };
 
     let fd = socket.as_raw_fd();
-    // Forwarded to ffmpeg from here on; the child starts with them unblocked.
+    // Forwarded to ffmpeg from here on; ffmpeg_child_setup unblocks them in the child.
     sys::block_signals(&FORWARDED);
     let mut command = Command::new(&settings.ffmpeg);
     command.args(adjusted(overlay_args(&args, &canvas, fd, &frames), settings));

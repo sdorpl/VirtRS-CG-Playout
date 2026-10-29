@@ -887,7 +887,11 @@ w trakcie kawałka zostawia ostatni obraz grafiki do końca kawałka (najwyżej
 kilkadziesiąt sekund), bo ffmpeg ErsatzTV przy końcu wejścia nakładki
 powtarza jego ostatnią klatkę; obraz programu leci dalej. Gdy ErsatzTV zabija
 nakładkę, ffmpeg dostaje `SIGTERM` (`PR_SET_PDEATHSIG`); sygnały zamknięcia
-(`SIGTERM`, `SIGINT`, …) nakładka przekazuje ffmpeg.
+(`SIGTERM`, `SIGINT`, …) nakładka przekazuje ffmpeg. ffmpeg startuje z pustą
+maską sygnałów: nakładka blokuje u siebie przekazywane sygnały, a proces
+potomny dziedziczy maskę, więc bez jej wyczyszczenia ffmpeg nie przyjmowałby
+`SIGTERM` i po zabiciu nakładki zostawałby, dopisując segmenty do playlisty
+kanału (do wersji z tą poprawką kończył go dopiero `SIGKILL`).
 
 ## 7. Testy
 

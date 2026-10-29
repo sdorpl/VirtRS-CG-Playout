@@ -312,7 +312,17 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
   const dir = mkdtempSync(path.join(os.tmpdir(), "virtrs-ffmpeg-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const ffmpeg = path.join(dir, "ffmpeg");
-  writeFileSync(ffmpeg, FAKE_FFMPEG);
+  writeFileSync(`${ffmpeg}.js`, FAKE_FFMPEG);
+  // awk records the signal mask ffmpeg starts with (Node and dash clear their own), then runs the stand-in.
+  writeFileSync(`${ffmpeg}.awk`, `BEGIN {
+  while ((getline line < "/proc/self/status") > 0) if (sub(/^SigBlk:[ \\t]*/, "", line)) print line > "${ffmpeg}.blocked"
+  close("${ffmpeg}.blocked")
+  command = "exec node '${ffmpeg}.js'"
+  for (i = 2; i < ARGC; i++) { arg = ARGV[i]; gsub(/'/, "'\\\\''", arg); command = command " '" arg "'" }
+  exit system(command)
+}
+`);
+  writeFileSync(ffmpeg, `#!/usr/bin/env -S awk -f ${ffmpeg}.awk --\n`);
   chmodSync(ffmpeg, 0o755);
 
   const headers = "x-etv-channel:1\r\nx-etv-offset-ms:0\r\nx-etv-duration-ms:44000\r\nx-etv-frame-rate:25/1\r\n";
@@ -333,6 +343,9 @@ test("ffmpeg overlay: raw frames from the sidecar, the script session stops its 
   ]);
   assert.equal(first.read, 3 * yuvaSize(8, 4));
   assert.equal(first.first, blankYuva(8, 4).toString("hex"));
+  const blocked = BigInt(`0x${readFileSync(`${ffmpeg}.blocked`, "utf8").trim()}`);
+  const stop = (1n << 1n) | (1n << 14n); // SIGINT, SIGTERM
+  assert.equal(blocked & stop, 0n, "ffmpeg starts with SIGINT and SIGTERM unblocked");
   assert.equal(canvas.requests[0]["x-etv-frame-rate"], "25/1", "the canvas is opened with ErsatzTV's headers");
 
   // The channel now runs through the overlay: its next script session sends ErsatzTV nothing.
