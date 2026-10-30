@@ -24,6 +24,9 @@ pub const SAMPLE_DELAY: Duration = Duration::from_millis(100);
 /// An ETV reader this far behind the timeline (a stalled transcode) skips
 /// ahead; the ffmpeg overlay instead takes the frames it missed at once.
 const LATE: Duration = Duration::from_secs(1);
+/// Raw frames later than the history reaches take their pictures this far
+/// inside it, so the reader's small delays do not reach its edge.
+const HEADROOM: Duration = Duration::from_millis(300);
 /// The air time may put the first frame this far after the lead (ErsatzTV
 /// ahead of the schedule): the reader waits. Further means a wrong clock.
 const EARLY: Duration = Duration::from_secs(2);
@@ -39,6 +42,22 @@ pub fn air_is_timeline(air_ms: f64, now_ms: f64, lead_s: f64) -> bool {
 /// How far back the streams of `lead_seconds` take pictures.
 pub fn history(lead_seconds: f64) -> Duration {
     Duration::from_secs_f64(lead_seconds.max(0.0)) + SAMPLE_DELAY + LATE + Duration::from_millis(500)
+}
+
+/// The moment whose picture a raw output frame takes: its own moment `at`
+/// plus `shift`. A reader later than the history (a slow seek) must not take
+/// "the oldest picture" when it reads, as ffmpeg reads a few frames at once:
+/// that repeats pictures and jumps. The shift grows once to bring the frames
+/// into the history, so the pictures still follow one another, and shrinks
+/// when the reader catches up; a picture never comes from the future.
+fn picture_moment(at: Instant, shift: &mut Duration, oldest: Instant, newest: Instant) -> Instant {
+    let shown = at + *shift;
+    if shown < oldest {
+        *shift += oldest - shown + HEADROOM;
+    } else if shown > newest {
+        *shift = shift.saturating_sub(shown - newest);
+    }
+    at + *shift
 }
 
 /// Pause, resume and end of a stream from other threads.
@@ -131,6 +150,8 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
     // Raw frames: the picture shown, held while it lasts so its PNG is decoded
     // (and its yuva420p frame built) once, not on every output frame.
     let mut held: Option<(u64, Arc<Picture>)> = None;
+    // Raw frames: how far after its moment an output frame takes its picture.
+    let mut shift = Duration::ZERO;
 
     // Moment of output frame `n` (signed: the lead's frames are before `base`).
     let moment = |base: Instant, n: u64| {
@@ -143,6 +164,7 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         at.unwrap_or(base)
     };
     let frame_at = |base: Instant, n: u64| source.frame_at(moment(base, n));
+    let kept = Duration::from_secs_f64(lead_s) + SAMPLE_DELAY + LATE;
 
     while !control.is_closed() {
         if control.wait_while_paused() {
@@ -155,10 +177,10 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         // Not further behind than the history reaches: a late ETV reader skips
         // ahead. The overlay's ffmpeg keeps the timeline and catches up (a
         // piece whose media starts slowly, a channel behind the schedule) as
-        // ErsatzTV does without graphics; the frames it missed show the oldest
-        // picture still kept.
+        // ErsatzTV does without graphics; its pictures stay in order
+        // (`picture_moment`).
         let now = Instant::now();
-        let oldest = now.checked_sub(Duration::from_secs_f64(lead_s) + SAMPLE_DELAY + LATE).unwrap_or(now);
+        let oldest = now.checked_sub(kept).unwrap_or(now);
         if moment(base, sent) < oldest && matches!(options.format, Format::Packets) {
             base += oldest - moment(base, sent);
         }
@@ -166,7 +188,14 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
         let elapsed = now.checked_duration_since(base).map_or(-base.duration_since(now).as_secs_f64(), |d| d.as_secs_f64());
         let due = ((elapsed / frame_s).floor() + 1.0 + lead as f64).max(0.0) as u64;
         while sent < due {
-            let frame = frame_at(base, sent);
+            let raw = matches!(options.format, Format::Yuva { .. });
+            let frame = if raw {
+                let now = Instant::now();
+                let (oldest, newest) = (now.checked_sub(kept).unwrap_or(now), now.checked_sub(SAMPLE_DELAY).unwrap_or(now));
+                source.frame_at(picture_moment(moment(base, sent), &mut shift, oldest, newest))
+            } else {
+                frame_at(base, sent)
+            };
             let written = if let Format::Yuva { layout, hd } = &options.format {
                 sent += 1;
                 let picture = match &held {
@@ -352,6 +381,98 @@ mod tests {
         let steps: Vec<i32> = values.windows(2).map(|w| i32::from(w[1]) - i32::from(w[0])).collect();
         let exact = steps.iter().filter(|&&s| s == 1).count();
         assert!(exact + 1 >= steps.len(), "steps: {steps:?}");
+    }
+
+    #[test]
+    fn a_picture_moment_stays_in_the_history_and_in_the_past() {
+        let t0 = Instant::now() + Duration::from_secs(100);
+        let (oldest, newest) = (t0, t0 + Duration::from_secs(6));
+        let mut shift = Duration::ZERO;
+        // On time: its own moment.
+        assert_eq!(picture_moment(t0 + Duration::from_secs(2), &mut shift, oldest, newest), t0 + Duration::from_secs(2));
+        assert_eq!(shift, Duration::ZERO);
+        // Later than the history: inside it, with the same shift from then on.
+        let late = t0 - Duration::from_secs(3);
+        assert_eq!(picture_moment(late, &mut shift, oldest, newest), t0 + HEADROOM);
+        let next = late + Duration::from_millis(40);
+        assert_eq!(picture_moment(next, &mut shift, oldest, newest), t0 + HEADROOM + Duration::from_millis(40));
+        // Caught up: the shift goes, no picture from the future.
+        let caught = t0 + Duration::from_secs(5);
+        assert_eq!(picture_moment(caught, &mut shift, oldest, newest), newest);
+        assert_eq!(picture_moment(newest, &mut shift, oldest, newest), newest);
+        assert_eq!(shift, Duration::ZERO);
+    }
+
+    /// A source that remembers the pictures it gave.
+    struct Recording(Arc<History>, Mutex<Vec<u64>>);
+    impl Source for Recording {
+        fn frame_at(&self, time: Instant) -> Arc<Frame> {
+            let frame = self.0.frame_at(time);
+            self.1.lock().unwrap().push(frame.seq);
+            frame
+        }
+    }
+
+    /// A reader like ffmpeg: nothing for `start`, then in real time, a few
+    /// frames at once (its input queue).
+    struct Paced {
+        start: Option<Duration>,
+        frame: Duration,
+        burst: u32,
+        read: u32,
+        next: Instant,
+    }
+    impl Write for Paced {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            if let Some(start) = self.start.take() {
+                std::thread::sleep(start);
+                self.next = Instant::now();
+            }
+            self.next += self.frame;
+            self.read += 1;
+            if self.read.is_multiple_of(self.burst) {
+                std::thread::sleep(self.next.saturating_duration_since(Instant::now()));
+            }
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// ffmpeg started later than the history reaches and reads in real time
+    /// from then on (a slow seek): the pictures still follow one another.
+    #[test]
+    fn a_reader_later_than_the_history_gets_consecutive_pictures() {
+        let lead = 0.2;
+        let history = Arc::new(History::new(super::history(lead)));
+        let control = Control::new(false);
+        let (feeder, closer) = (Arc::clone(&history), Arc::clone(&control));
+        let started = Instant::now();
+        let deliver = std::thread::spawn(move || {
+            let mut drawn = 0u64;
+            while started.elapsed() < Duration::from_millis(5500) {
+                let at = started + Duration::from_millis(drawn * 40);
+                std::thread::sleep(at.saturating_duration_since(Instant::now()));
+                feeder.set(vec![Rect { x: 0, y: 0, w: 1, h: 1, pixels: vec![255; 4] }], at);
+                drawn += 1;
+                if started.elapsed() >= Duration::from_millis(5000) {
+                    closer.close();
+                }
+            }
+        });
+        let source = Recording(Arc::clone(&history), Mutex::new(Vec::new()));
+        let frame = Duration::from_millis(40);
+        let mut out = Paced { start: Some(Duration::from_millis(2500)), frame, burst: 3, read: 0, next: Instant::now() };
+        let format = Format::Yuva { layout: Layout::whole(4, 2), hd: false };
+        stream_frames(&source, &mut out, &Options { fps: 25.0, lead_seconds: lead, format, air: None }, &control);
+        deliver.join().unwrap();
+
+        let seqs = source.1.lock().unwrap().clone();
+        let seqs = &seqs[seqs.len() / 4..];
+        let steps: Vec<u64> = seqs.windows(2).map(|w| w[1] - w[0]).collect();
+        let even = steps.iter().filter(|&&s| s == 1).count();
+        assert!(even * 100 >= steps.len() * 97, "{even} of {}: {steps:?}", steps.len());
     }
 
     /// Pixel value of every output frame of an ETV packet stream.

@@ -146,10 +146,14 @@ Płynność animacji (rozwiązania z VizRS ffPlayout System):
   klatki idą jako kolejne obrazy animacji, a nie jeden obraz powtórzony i skok.
   Czytelnik ErsatzTV spóźniony o ponad 1 s względem osi czasu przeskakuje do
   przodu. Nakładka ffmpeg (§1) osi nie przesuwa: spóźniony ffmpeg dostaje
-  zaległe klatki od razu (z najstarszym zachowanym obrazem) i nadrabia, tak
-  jak ErsatzTV bez grafiki. Bez tego kawałek, którego materiał długo startuje
-  (np. seek w długim filmie z Jellyfin, ok. 14 s), trwał dłużej niż 44 s,
-  a kanał z każdym kawałkiem coraz bardziej odstawał od harmonogramu.
+  zaległe klatki od razu i nadrabia, tak jak ErsatzTV bez grafiki. Bez tego
+  kawałek, którego materiał długo startuje (np. seek w długim filmie
+  z Jellyfin, ok. 14 s), trwał dłużej niż 44 s, a kanał z każdym kawałkiem
+  coraz bardziej odstawał od harmonogramu. Obrazy takiego ffmpeg idą po kolei:
+  klatka spoza historii nie bierze „najstarszego obrazu w chwili odczytu”
+  (ffmpeg czyta po kilka klatek naraz, więc obrazy by się powtarzały
+  i przeskakiwały). Klatki przesuwają się raz o stałą wartość w głąb historii
+  (z zapasem 0,3 s), a przesunięcie maleje, gdy ffmpeg nadrabia.
 - **Klatki na żądanie (`capture_mode: frames`, §5).** Screencast bierze
   klatki z zegara Chromium (60 Hz), więc przy 25 kl./s kanału na 5 klatek
   wyjścia przypada 6 klatek źródła i ruch co jakiś czas przeskakuje
