@@ -227,11 +227,13 @@ pub fn with_position(args: &[OsString], input: usize, x: u32, y: u32) -> Option<
 
 /// `args` with the graphics areas of the canvas input overlaid (`placed_areas`).
 pub fn with_areas(args: &[OsString], input: usize, areas: &[(Area, u32)]) -> Option<Vec<OsString>> {
-    let i = (0..args.len().saturating_sub(1)).find(|&i| args[i] == "-filter_complex")?;
-    let filter = placed_areas(args[i + 1].to_str()?, input, areas)?;
-    let mut out = args.to_vec();
-    out[i + 1] = filter.into();
-    Some(out)
+    // ErsatzTV Next gives audio and video a `-filter_complex` each.
+    (0..args.len().saturating_sub(1)).filter(|&i| args[i] == "-filter_complex").find_map(|i| {
+        let filter = placed_areas(args[i + 1].to_str()?, input, areas)?;
+        let mut out = args.to_vec();
+        out[i + 1] = filter.into();
+        Some(out)
+    })
 }
 
 /// Number of the input `-i` at `index` among the inputs of `args`.
@@ -901,6 +903,24 @@ mod tests {
              [0][vz_g0]overlay=format=0:x=0:y=930[vz_o0];[vz_o0][vz_g1]overlay=format=0:x=1760:y=40,format=nv12[o]"
         );
         assert_eq!(placed_areas("[1:0]scale=1920:1080[g];[0][g]overlay", 1, &two), None);
+
+        // ErsatzTV Next: audio in a graph of its own, before the video's.
+        let next = args(&[
+            "-i",
+            "a",
+            "-i",
+            "http://x/internal/graphics/4/7",
+            "-filter_complex",
+            "[0:1]loudnorm=I=-16[a]",
+            "-filter_complex",
+            "[0:0]fps=25[v_m0];[1:0]format=yuva420p[v_s0];[v_m0][v_s0]overlay=x=0:y=0:format=0[v_o0]",
+            "-f",
+            "hls",
+            "o",
+        ]);
+        let moved = with_areas(&next, 1, &two).unwrap();
+        assert_eq!(moved[5], next[5]);
+        assert!(moved[7].to_str().unwrap().contains("[vz_o0][vz_g1]overlay=format=0:x=1760:y=40[v_o0]"), "{:?}", moved[7]);
 
         let list = args(&["-i", "a", "-i", "http://x/internal/graphics/1/7", "-filter_complex", "[0][1]overlay[o]", "-f", "hls", "o"]);
         assert_eq!(input_number(&list, 2), 1);
