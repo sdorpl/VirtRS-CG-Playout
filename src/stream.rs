@@ -21,7 +21,8 @@ const TICK: Duration = Duration::from_millis(20);
 /// Pictures are dated when Chromium drew them and arrive decoded up to ~100 ms
 /// later; output frames look this far back so each finds the picture of its moment.
 pub const SAMPLE_DELAY: Duration = Duration::from_millis(100);
-/// A reader this far behind the timeline (a stalled transcode) skips ahead.
+/// An ETV reader this far behind the timeline (a stalled transcode) skips
+/// ahead; the ffmpeg overlay instead takes the frames it missed at once.
 const LATE: Duration = Duration::from_secs(1);
 /// The air time may put the first frame this far after the lead (ErsatzTV
 /// ahead of the schedule): the reader waits. Further means a wrong clock.
@@ -151,10 +152,14 @@ pub fn stream_frames(source: &dyn Source, out: &mut dyn Write, options: &Options
             continue;
         }
 
-        // Not further behind than the history reaches: a late reader skips ahead.
+        // Not further behind than the history reaches: a late ETV reader skips
+        // ahead. The overlay's ffmpeg keeps the timeline and catches up (a
+        // piece whose media starts slowly, a channel behind the schedule) as
+        // ErsatzTV does without graphics; the frames it missed show the oldest
+        // picture still kept.
         let now = Instant::now();
         let oldest = now.checked_sub(Duration::from_secs_f64(lead_s) + SAMPLE_DELAY + LATE).unwrap_or(now);
-        if moment(base, sent) < oldest {
+        if moment(base, sent) < oldest && matches!(options.format, Format::Packets) {
             base += oldest - moment(base, sent);
         }
 
@@ -260,6 +265,26 @@ mod tests {
         assert_eq!(sent, 6);
         assert_eq!(out.len(), 6 * 20);
         assert!(out.chunks(20).all(|frame| frame[12 + 1] == 255));
+    }
+
+    /// The overlay's ffmpeg behind the timeline gets every frame it missed at
+    /// once (it catches up), not just the history's worth like ErsatzTV.
+    #[test]
+    fn raw_stream_catches_up_a_late_reader() {
+        let control = Control::new(false);
+        let closer = Arc::clone(&control);
+        let timer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(5));
+            closer.close();
+        });
+        let mut out = Vec::new();
+        let late = crate::time::now_ms() as f64 - 5000.0;
+        let format = Format::Yuva { layout: Layout::whole(4, 2), hd: false };
+        let sent = stream_frames(&past_pictures(), &mut out, &Options { fps: 10.0, lead_seconds: 0.8, format, air: Some(late) }, &control);
+        timer.join().unwrap();
+        // 5 s behind plus the 0.8 s lead, against 19 frames for an ETV reader.
+        assert!((58..=59).contains(&sent), "sent {sent}");
+        assert_eq!(out.len() as u64, sent * 20);
     }
 
     #[test]
