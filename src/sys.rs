@@ -18,6 +18,12 @@ pub const SIGTERM: c_int = 15;
 const PR_SET_PDEATHSIG: c_int = 1;
 const F_SETFD: c_int = 2;
 const CLOCK_MONOTONIC: c_int = 1;
+const SOL_SOCKET: c_int = 1;
+const SO_KEEPALIVE: c_int = 9;
+const IPPROTO_TCP: c_int = 6;
+const TCP_KEEPIDLE: c_int = 4;
+const TCP_KEEPINTVL: c_int = 5;
+const TCP_KEEPCNT: c_int = 6;
 
 /// `struct timespec` of 64-bit Linux (x86_64, aarch64; glibc and musl).
 #[repr(C)]
@@ -32,6 +38,7 @@ struct SigSet([u64; 16]);
 
 unsafe extern "C" {
     fn dup2(old: c_int, new: c_int) -> c_int;
+    fn setsockopt(fd: c_int, level: c_int, name: c_int, value: *const c_int, length: u32) -> c_int;
     fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
     fn kill(pid: c_int, signal: c_int) -> c_int;
     fn prctl(option: c_int, ...) -> c_int;
@@ -41,6 +48,24 @@ unsafe extern "C" {
     fn pthread_sigmask(how: c_int, set: *const SigSet, old: *mut SigSet) -> c_int;
     fn sigwait(set: *const SigSet, signal: *mut c_int) -> c_int;
     fn clock_gettime(clock: c_int, time: *mut Timespec) -> c_int;
+}
+
+/// A TCP connection whose peer vanished without closing it (its container gone
+/// with data still queued) fails after `idle` + `interval` * `count` seconds
+/// instead of blocking the reader for ever.
+pub fn keepalive(fd: RawFd, idle: c_int, interval: c_int, count: c_int) -> io::Result<()> {
+    for (level, name, value) in [
+        (SOL_SOCKET, SO_KEEPALIVE, 1),
+        (IPPROTO_TCP, TCP_KEEPIDLE, idle),
+        (IPPROTO_TCP, TCP_KEEPINTVL, interval),
+        (IPPROTO_TCP, TCP_KEEPCNT, count),
+    ] {
+        // SAFETY: `value` outlives the call and its size is passed.
+        if unsafe { setsockopt(fd, level, name, &value, size_of::<c_int>() as u32) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 /// `CLOCK_MONOTONIC` in milliseconds: the clock of `Instant` and of
@@ -148,4 +173,18 @@ pub fn ffmpeg_child_setup(fd: RawFd) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keepalive_is_accepted_on_a_tcp_socket() {
+        use std::os::fd::AsRawFd;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        keepalive(stream.as_raw_fd(), 3, 2, 4).unwrap();
+        assert!(keepalive(-1, 3, 2, 4).is_err());
+    }
 }

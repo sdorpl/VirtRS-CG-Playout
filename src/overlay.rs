@@ -585,6 +585,8 @@ fn open_frames(sidecar: &str, path: &str) -> io::Result<TcpStream> {
     }
     stream.set_read_timeout(None)?;
     stream.set_write_timeout(None)?;
+    // ffmpeg blocks on this socket: a sidecar gone without closing it must not stop the channel.
+    sys::keepalive(stream.as_raw_fd(), 3, 2, 4)?;
     Ok(stream)
 }
 
