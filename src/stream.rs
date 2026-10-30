@@ -318,11 +318,11 @@ mod tests {
 
     #[test]
     fn raw_stream_decodes_a_png_once_while_it_is_shown() {
-        use crate::frames::Decode;
+        use crate::frames::{Decode, Shot};
         use std::sync::atomic::AtomicUsize;
         let decodes = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&decodes);
-        let decode: Arc<Decode> = Arc::new(move |_, _: &[u8]| {
+        let decode: Arc<Decode> = Arc::new(move |_, _: &Shot| {
             counter.fetch_add(1, Ordering::Relaxed);
             Ok(vec![Rect { x: 0, y: 0, w: 1, h: 1, pixels: vec![255; 4] }])
         });

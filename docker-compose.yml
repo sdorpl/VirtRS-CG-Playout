@@ -83,6 +83,9 @@ services:
       # Seconds added to the clock of the graphics page: the transcode runs ahead
       # of the air time, so clocks and countdowns on air would run late by as much.
       VIZRS_CLOCK_OFFSET: ${VIZRS_CLOCK_OFFSET:-}
+      # 1 = the sidecar moves a standing VizRS crawl itself (frames mode): Chromium films its
+      # tape now and then instead of drawing and encoding a PNG every frame.
+      VIZRS_TAPE: ${VIZRS_TAPE:-0}
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb
     ports:

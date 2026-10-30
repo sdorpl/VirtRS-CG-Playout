@@ -34,6 +34,8 @@ const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
 const RENDER = env.BENCH_RENDER || "";
 const CAPTURE = env.BENCH_CAPTURE || "frames";
 const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
+// The sidecar draws a standing VizRS crawl itself (tape; BENCH_URL with a crawl on air).
+const TAPE = env.BENCH_TAPE === "1";
 // Graphics areas (WxH+X+Y, comma-separated): the marker goes to the top-left
 // corner of the first, ffmpeg asks for their frames.
 const AREA = env.BENCH_AREA || "";
@@ -229,6 +231,7 @@ async function run(mode) {
       capture_mode: CAPTURE,
       max_fps: MAX_FPS,
       area: AREA,
+      tape: TAPE,
     },
     { VIZRS_BROWSER: browser, VIZRS_BROWSER_NO_SANDBOX: "1" },
   );
@@ -268,7 +271,10 @@ async function run(mode) {
   probe.steps = [];
   await sleep(DURATION * 1000);
   const seconds = (performance.now() - t0) / 1000;
-  const [u1, c1, seq1] = [usage(cg.pid), descendantsCpu(cg.pid), (await cg.health()).captures[0]?.seq ?? 0];
+  const [u1, c1, health1] = [usage(cg.pid), descendantsCpu(cg.pid), await cg.health()];
+  const seq1 = health1.captures[0]?.seq ?? 0;
+  // The crawl drawn by the sidecar at the end and the films taken while measuring.
+  const [tape0, tape1] = [health0, health1].map((h) => h.captures[0]?.tape);
   const steps = probe.steps;
   probe.steps = null;
   for (const reader of readers) reader.cancel().catch(() => {});
@@ -285,6 +291,7 @@ async function run(mode) {
     fps,
     capture: capture.mode,
     max_fps: MAX_FPS,
+    tape: TAPE ? `crawl ${tape1?.crawl ?? "–"}, ${(tape1?.films ?? 0) - (tape0?.films ?? 0)} films` : "",
     scene: SCENE,
     cpu_percent: Math.round(((u1.cpu - u0.cpu) / seconds) * 1000) / 10,
     browser_cpu_percent: Math.round(((c1 - c0) / seconds) * 1000) / 10,

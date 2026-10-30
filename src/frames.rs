@@ -3,7 +3,8 @@
 // `frameAt` of the Node.js sidecar). A picture is dated when Chromium drew it,
 // not when its decoding finished. The history covers the lead of the streams
 // (seconds of pictures), so a picture stays a PNG until a session shows it. A
-// picture of several graphics areas is one PNG per area.
+// picture of several graphics areas is one PNG per area; an area with the
+// crawl tape drawn by the sidecar holds its pixels instead (`tape`).
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -13,9 +14,29 @@ use crate::area::Layout;
 use crate::packets::{Rect, picture_packet};
 use crate::yuva::yuva_area;
 
-/// Turns PNG number `index` of a picture (its graphics area) into visible
+/// Turns shot number `index` of a picture (its graphics area) into visible
 /// rectangles at the channel size, in channel coordinates.
-pub type Decode = dyn Fn(usize, &[u8]) -> Result<Vec<Rect>, String> + Send + Sync;
+pub type Decode = dyn Fn(usize, &Shot) -> Result<Vec<Rect>, String> + Send + Sync;
+
+/// The pixels of a graphics area, made when a session shows the picture.
+pub type Pixels = dyn Fn() -> Result<crate::png::Picture, String> + Send + Sync;
+
+/// One graphics area of a picture: Chromium's PNG, or pixels the sidecar
+/// composes (the crawl tape over the page, `tape`).
+#[derive(Clone)]
+pub enum Shot {
+    Png(Arc<[u8]>),
+    Pixels(Arc<Pixels>),
+}
+
+impl Shot {
+    pub fn picture(&self) -> Result<crate::png::Picture, String> {
+        match self {
+            Shot::Png(data) => crate::png::decode_png(data),
+            Shot::Pixels(make) => make(),
+        }
+    }
+}
 
 /// Layout of a yuva420p frame and its colour matrix.
 type Part = (Layout, bool);
@@ -52,7 +73,7 @@ impl Picture {
 
 enum Content {
     Decoded(Arc<Picture>),
-    Png { data: Vec<Arc<[u8]>>, decode: Arc<Decode>, decoded: Mutex<Weak<Picture>> },
+    Png { data: Vec<Shot>, decode: Arc<Decode>, decoded: Mutex<Weak<Picture>> },
 }
 
 /// One picture; `seq` grows with every new picture.
@@ -166,6 +187,11 @@ impl History {
 
     /// A new picture of one PNG per graphics area, drawn at `at`.
     pub fn set_pngs(&self, data: Vec<Arc<[u8]>>, at: Instant, decode: &Arc<Decode>) {
+        self.set_shots(data.into_iter().map(Shot::Png).collect(), at, decode);
+    }
+
+    /// A new picture of one shot per graphics area, drawn at `at`.
+    pub fn set_shots(&self, data: Vec<Shot>, at: Instant, decode: &Arc<Decode>) {
         let decode = Arc::clone(decode);
         self.push(at, |seq, at| Frame { seq, at, content: Content::Png { data, decode, decoded: Mutex::new(Weak::new()) } });
     }
@@ -228,8 +254,9 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let decodes = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&decodes);
-        let decode: Arc<Decode> = Arc::new(move |_, data: &[u8]| {
+        let decode: Arc<Decode> = Arc::new(move |_, shot: &Shot| {
             counter.fetch_add(1, Ordering::Relaxed);
+            let Shot::Png(data) = shot else { return Err("not a PNG".into()) };
             Ok(pixel(data[0]))
         });
         let history = History::new(Duration::from_secs(5));

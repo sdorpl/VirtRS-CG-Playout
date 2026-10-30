@@ -8,8 +8,12 @@
 // channel, with that frame's time: animations advance one step per output frame.
 // With a graphics area Chromium draws only that part of the page (a DevTools
 // viewport; the page still lays out at full size), so PNGs are its size. With
-// several areas the frames mode draws each of them per frame (one PNG per
-// area); the screencast has one viewport: their bounding box, cut to the areas.
+// several areas the frames mode opens one tab per area, each with its area as
+// the viewport (one PNG per area): a tab keeps its viewport, so its damage tells
+// whether its area changed. The screencast has one viewport: their bounding
+// box, cut to the areas.
+// With `tape` the frames mode draws a standing VizRS crawl itself (`tape`):
+// Chromium films its tape now and then, the sidecar shifts it every frame.
 
 use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
@@ -23,12 +27,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::area::{Area, cut_to, geometries, union};
 use crate::devtools::{DevTools, Incoming};
-use crate::frames::{Decode, Frame, History, Source};
+use crate::frames::{Decode, Frame, History, Shot, Source};
 use crate::json::{self, Value};
 use crate::packets::{Rect, crop};
 use crate::png::decode_png;
 use crate::rects::visible_rects;
 use crate::scale::scale_rects;
+use crate::tape::{Composite, Crawl, Film, Reel, parse_state};
 use crate::{base64, sys};
 
 // First start on a cold host (CI runner, small ARM VM) can take 15–20 s.
@@ -149,6 +154,8 @@ pub struct CaptureOptions {
     pub history: Duration,
     /// Seconds added to the page's clock (`clock_offset_seconds`).
     pub clock_offset: f64,
+    /// The sidecar draws a standing VizRS crawl (`tape`, frames mode only).
+    pub tape: bool,
 }
 
 /// What the browser loop is told from other threads.
@@ -156,6 +163,30 @@ enum Control {
     DevTools(Incoming),
     /// Start or stop capturing (sessions came or left, another rate).
     Active(bool),
+}
+
+/// The crawl whose tape the sidecar draws (`tape`).
+struct Track {
+    id: u64,
+    key: String,
+    /// Its area (index of the regions) and window in that area's pixels.
+    part: usize,
+    window: Area,
+    reel: Reel,
+}
+
+/// The tape over the frames of one page.
+#[derive(Default)]
+struct TapeRun {
+    track: Option<Track>,
+    /// Crawls (area, id) the sidecar gave back to the page after a failure.
+    refused: Vec<(usize, u64)>,
+    /// Frame time of the next look for a crawl when none is drawn.
+    next_look: f64,
+    /// The page picture under the tape: its PNG and its pixels.
+    base: Option<(Arc<[u8]>, Arc<crate::png::Picture>)>,
+    /// The last composite pushed: its offset, page picture and newest film.
+    shown: Option<(i64, usize, usize)>,
 }
 
 struct State {
@@ -181,6 +212,9 @@ pub struct Capture {
     stopped: AtomicBool,
     /// The browser has no begin frames (not chromium-headless-shell): screencast instead.
     no_frames: AtomicBool,
+    /// The crawl whose tape the sidecar draws (0: none) and the films taken.
+    tape_crawl: AtomicU64,
+    tape_films: AtomicU64,
 }
 
 static PROFILES: AtomicU64 = AtomicU64::new(0);
@@ -209,6 +243,8 @@ impl Capture {
             }),
             stopped: AtomicBool::new(false),
             no_frames: AtomicBool::new(false),
+            tape_crawl: AtomicU64::new(0),
+            tape_films: AtomicU64::new(0),
         });
         let browser = Arc::clone(&capture);
         let _ = thread::Builder::new().name("capture".into()).spawn(move || browser.supervise());
@@ -256,6 +292,12 @@ impl Capture {
     }
 
     /// Frames per second Chromium draws in the frames mode, and at most takes in the screencast.
+    /// With `tape` in the frames mode: the crawl the sidecar draws (0: none) and the films taken.
+    pub fn tape(&self) -> Option<(u64, u64)> {
+        (self.options.tape && self.mode() == CaptureMode::Frames)
+            .then(|| (self.tape_crawl.load(Ordering::Relaxed), self.tape_films.load(Ordering::Relaxed)))
+    }
+
     fn capture_fps(&self) -> f64 {
         capped_fps(self.fps(), self.options.max_fps).max(1.0)
     }
@@ -502,19 +544,16 @@ impl Capture {
         let call = |method: &str, params: Value| devtools.call(method, params, Some(&session), CALL_TIMEOUT);
         let (width, height) = (u64::from(self.options.width), u64::from(self.options.height));
         // A graphics area: the page lays out at full size, Chromium draws only the area.
-        let area = (!self.options.areas.is_empty()).then(|| regions(&self.options, mode == CaptureMode::Frames)[0].0);
-        call("Emulation.setDeviceMetricsOverride", self.metrics(area))?;
-        // Transparency only through DevTools: `--default-background-color` crashes current renderers.
-        let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
-        call("Emulation.setDefaultBackgroundColorOverride", json::object([("color", transparent)]))?;
-        call("Page.enable", json::object([]))?;
-        if self.options.clock_offset != 0.0 {
-            let script = clock_script(self.options.clock_offset);
-            call("Page.addScriptToEvaluateOnNewDocument", json::object([("source", script.as_str().into())]))?;
-            call("Runtime.evaluate", json::object([("expression", script.as_str().into())]))?;
-        }
+        let parts = regions(&self.options, mode == CaptureMode::Frames);
+        let area = (!self.options.areas.is_empty()).then(|| parts[0].0);
+        self.prepare(devtools, &session, area)?;
         if mode == CaptureMode::Frames {
-            return self.frames(devtools, &session, incoming);
+            // The startup tab draws the first area, a tab of its own each further one.
+            let mut sessions = vec![session];
+            for &(clip, _) in &parts[1..] {
+                sessions.push(self.area_tab(devtools, clip)?);
+            }
+            return self.frames(devtools, &sessions, incoming);
         }
 
         // Not faster than the channel needs: half the PNG work at 24–30 fps.
@@ -609,6 +648,37 @@ impl Capture {
         }
     }
 
+    /// A tab drawing graphics area `area` (`None`: the whole page) with a transparent background.
+    fn prepare(&self, devtools: &DevTools, session: &str, area: Option<Area>) -> Result<(), String> {
+        let call = |method: &str, params: Value| devtools.call(method, params, Some(session), CALL_TIMEOUT);
+        call("Emulation.setDeviceMetricsOverride", self.metrics(area))?;
+        // Transparency only through DevTools: `--default-background-color` crashes current renderers.
+        let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
+        call("Emulation.setDefaultBackgroundColorOverride", json::object([("color", transparent)]))?;
+        call("Page.enable", json::object([]))?;
+        if self.options.clock_offset != 0.0 {
+            let script = clock_script(self.options.clock_offset);
+            call("Page.addScriptToEvaluateOnNewDocument", json::object([("source", script.as_str().into())]))?;
+            call("Runtime.evaluate", json::object([("expression", script.as_str().into())]))?;
+        }
+        Ok(())
+    }
+
+    /// One more tab of the page for graphics area `area` (frames mode): its
+    /// session. Begin frames drive it as the startup tab, in a window of its
+    /// own (a plain tab opened over DevTools stays hidden and never paints).
+    fn area_tab(&self, devtools: &DevTools, area: Area) -> Result<String, String> {
+        let params =
+            json::object([("url", self.options.url.as_str().into()), ("enableBeginFrameControl", true.into()), ("newWindow", true.into())]);
+        let created = devtools.call("Target.createTarget", params, None, START_TIMEOUT)?;
+        let target = created.get("targetId").and_then(Value::as_str).ok_or("no targetId")?;
+        let params = json::object([("targetId", target.into()), ("flatten", true.into())]);
+        let attached = devtools.call("Target.attachToTarget", params, None, CALL_TIMEOUT)?;
+        let session = attached.get("sessionId").and_then(Value::as_str).ok_or("no sessionId")?.to_owned();
+        self.prepare(devtools, &session, Some(area))?;
+        Ok(session)
+    }
+
     /// `Emulation.setDeviceMetricsOverride`: the page size, and the part drawn (`viewport`).
     fn metrics(&self, viewport: Option<Area>) -> Value {
         let o = &self.options;
@@ -631,10 +701,10 @@ impl Capture {
     /// every slot asks for one; once it stands still, a slot only probes for
     /// damage and a screenshot follows when there is some. Slots missed by a
     /// slow host are skipped (the picture before repeats), never made up.
-    /// Several graphics areas: each slot draws each area (its viewport) in
-    /// turn, a hair apart in frame time; the picture has one PNG per area.
-    fn frames(&self, devtools: &DevTools, session: &str, incoming: &mpsc::Receiver<Control>) -> Result<(), String> {
-        let begin = |time: f64, interval: f64, screenshot: bool| {
+    /// Several graphics areas: each slot draws the tab of each area (`sessions`,
+    /// one per area) at the same frame time; the picture has one PNG per area.
+    fn frames(&self, devtools: &DevTools, sessions: &[String], incoming: &mpsc::Receiver<Control>) -> Result<(), String> {
+        let begin = |session: &str, time: f64, interval: f64, screenshot: bool| {
             let mut params = json::object([("frameTimeTicks", time.into()), ("interval", interval.into())]);
             if let (true, Value::Object(members)) = (screenshot, &mut params) {
                 let png = json::object([("format", "png".into()), ("optimizeForSpeed", true.into())]);
@@ -650,7 +720,8 @@ impl Capture {
         };
 
         let mut frame_ms = 1000.0 / self.capture_fps();
-        if let Err(error) = begin(sys::monotonic_ms(), frame_ms, false) {
+        let now = sys::monotonic_ms();
+        if let Err(error) = sessions.iter().try_for_each(|session| begin(session, now, frame_ms, false).map(drop)) {
             if error.contains("wasn't found") {
                 self.no_frames.store(true, Ordering::Relaxed);
                 crate::warn!(
@@ -667,13 +738,13 @@ impl Capture {
         };
         crate::info!("burn-in {}: capturing {} (frames)", self.key(), self.options.url);
 
-        // Each area in turn (one viewport after another) when there are several.
+        // One tab per area.
         let parts = regions(&self.options, true);
-        let switching = parts.len() > 1;
         let fresh = || (vec![false; parts.len()], vec![f64::NEG_INFINITY; parts.len()], vec![None::<String>; parts.len()]);
         let mut slot = (sys::monotonic_ms() / frame_ms).ceil();
         let (mut moving, mut last_shot, mut last_png) = fresh();
         let mut pngs: Vec<Option<Arc<[u8]>>> = vec![None; parts.len()];
+        let mut tape = self.options.tape.then(TapeRun::default);
         // Slots of the window drawn and missed (a host too slow for the rate).
         let (mut window, mut drawn, mut missed) = (Instant::now(), 0u64, 0u64);
         loop {
@@ -697,18 +768,15 @@ impl Capture {
                 Err(RecvTimeoutError::Timeout) => {
                     let start = slot * frame_ms;
                     let mut changed = false;
-                    for (i, &(clip, _)) in parts.iter().enumerate() {
-                        if switching {
-                            devtools.call("Emulation.setDeviceMetricsOverride", self.metrics(Some(clip)), Some(session), CALL_TIMEOUT)?;
-                        }
-                        let time = start + i as f64 * 0.004;
+                    for (i, (&(clip, _), session)) in parts.iter().zip(sessions).enumerate() {
+                        let time = start;
                         let check = time - last_shot[i] >= CHECK_MS;
-                        let mut result = begin(time, frame_ms, moving[i] || check)?;
+                        let mut result = begin(session, time, frame_ms, moving[i] || check)?;
                         if result.get("screenshotData").is_some() {
                             last_shot[i] = time;
                         } else if result.get("hasDamage").and_then(Value::as_bool) == Some(true) {
                             last_shot[i] = time;
-                            result = begin(time + 0.001, frame_ms, true)?;
+                            result = begin(session, time + 0.001, frame_ms, true)?;
                         }
                         let shot = result.get("screenshotData").and_then(Value::as_str);
                         moving[i] = shot.is_some_and(|data| last_png[i].as_deref() != Some(data));
@@ -722,14 +790,26 @@ impl Capture {
                             }
                             // The page stood still; the frame after a screenshot reports damage, an empty frame takes it.
                             Some(_) => {
-                                begin(time + 0.002, frame_ms, false)?;
+                                begin(session, time + 0.002, frame_ms, false)?;
                             }
                             None => {}
                         }
                     }
-                    // A picture once every area has one: a PNG for each.
-                    if let Some(all) = pngs.iter().cloned().collect::<Option<Vec<_>>>().filter(|_| changed) {
-                        self.history.set_pngs(all, instant(start), &self.decode_areas);
+                    // A picture once every area has one: a PNG for each, the tape blended into its area.
+                    if let Some(all) = pngs.iter().cloned().collect::<Option<Vec<_>>>() {
+                        let mut shots: Vec<Shot> = all.into_iter().map(Shot::Png).collect();
+                        let blended = match tape.as_mut() {
+                            Some(run) => {
+                                let film = |at: f64, (part, window): (usize, Area), s: i64, id: u64| {
+                                    self.film(devtools, &sessions[part], parts[part].0, (at, frame_ms), window, s, id)
+                                };
+                                self.tape_slot(devtools, sessions, run, &parts, &mut shots, start, &film)
+                            }
+                            None => false,
+                        };
+                        if changed || blended {
+                            self.history.set_shots(shots, instant(start), &self.decode_areas);
+                        }
                     }
                     // Behind the grid: on with the slot of now; the missed ones repeat the picture.
                     let next = (slot + 1.0).max((sys::monotonic_ms() / frame_ms).floor());
@@ -748,6 +828,162 @@ impl Capture {
                 }
             }
         }
+    }
+
+    /// The tape of one slot (after the page drew it): looks for a standing
+    /// crawl, asks the page to leave its tape to the sidecar, films what the
+    /// window needs and blends the tape into the shot of its area. True when
+    /// that gives a new picture. Any trouble gives the crawl back to the page.
+    #[allow(clippy::too_many_arguments)]
+    fn tape_slot(
+        &self,
+        devtools: &DevTools,
+        sessions: &[String],
+        run: &mut TapeRun,
+        parts: &[(Area, Area)],
+        shots: &mut [Shot],
+        start: f64,
+        film: &dyn Fn(f64, (usize, Area), i64, u64) -> Result<Film, String>,
+    ) -> bool {
+        if run.track.is_none() && start < run.next_look {
+            return false;
+        }
+        run.next_look = start + CHECK_MS;
+        // Each area has its tab (the whole page in each): a crawl counts in the tab of the area it is in.
+        let evaluate = |part: usize, expression: String| {
+            let params = json::object([("expression", expression.into()), ("returnByValue", true.into())]);
+            devtools.call("Runtime.evaluate", params, Some(&sessions[part]), CALL_TIMEOUT)
+        };
+        let give_back = |part: usize, id: u64| {
+            let _ = evaluate(part, format!("window.vizrsTape && vizrsTape.external({id}, false)"));
+        };
+        // While a crawl is drawn only its tab is asked, else every tab.
+        let looked: Vec<usize> = match &run.track {
+            Some(t) => vec![t.part],
+            None => (0..parts.len()).collect(),
+        };
+        let mut crawls: Vec<(Crawl, usize, Area)> = Vec::new();
+        for part in looked {
+            match evaluate(part, "window.vizrsTape ? vizrsTape.state() : null".into()) {
+                Ok(result) => {
+                    let state = parse_state(result.get("result").and_then(|r| r.get("value")).unwrap_or(&Value::Null));
+                    crawls.extend(state.into_iter().filter_map(|c| c.window_in(parts[part].0).map(|w| (c, part, w))));
+                }
+                Err(error) => crate::warn!("burn-in {}: tape: {error}", self.key()),
+            }
+        }
+        // The tracked crawl while it is on air, else the widest one inside an area.
+        let tracked = run.track.as_ref().map(|t| (t.part, t.id));
+        let chosen = crawls
+            .iter()
+            .filter(|(c, part, _)| !run.refused.contains(&(*part, c.id)))
+            .max_by(|(a, pa, _), (b, pb, _)| (Some((*pa, a.id)) == tracked).cmp(&(Some((*pb, b.id)) == tracked)).then(a.w.total_cmp(&b.w)));
+        let Some(&(ref crawl, part, window)) = chosen else {
+            if let Some(track) = run.track.take() {
+                give_back(track.part, track.id);
+            }
+            self.tape_crawl.store(0, Ordering::Relaxed);
+            return false;
+        };
+        match &mut run.track {
+            Some(t) if (t.part, t.id) == (part, crawl.id) => {
+                if t.key != crawl.key || t.window != window {
+                    (t.key, t.window, t.reel) = (crawl.key.clone(), window, Reel::default());
+                }
+            }
+            track => {
+                if let Some(old) = track.take() {
+                    give_back(old.part, old.id);
+                }
+                if evaluate(part, format!("vizrsTape.external({}, true)", crawl.id)).is_err() {
+                    return false;
+                }
+                crate::info!("burn-in {}: tape of crawl {} drawn by the sidecar", self.key(), crawl.id);
+                *track = Some(Track { id: crawl.id, key: crawl.key.clone(), part, window, reel: Reel::default() });
+            }
+        }
+        if !crawl.hidden {
+            self.tape_crawl.store(0, Ordering::Relaxed);
+            return false;
+        }
+        let track = run.track.as_mut().expect("tracked above");
+        let s = crawl.offset();
+        let mut time = start + 0.004;
+        for _ in 0..3 {
+            let Some(at) = track.reel.next_film(window, s) else { break };
+            match film(time, (part, window), at, crawl.id) {
+                Ok(new) => {
+                    track.reel.films.push(Arc::new(new));
+                    self.tape_films.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(error) => {
+                    crate::warn!("burn-in {}: tape: {error}; the page draws the crawl", self.key());
+                    break;
+                }
+            }
+            time += 0.002;
+        }
+        let Shot::Png(png) = &shots[part] else { return false };
+        if !track.reel.covers(window, s) {
+            self.tape_crawl.store(0, Ordering::Relaxed);
+            run.refused.push((part, crawl.id));
+            give_back(part, crawl.id);
+            run.track = None;
+            return false;
+        }
+        if run.base.as_ref().is_none_or(|(data, _)| !Arc::ptr_eq(data, png)) {
+            match decode_png(png) {
+                Ok(picture) => run.base = Some((Arc::clone(png), Arc::new(picture))),
+                Err(error) => {
+                    crate::warn!("burn-in {}: tape: {error}", self.key());
+                    return false;
+                }
+            }
+        }
+        self.tape_crawl.store(crawl.id, Ordering::Relaxed);
+        let (data, base) = run.base.as_ref().expect("decoded above");
+        let last = track.reel.films.last().map_or(0, |f| Arc::as_ptr(f) as usize);
+        let shown = (s, Arc::as_ptr(data) as *const u8 as usize, last);
+        let new = run.shown != Some(shown);
+        run.shown = Some(shown);
+        let composite = Composite { base: Arc::clone(base), window, films: track.reel.films.clone(), s };
+        shots[part] = Shot::Pixels(Arc::new(move || Ok(composite.render())));
+        new
+    }
+
+    /// One film of the tape of crawl `id` at offset `s`: the tab of the area
+    /// `clip` draws only that tape in one frame (`(time, interval)`), then the
+    /// page again; `window` is the crawl window in the area.
+    #[allow(clippy::too_many_arguments)]
+    fn film(
+        &self,
+        devtools: &DevTools,
+        session: &str,
+        clip: Area,
+        (time, interval): (f64, f64),
+        window: Area,
+        s: i64,
+        id: u64,
+    ) -> Result<Film, String> {
+        let call = |method: &str, params: Value| devtools.call(method, params, Some(session), CALL_TIMEOUT);
+        let expression = format!("vizrsTape.film({id}, {s})");
+        call("Runtime.evaluate", json::object([("expression", expression.into()), ("returnByValue", true.into())]))?;
+        let png = json::object([("format", "png".into()), ("optimizeForSpeed", true.into())]);
+        let begin = |time: f64, png: Option<Value>| {
+            let mut params = json::object([("frameTimeTicks", time.into()), ("interval", interval.into())]);
+            if let (Some(png), Value::Object(members)) = (png, &mut params) {
+                members.push(("screenshot".into(), png));
+            }
+            call("HeadlessExperimental.beginFrame", params)
+        };
+        let shot = begin(time, Some(png));
+        // The page back as it was; this frame also takes the damage of the film.
+        begin(time + 0.001, None)?;
+        let shot = shot?;
+        let data = shot.get("screenshotData").and_then(Value::as_str).ok_or("no film")?;
+        let png = self.png_of(data, (clip.w, clip.h)).ok_or("bad film")?;
+        let picture = decode_png(&png)?;
+        Film::cut(&picture, window, s).ok_or_else(|| "film outside the area".into())
     }
 
     /// The PNG of a screenshot if it has the size drawn (not the page resizing).
@@ -822,10 +1058,10 @@ fn regions(o: &CaptureOptions, each: bool) -> Vec<(Area, Area)> {
 /// Visible rectangles of PNG number `index` (of `regions`) at the channel
 /// size, in channel coordinates, cut to `cut` (the areas, for their bounding box).
 fn decoder(regions: Vec<(Area, Area)>, cut: Vec<Area>) -> Arc<Decode> {
-    Arc::new(move |index: usize, png: &[u8]| {
+    Arc::new(move |index: usize, shot: &Shot| {
         let &(clip, part) = regions.get(index).ok_or("no such area")?;
         let (width, height) = (clip.w, clip.h);
-        let picture = decode_png(png)?;
+        let picture = shot.picture()?;
         if (picture.width, picture.height) != (width, height) {
             return Err(format!("frame {}x{} skipped", picture.width, picture.height));
         }

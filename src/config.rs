@@ -64,6 +64,8 @@ pub struct Config {
     /// Seconds added to the clock of the graphics page: the transcode runs
     /// ahead of the air time, so clocks on air would run late by as much.
     pub clock_offset_seconds: f64,
+    /// The sidecar draws a standing VizRS crawl itself (frames mode): Chromium films its tape only now and then.
+    pub tape: bool,
     pub browser: String,
     pub no_sandbox: bool,
     /// Extra Chromium flags, e.g. fewer raster threads on small ARM hosts.
@@ -91,6 +93,7 @@ impl Default for Config {
             max_fps: 0.0,
             capture_mode: "frames".into(),
             clock_offset_seconds: 0.0,
+            tape: false,
             browser: String::new(),
             no_sandbox: false,
             browser_args: Vec::new(),
@@ -190,6 +193,7 @@ impl Config {
                     "max_fps" => config.max_fps = number(value, key)?,
                     "capture_mode" => config.capture_mode = string(value, key)?,
                     "clock_offset_seconds" => config.clock_offset_seconds = number(value, key)?,
+                    "tape" => config.tape = boolean(value, key)?,
                     "browser" => config.browser = string(value, key)?,
                     "no_sandbox" => config.no_sandbox = boolean(value, key)?,
                     "browser_args" => {
@@ -263,6 +267,9 @@ impl Config {
         }
         if let Some(v) = env("VIZRS_CAPTURE_MODE").filter(|v| !v.is_empty()) {
             config.capture_mode = v;
+        }
+        if let Some(v) = env("VIZRS_TAPE").filter(|v| !v.is_empty()) {
+            config.tape = v == "1";
         }
         if let Some(v) = env("VIZRS_BROWSER").filter(|v| !v.is_empty()) {
             config.browser = v;
@@ -373,6 +380,15 @@ mod tests {
         let (config, warnings) = Config::from_values(Some(&file), &env(&[("VIZRS_IN_SECONDS", "0"), ("VIZRS_OUT_SECONDS", "x")])).unwrap();
         assert_eq!((config.in_seconds, config.out_seconds), (0.0, 15.0));
         assert_eq!(warnings, ["VIZRS_OUT_SECONDS=\"x\" is not a number; using 15"]);
+    }
+
+    #[test]
+    fn tape() {
+        assert!(!Config::default().tape);
+        let file = json::parse(r#"{"tape":true}"#).unwrap();
+        assert!(Config::from_values(Some(&file), &env(&[])).unwrap().0.tape);
+        assert!(!Config::from_values(Some(&file), &env(&[("VIZRS_TAPE", "0")])).unwrap().0.tape);
+        assert!(Config::from_values(None, &env(&[("VIZRS_TAPE", "1")])).unwrap().0.tape);
     }
 
     #[test]

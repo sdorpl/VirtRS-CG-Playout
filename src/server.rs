@@ -213,6 +213,7 @@ impl Server {
             idle: IDLE,
             history: stream::history(self.config.lead_seconds),
             clock_offset: self.config.clock_offset_seconds,
+            tape: self.config.tape,
         });
         sessions.captures.push((key, Arc::clone(&capture)));
         Graphics::Capture(capture)
@@ -225,7 +226,7 @@ impl Server {
             .captures
             .iter()
             .map(|(_, c)| {
-                json::object([
+                let mut capture = json::object([
                     ("size", c.size().into()),
                     ("render", c.render().into()),
                     ("area", if c.areas().is_empty() { Value::Null } else { geometries(c.areas()).into() }),
@@ -233,7 +234,13 @@ impl Server {
                     ("mode", c.mode().name().into()),
                     ("status", c.status().into()),
                     ("seq", c.current().seq.into()),
-                ])
+                ]);
+                // The crawl whose tape the sidecar draws (null: none) and the films taken so far.
+                if let (Some((crawl, films)), Value::Object(members)) = (c.tape(), &mut capture) {
+                    let crawl = if crawl == 0 { Value::Null } else { crawl.into() };
+                    members.push(("tape".into(), json::object([("crawl", crawl), ("films", films.into())])));
+                }
+                capture
             })
             .collect();
         json::object([

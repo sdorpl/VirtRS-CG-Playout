@@ -21,5 +21,6 @@
   "area": "",
   "max_fps": 0,
   "capture_mode": "frames",
-  "clock_offset_seconds": 0
+  "clock_offset_seconds": 0,
+  "tape": false
 }

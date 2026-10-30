@@ -79,9 +79,14 @@ ma pierwszeństwo) podaje obszar grafiki w pikselach kanału, w zapisie
 Obszarów może być kilka, rozdzielonych przecinkami, np. pasek i logo:
 `area=1920x140+0+930,160x160+1690+30`.
 
-- W trybie `capture_mode: frames` Chromium w każdej klatce rysuje kolejno
-  każdy obszar (zmiana `viewport` między nimi), a obraz składa się z jednego
-  PNG na obszar.
+- W trybie `capture_mode: frames` każdy obszar to osobna karta Chromium
+  z tą samą stroną i stałym `viewport` równym obszarowi; w każdej klatce
+  sidecar rysuje każdą kartę z tym samym czasem klatki, a obraz składa się
+  z jednego PNG na obszar. Karta nie zmienia `viewport`, więc Chromium mówi,
+  czy jej obszar się zmienił: stojący obszar (logo, odliczanie między
+  zmianami) nie kosztuje zrzutu. Strona działa w każdej karcie osobno
+  (JavaScript i układ tyle razy, ile obszarów; jedno połączenie zdarzeń
+  VizRS na kartę), rysowany jest tylko jej obszar.
 - Screencast ma jeden `viewport`: Chromium rysuje prostokąt obejmujący
   wszystkie obszary, a sidecar przycina go do nich. Przy obszarach w różnych
   rogach to prawie cały ekran, więc kilka obszarów opłaca się tylko z `frames`.
@@ -106,6 +111,52 @@ zamiast 131 MB/s surowych klatek. Screencast też zyskuje (20–41% zamiast
 4–10%), ale równy ruch daje dopiero połączenie z `frames`. `render_size`
 mniejszy od kanału nic tu już nie dodaje: obszar jest mały, a skalowanie
 podnosi CPU sidecara (38–45%). Tabela: §8.
+
+### Taśma crawla rysowana przez sidecar (`tape`)
+
+Przewijany ticker (crawl VizRS) zmienia się w każdej klatce, więc Chromium
+rysuje go, koduje PNG, a sidecar dekoduje ten PNG raz na klatkę kanału, choć
+sama taśma się nie zmienia, tylko przesuwa. Z opcją `tape` (`VIZRS_TAPE=1`,
+tylko `capture_mode: frames`) taśmę przesuwa sidecar:
+
+- sidecar co sekundę pyta stronę `/output` przez DevTools
+  (`window.vizrsTape.state()`, VizRS DOKUMENTACJA §10) o crawle na antenie:
+  okno crawla w pikselach strony i przesunięcie taśmy `s`. Wybiera najszerszy
+  crawl mieszczący się w całości w jednym obszarze grafiki i prosi stronę,
+  żeby oddała mu taśmę (`external`);
+- strona ukrywa wtedy swoją taśmę, ale tylko gdy crawl stoi: to samo
+  położenie co w poprzedniej klatce, przodkowie z pełnym kryciem, bez
+  filtra, maski i przycięcia, i żaden element nie maluje nad oknem crawla
+  (tekst liczy się według liter, nie pola – napis nad belką nie przeszkadza;
+  cienie sąsiednich pól też nie).
+  Wejście i zejście grafiki, ruch belki albo element na tickerze = strona
+  rysuje taśmę sama, jak bez tej opcji, i bierze ją z powrotem bez przerwy
+  w ruchu;
+- gdy taśma jest ukryta, Chromium raz na okno taśmy (szerokość okna crawla,
+  przy 1540 px i 150 px/s co ok. 10 s) rysuje „film”: jedną klatkę z samą
+  taśmą przesuniętą o zamówione `S`, reszta strony ukryta, a zaraz potem
+  zwykłą klatkę. Sidecar wycina okno crawla i dokłada je do poprzednich;
+- w każdej klatce kanału sidecar bierze ostatni obraz strony (bez taśmy –
+  stoi, więc Chromium nie koduje nic nowego) i nakłada na niego taśmę
+  z filmów przesuniętą o `s` zaokrąglone do piksela (kolumna X okna to
+  punkt X + s taśmy). Mieszanie alfy jak w kompozytorze Chromium, krawędzie
+  okna przycięte tak samo.
+
+Zmiana wyglądu taśmy (styl, kolory, font, rozmiar) zmienia jej klucz
+(`key`) i sidecar kręci filmy od nowa; nowe wiadomości dochodzą na koniec
+taśmy jak zwykle (najwyżej pół okna później niż bez opcji, bo filmy
+wyprzedzają ekran). Gdy filmu nie da się zrobić, sidecar oddaje crawl
+stronie i zapisuje ostrzeżenie. Inne animacje (zegar, błysk etykiety)
+rysuje dalej Chromium: zmiana w obszarze to nowy obraz strony pod taśmą.
+Stan widać w `/health`: `tape.crawl` (crawl rysowany przez sidecar, `null`
+gdy żaden) i `tape.films` (filmy od startu przeglądarki). Ze starszym VizRS
+(strona bez `window.vizrsTape`) opcja niczego nie zmienia, tylko co sekundę
+pyta o crawle.
+
+Przy kilku obszarach crawl liczy się w karcie obszaru, w którym leży
+w całości; taśmę ukrywa i filmuje tylko ta karta.
+
+Pomiar: §8 (Taśma crawla).
 
 Sidecar to jeden plik binarny `virtrs-cg` (Rust) obok bezgłowego Chromium:
 
@@ -814,7 +865,9 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "render_size": "",
   "area": "",
   "max_fps": 0,
-  "capture_mode": "frames"
+  "capture_mode": "frames",
+  "clock_offset_seconds": 0,
+  "tape": false
 }
 ```
 
@@ -833,6 +886,7 @@ puste = cały kanał; §1), `VIZRS_MAX_FPS`
 (górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
 kanału), `VIZRS_CAPTURE_MODE` (`frames` albo `screencast`, niżej),
 `VIZRS_CLOCK_OFFSET` (sekundy dodane do zegara strony grafiki, niżej),
+`VIZRS_TAPE=1` (taśmę crawla przesuwa sidecar, §1; `0` wyłącza),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.
@@ -1015,6 +1069,7 @@ klatkażu raz na kilka (np. 50 kl./s przy `25`: równo = krok co drugą klatkę)
 | Kolumna | Znaczenie |
 |---|---|
 | `render`, `area`, `fps`, `capture`, `max_fps` | rozmiar renderowania, obszar grafiki, klatkaż wyjścia trybu, tryb przechwytywania (`/health`), `max_fps` |
+| `tape` | z `BENCH_TAPE=1`: crawl rysowany przez sidecar na końcu pomiaru (`/health`, `–` = żaden) i filmy taśmy zrobione w czasie pomiaru |
 | `cpu_percent` | CPU procesu sidecara, % jednego rdzenia |
 | `browser_cpu_percent` | CPU przeglądarki (procesy potomne sidecara), % jednego rdzenia |
 | `rss_mb` | pamięć procesu sidecara (głównie klatki: historia PNG na `lead_seconds` + 1,6 s i obrazy pokazywane przez sesje) |
@@ -1036,6 +1091,7 @@ Zmienne środowiskowe (wszystkie opcjonalne):
 | `BENCH_MAX_FPS` | `0` | `max_fps` sidecara |
 | `BENCH_RENDER` | – | `render_size` sidecara, np. `720p` |
 | `BENCH_AREA` | – | `area` sidecara, np. `1920x140+0+930` (pasek z tickerem sceny) albo z logo `1920x140+0+930,160x160+1690+30`; znacznik kroku trafia w lewy górny róg pierwszego obszaru |
+| `BENCH_TAPE` | – | `1` = `tape` sidecara (§1; z `BENCH_URL` i crawlem VizRS na antenie) |
 | `BENCH_WARMUP` | `10` | rozgrzewka przed pomiarem [s] |
 | `BENCH_DURATION` | `30` | pomiar [s] |
 
@@ -1120,14 +1176,58 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
   | pasek + logo `…,160x160+1690+30` | 98,9 / 0,5 / 0,5, 10% / 86%, 24,9/s | 41 / 30 / 29, 57% / 117%, 35/s, 72 MB/s |
   | ten sam pasek i logo jako jeden prostokąt `1920x1050+0+30` | 36 / 33 / 31, 27% / 119%, 16,8/s | 0 / 66 / 34, 100% / 117%, 184 MB/s |
 
-  Dwa obszary to dwa rysowania na klatkę: przy 50 kl./s ten host ich nie
-  mieści w 20 ms; z `max_fps` 25 pasek i logo na kanale 50 kl./s dają 100%
-  równych kroków (25 obrazów/s, sidecar 54%, przeglądarka 84%).
+  Tabelę zmierzono przy jednej karcie przełączającej `viewport` między
+  obszarami: dwa obszary to były dwa rysowania i dwa zrzuty na klatkę, przy
+  50 kl./s za dużo na 20 ms. Z kartą na obszar (§1; Xeon E3-1270 v3, scena
+  `animated`, 15 s) pasek + logo dają 98,9 / 0,5 / 0,5, 13% / 73%, 25/s
+  w `etv` 25 i 99,5 / 0,3 / 0,3, 37% / 88%, 50/s, 72 MB/s w `ffmpeg` 50
+  (sam pasek na tym hoście: 99,5% równo, przeglądarka 75%).
 
   Ten host nie rysuje 1080p w pełnym rozmiarze w 25 kl./s ani 720p w 50
   kl./s; tam oba tryby są słabe, a `frames` przy 50/60 kl./s bez `max_fps`
   gorszy. CPU sidecara w obu trybach podobne. Pełna macierz (też 30 i 60
   kl./s): [docs/plany/PLAN-plynnosc.md](plany/PLAN-plynnosc.md) §4.
+
+- **Taśma crawla** (`BENCH_TAPE`, §1; Xeon E3-1270 v3, 8 wątków,
+  `chrome-headless-shell` 146, `frames`, 1080p, prawdziwe `/output` VizRS
+  ze stroną 3001 „Ticker” z `seed/` na antenie, 20 s; CPU sidecara /
+  przeglądarki, obrazy na sekundę, filmy w czasie pomiaru):
+
+  | Obszar | Tryb sidecara | bez `tape` | z `tape` |
+  |---|---|---|---|
+  | cały kanał | `ffmpeg` 50 | 70% / 121%, 34,5/s | 61% / 14%, 49,8/s, 2 filmy |
+  | `1920x80+0+1000` | `etv` 25 | 6% / 30%, 25/s | 5% / 10%, 25/s, 2 filmy |
+  | `1920x80+0+1000` | `ffmpeg` 50 | 22% / 49%, 50/s | 23% / 18%, 50/s, 1 film |
+
+  Ampere A1 (s2, Neoverse-N1, 4 rdzenie, obok działającego kanału 4 –
+  load 6–12, więc liczby są zawyżone; Chromium z Debiana
+  `chromium-headless-shell`, 1600×900, 25 kl./s, `max_fps` 25, nakładka
+  ffmpeg 25, strony 3004 „Ticker przewijany z kategoriami” i 2101
+  „Odliczanie” z show kanału 4; CPU sidecara / przeglądarki, obrazy na
+  sekundę):
+
+  | Obszar | Tryb sidecara | bez `tape` | z `tape` |
+  |---|---|---|---|
+  | cały kanał | `etv` 25 | 18% / 61%, 24,3/s | 14% / 16%, 25/s |
+  | cały kanał | `ffmpeg` 25 | 34% / 57%, 23,1/s | 32% / 16%, 24,6/s |
+  | `1600x110+0+790` | `etv` 25 | 4% / 21%, 25/s | 3% / 12%, 25/s |
+  | `1600x110+0+790` | `ffmpeg` 25 | 7% / 21%, 25/s | 6% / 13%, 25/s |
+  | `1600x110+0+790,360x94+1200+82` | `etv` 25 | 6% / 43%, 25/s | 4% / 49%, 24,9/s |
+  | `1600x110+0+790,360x94+1200+82` | `ffmpeg` 25 | 8% / 44%, 24,3/s | 9% / 48%, 24,8/s |
+
+  Wiersze z dwoma obszarami (ustawienie kanału 4) zmierzono jeszcze przy
+  jednej karcie przełączającej `viewport` między obszarami: każda zmiana
+  `viewport` to zrzut obu obszarów w każdej klatce, więc taśma nic nie dawała.
+  Z kartą na obszar (§1) na Xeonie E3-1270 v3 (te same strony, 1600×900,
+  15 s) przeglądarka bierze 54% bez opcji i 25–27% z nią (z jedną kartą
+  71–88% i 73–97%); sam pasek: 42% i 16%.
+
+  Chromium przy stojącym crawlu rysuje już tylko zegar (raz na sekundę)
+  i filmy, więc jego CPU spada 3–9 razy, a cały kanał nadąża z pełnym
+  tempem obrazów. CPU sidecara się nie zmienia: składanie taśmy z filmów
+  kosztuje tyle co dekodowanie PNG. Na zrzutach obraz z taśmą sidecara
+  wygląda jak rysowany przez stronę (ten sam tekst, krawędzie okna
+  przycięte tak samo).
 
 - **Sidecar w Ruście wobec Node.js** (Xeon E3-1270 v3, 1080p, scena
   `animated`, 25 s): tryb `etv` – Rust 28% CPU i 93–96 MB, Node 53–56%

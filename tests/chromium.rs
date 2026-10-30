@@ -53,6 +53,18 @@ fn capture_area(
     areas: Vec<Area>,
     idle: Duration,
 ) -> Option<Arc<Capture>> {
+    capture_with(mode, url, render, out, areas, idle, false)
+}
+
+fn capture_with(
+    mode: CaptureMode,
+    url: String,
+    render: (u32, u32),
+    out: (u32, u32),
+    areas: Vec<Area>,
+    idle: Duration,
+    tape: bool,
+) -> Option<Arc<Capture>> {
     let Some(browser) = find_browser() else {
         eprintln!("no Chromium: skipped");
         return None;
@@ -75,6 +87,7 @@ fn capture_area(
         idle,
         history: Duration::from_secs(5),
         clock_offset: 0.0,
+        tape,
     }))
 }
 
@@ -275,4 +288,105 @@ fn chromium_capture_of_two_graphics_areas() {
         assert!(capture.key().ends_with("area 640x70+0+290,100x80+540+0"), "{}", capture.key());
         capture.stop();
     }
+}
+
+/// The crawl tape drawn by the sidecar: a page with the `vizrsTape`
+/// interface of VizRS /output (a red bar, a crawl window on it, a tape of
+/// white bands every 30 px moving 4 px per frame). The page hides its tape,
+/// Chromium films it now and then, and every picture still shows the bands
+/// over the bar, one step further than the picture before.
+#[test]
+fn chromium_frames_capture_draws_the_crawl_tape() {
+    crawl_tape(Vec::new());
+}
+
+/// The same with two graphics areas, the crawl in the second one: its own tab.
+#[test]
+fn chromium_frames_capture_draws_the_crawl_tape_in_a_second_area() {
+    crawl_tape(vec![Area { x: 0, y: 0, w: 100, h: 80 }, Area { x: 0, y: 280, w: 640, h: 80 }]);
+}
+
+fn crawl_tape(areas: Vec<Area>) {
+    let _serial = serial();
+    const CRAWL: &str = r#"<!doctype html><html><body style="margin:0;background:transparent">
+<div id="bar" style="position:absolute;left:0;top:300px;width:640px;height:40px;background:rgb(200,0,0)"></div>
+<div style="position:absolute;left:100px;top:300px;width:400px;height:40px;overflow:hidden">
+<div id="tape" style="position:absolute;left:0;top:0;width:200000px;height:40px;will-change:transform;
+background:repeating-linear-gradient(90deg,#fff 0 10px,transparent 10px 30px)"></div></div>
+<script>const bar = document.getElementById("bar"), tape = document.getElementById("tape");
+let ext = false, film = null, d = 0, hidden = false;
+window.vizrsTape = {
+  state: () => ({ crawls: [{ id: 7, x: 100, y: 300, w: 400, h: 40, s: d, hidden, key: "k" }] }),
+  external: (id, on) => { ext = on; return true; },
+  film: (id, s) => { film = s; return true; },
+};
+(function frame(t) {
+  d = Math.floor(t / 40 + 0.001) * 4;
+  if (film !== null) {
+    tape.style.transform = `translateX(${-film}px)`;
+    bar.style.visibility = "hidden";
+    tape.style.visibility = "visible";
+    film = null;
+  } else {
+    bar.style.visibility = "visible";
+    tape.style.transform = `translateX(${-d}px)`;
+    hidden = ext;
+    tape.style.visibility = hidden ? "hidden" : "visible";
+  }
+  requestAnimationFrame(frame);
+})(0);</script></body></html>"#;
+    let Some(capture) = capture_with(CaptureMode::Frames, serve(CRAWL), (640, 360), (640, 360), areas, Duration::from_secs(30), true)
+    else {
+        return;
+    };
+    until("a first frame", || !capture.current().picture().rects.is_empty());
+    thread::sleep(Duration::from_secs(2));
+    if capture.mode() != CaptureMode::Frames {
+        eprintln!("no begin frames in this browser: skipped");
+        return capture.stop();
+    }
+    until("the tape drawn by the sidecar", || capture.tape().is_some_and(|(crawl, _)| crawl == 7));
+    thread::sleep(Duration::from_secs(3));
+
+    // Row 320 of a picture: white (tape), red (bar) or other, x 0..640.
+    let row = |frame: &virtrs_cg::frames::Frame| {
+        let mut row = vec![b'.'; 640];
+        for r in &frame.picture().rects {
+            if (r.y..r.y + r.h).contains(&320) {
+                for x in 0..r.w {
+                    let p = &r.pixels[(((320 - r.y) * r.w + x) * 4) as usize..][..4];
+                    row[(r.x + x) as usize] = match p {
+                        [255, 255, 255, 255] => b'w',
+                        [200, 0, 0, 255] => b'r',
+                        _ => b'.',
+                    };
+                }
+            }
+        }
+        row
+    };
+    let (mut frame, mut pairs, mut one) = (capture.current(), 0, 0);
+    while pairs < 40 {
+        let before = capture.frame_at(frame.at - Duration::from_micros(1));
+        if before.seq == 0 {
+            break;
+        }
+        let (now, then) = (row(&frame), row(&before));
+        // The bar outside the window, white bands of 10 in every 30 px inside it, nothing else.
+        assert!(now[..100].iter().chain(&now[500..]).all(|&c| c == b'r'), "{}", String::from_utf8_lossy(&now));
+        let white = now[100..500].iter().filter(|&&c| c == b'w').count();
+        assert!((125..=140).contains(&white), "{white} white columns: {}", String::from_utf8_lossy(&now));
+        assert!(now[100..500].iter().all(|&c| c != b'.'), "{}", String::from_utf8_lossy(&now));
+        let gap = ((frame.at - before.at).as_secs_f64() * 1000.0 / 40.0).round();
+        if gap == 1.0 && now[100..496] == then[104..500] {
+            one += 1;
+        }
+        (frame, pairs) = (before, pairs + 1);
+    }
+    let (_, films) = capture.tape().unwrap();
+    capture.stop();
+    assert!(pairs >= 20, "{pairs} pictures");
+    assert!(one * 10 >= pairs * 7, "{one} of {pairs} pictures one step after the one before");
+    // 100 px of tape per second, a window of 400 px: a film every few seconds.
+    assert!((1..=6).contains(&films), "{films} films");
 }

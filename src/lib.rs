@@ -23,6 +23,7 @@ pub mod server;
 pub mod stream;
 pub mod sync;
 pub mod sys;
+pub mod tape;
 pub mod template;
 pub mod time;
 pub mod vizrs;
