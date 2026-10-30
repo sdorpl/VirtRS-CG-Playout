@@ -316,6 +316,11 @@ impl Server {
     fn register(&self, script: &Arc<Script>) {
         let mut sessions = lock(&self.sessions);
         sessions.scripts.insert(script.id, Arc::clone(script));
+        // Only a session with frames: the other element of the same piece
+        // (no capture) would leave the overlay with nothing to stream.
+        if script.capture.is_none() {
+            return;
+        }
         let waiter = sessions.waiters.get_mut(&script.channel).filter(|list| !list.is_empty()).map(|list| list.remove(0));
         if let Some((_, waiter)) = waiter {
             Self::claim(&mut sessions, script);
@@ -363,6 +368,7 @@ impl Server {
         let script = lock(&self.sessions).scripts.get(&(id as u64)).filter(|_| id.fract() == 0.0).cloned();
         let taken = script.filter(|s| s.claimed.load(Ordering::Relaxed) && !s.frames.swap(true, Ordering::Relaxed));
         let Some((script, capture)) = taken.and_then(|s| s.capture.clone().map(|c| (s, c))) else {
+            crate::warn!("ffmpeg overlay: no frames for session {id}; ErsatzTV draws the graphics");
             let _ = http::respond(&mut stream, 404, None, b"");
             return;
         };

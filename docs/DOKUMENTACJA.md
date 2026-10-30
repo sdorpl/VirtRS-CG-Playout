@@ -217,7 +217,12 @@ ErsatzTV ── ffmpeg ──► vizrs-ffmpeg ── -i pipe:N (yuva420p) ◄─
    przekazuje dane pozycji, a komendy, reklamy i `{next_*}` działają bez zmian.
 3. `GET /ffmpeg?channel=<kanał>` przejmuje sesję tego elementu (czeka na nią
    do 2 s). Sidecar przestaje wysyłać do niej pakiety, a silnik grafiki
-   ErsatzTV czeka na następny pakiet, nie zużywając CPU.
+   ErsatzTV czeka na następny pakiet, nie zużywając CPU. Przy kilku
+   elementach VizRS na pozycji nakładka dostaje tylko sesję, która niesie
+   grafikę; pozostałe (przezroczyste) zostają przy ErsatzTV, nawet gdy
+   przyjdą pierwsze. Gdyby `/ffmpeg/frames` jednak nie dało klatek, sidecar
+   loguje `ffmpeg overlay: no frames for session …`, a nakładka uruchamia
+   oryginalną komendę.
 4. ffmpeg czyta wejście grafiki z gniazda `GET /ffmpeg/frames` przekazanego
    jako `pipe:N`. Są to surowe klatki `yuva420p` w rozmiarze kanału,
    w tempie kanału z `lead_seconds` zapasu (§1). Gdy kanał ma obszar grafiki

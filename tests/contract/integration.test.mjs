@@ -148,6 +148,26 @@ test("two VizRS elements on one piece: one session carries the graphics, the oth
   await next;
 });
 
+test("a waiting overlay gets only the session with frames, not the other element of the piece", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, {
+    vizrs: { address: vizrs.address, token: "" },
+    output_url: "http://127.0.0.1:9/output",
+    lead_seconds: 0,
+  });
+  const clip = item("/m/News.mp4", "2026-10-24T20:00:00+02:00");
+  const generic = runClient(`${cg.url}/etv?channel=1`, clip, 1500);
+  await sleep(300);
+  assert.equal((await fetch(`${cg.url}/ffmpeg?channel=1&wait=0`)).status, 200);
+  // A second overlay waits; the piece's other element arrives without frames.
+  const waiting = fetch(`${cg.url}/ffmpeg?channel=1&wait=800`).then((r) => r.status);
+  await sleep(100);
+  const ticker = runClient(`${cg.url}/etv?channel=1&page=3003`, clip, 1000);
+  assert.equal(await waiting, 404, "a session without frames is never handed over");
+  await Promise.all([generic, ticker]);
+});
+
 test("render size: config default, per-channel override, one capture per size pair", async (t) => {
   const vizrs = await fakeVizrs();
   t.after(vizrs.close);
