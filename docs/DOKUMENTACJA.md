@@ -149,9 +149,9 @@ wyprzedzają ekran). Gdy filmu nie da się zrobić, sidecar oddaje crawl
 stronie i zapisuje ostrzeżenie. Inne animacje (zegar, błysk etykiety)
 rysuje dalej Chromium: zmiana w obszarze to nowy obraz strony pod taśmą.
 Stan widać w `/health`: `tape.crawl` (crawl rysowany przez sidecar, `null`
-gdy żaden) i `tape.films` (filmy od startu przeglądarki). Ze starszym VizRS
-(strona bez `window.vizrsTape`) opcja niczego nie zmienia, tylko co sekundę
-pyta o crawle.
+gdy żaden) i `tape.films` (filmy od startu przeglądarki). Opcja wymaga VizRS
+2.0.7 lub nowszego; ze starszym (strona bez `window.vizrsTape`) niczego nie
+zmienia, tylko co sekundę pyta o crawle.
 
 Przy kilku obszarach crawl liczy się w karcie obszaru, w którym leży
 w całości; taśmę ukrywa i filmuje tylko ta karta.
@@ -233,9 +233,10 @@ startem (animacja się rusza), a nie jeden obraz powtórzony.
 
 Oś czasu strumienia to czas emisji pozycji: start w harmonogramie
 (`start` z danych szablonu) plus przesunięcie (`seek`). ErsatzTV transkoduje
-pozycję kawałkami po 44 s, każdy w nowej sesji; dzięki temu kolejny kawałek
-ciągnie animację dokładnie od miejsca, w którym skończył się poprzedni, bez
-skoku ani powtórki. Gdy ErsatzTV wyprzedza harmonogram (pierwsza klatka
+pozycję kawałkami po 44 s, każdy w nowej sesji, albo jednym ffmpeg na całą
+pozycję (`-t` długości audycji; tak szedł film 2 h 17 min na s2, 2026-10-30).
+Przy kawałkach kolejny ciągnie animację dokładnie od miejsca, w którym
+skończył się poprzedni, bez skoku ani powtórki. Gdy ErsatzTV wyprzedza harmonogram (pierwsza klatka
 w emisji później niż koniec wyrzutu, do 2 s), strumień czeka; czas emisji
 ponad 2 s po końcu wyrzutu albo ponad 10 s w przeszłości to zły zegar lub
 stare dane – wtedy oś czasu liczy się od startu strumienia, jak bez czasu
@@ -959,9 +960,16 @@ Nakładka ffmpeg uruchamia oryginalną komendę ErsatzTV (z płótnem grafiki
 ErsatzTV), gdy sidecar nie odpowiada, nie ma sesji elementu VizRS albo
 strumień klatek się nie otwiera. Do logu ErsatzTV trafia wtedy linia
 `vizrs-ffmpeg: …; ErsatzTV graphics instead`. Przerwany strumień klatek
-w trakcie kawałka zostawia ostatni obraz grafiki do końca kawałka (najwyżej
-kilkadziesiąt sekund), bo ffmpeg ErsatzTV przy końcu wejścia nakładki
-powtarza jego ostatnią klatkę; obraz programu leci dalej. Sidecar, który
+zostawia ostatni obraz grafiki do końca procesu ffmpeg, bo ffmpeg ErsatzTV
+przy końcu wejścia nakładki powtarza jego ostatnią klatkę; obraz programu
+leci dalej, a nakładka nie łączy się ponownie. To najwyżej kilkadziesiąt
+sekund przy kawałkach po 44 s, ale do końca pozycji, gdy ffmpeg koduje ją
+w całości: **restart lub wdrożenie sidecara w trakcie emisji zamraża wtedy
+zegary i tickery** (s2, 2026-10-30: stałyby ponad godzinę). `/health` pokazuje
+to jako `"sessions":0`, `"overlay":[]` przy działającym kanale. Grafikę
+przywraca następna pozycja albo restart ErsatzTV (`docker compose restart
+ersatztv`: kanał przerywa się na ok. minutę, pierwsza próba pozycji kończy się
+czernią, potem ErsatzTV wznawia ją od właściwego miejsca). Sidecar, który
 znika bez zamknięcia połączenia (kontener usunięty z danymi w kolejce TCP),
 też nie zatrzymuje kanału: keepalive gniazda klatek zrywa je po ok. 11 s. Gdy ErsatzTV zabija
 nakładkę, ffmpeg dostaje `SIGTERM` (`PR_SET_PDEATHSIG`); sygnały zamknięcia
