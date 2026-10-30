@@ -74,6 +74,7 @@ fn capture_area(
         extra_args: Vec::new(),
         idle,
         history: Duration::from_secs(5),
+        clock_offset: 0.0,
     }))
 }
 

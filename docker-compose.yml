@@ -80,6 +80,9 @@ services:
       # How Chromium's pictures are taken: frames (default: one per channel frame, even
       # motion; chromium-headless-shell) or screencast (60 Hz, every n-th frame).
       VIZRS_CAPTURE_MODE: ${VIZRS_CAPTURE_MODE:-}
+      # Seconds added to the clock of the graphics page: the transcode runs ahead
+      # of the air time, so clocks and countdowns on air would run late by as much.
+      VIZRS_CLOCK_OFFSET: ${VIZRS_CLOCK_OFFSET:-}
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
     shm_size: 512mb
     ports:

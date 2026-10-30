@@ -147,6 +147,8 @@ pub struct CaptureOptions {
     pub idle: Duration,
     /// How far back sessions take pictures (their lead).
     pub history: Duration,
+    /// Seconds added to the page's clock (`clock_offset_seconds`).
+    pub clock_offset: f64,
 }
 
 /// What the browser loop is told from other threads.
@@ -506,6 +508,11 @@ impl Capture {
         let transparent = json::object([("r", 0u64.into()), ("g", 0u64.into()), ("b", 0u64.into()), ("a", 0u64.into())]);
         call("Emulation.setDefaultBackgroundColorOverride", json::object([("color", transparent)]))?;
         call("Page.enable", json::object([]))?;
+        if self.options.clock_offset != 0.0 {
+            let script = clock_script(self.options.clock_offset);
+            call("Page.addScriptToEvaluateOnNewDocument", json::object([("source", script.as_str().into())]))?;
+            call("Runtime.evaluate", json::object([("expression", script.as_str().into())]))?;
+        }
         if mode == CaptureMode::Frames {
             return self.frames(devtools, &session, incoming);
         }
@@ -769,6 +776,20 @@ impl Capture {
 }
 
 /// Width and height from the PNG header.
+/// JavaScript that moves the page's `Date` forward by `seconds`; once only, for
+/// the page open now and every page after it. Animations do not use `Date`.
+pub fn clock_script(seconds: f64) -> String {
+    format!(
+        "(() => {{ if (globalThis.__vizrsClock) return; globalThis.__vizrsClock = true; \
+         const shift = {ms}, real = Date, now = () => real.now() + shift; \
+         globalThis.Date = new Proxy(real, {{ \
+         construct: (t, a, n) => Reflect.construct(t, a.length ? a : [now()], n), \
+         apply: () => new real(now()).toString(), \
+         get: (t, k) => (k === 'now' ? now : Reflect.get(t, k)) }}); }})();",
+        ms = (seconds * 1000.0).round()
+    )
+}
+
 fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     let header = png.get(..24).filter(|h| h.starts_with(b"\x89PNG\r\n\x1a\n") && &h[12..16] == b"IHDR")?;
     let number = |at: usize| u32::from_be_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);

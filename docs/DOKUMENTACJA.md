@@ -832,6 +832,7 @@ grafiki `SZERxWYS+X+Y` po przecinku, np. `1920x140+0+930,160x160+1690+30`,
 puste = cały kanał; §1), `VIZRS_MAX_FPS`
 (górna granica tempa przechwytywania, np. `25`; puste albo `0` = klatkaż
 kanału), `VIZRS_CAPTURE_MODE` (`frames` albo `screencast`, niżej),
+`VIZRS_CLOCK_OFFSET` (sekundy dodane do zegara strony grafiki, niżej),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.
@@ -839,7 +840,7 @@ kanału), `VIZRS_CAPTURE_MODE` (`frames` albo `screencast`, niżej),
 Nieznana opcja w pliku trafia do logu jako ostrzeżenie. Zły typ wartości
 (np. `"no_sandbox": "yes"`) zatrzymuje start z nazwą opcji; liczbę można
 podać także jako tekst (`"lead_seconds": "6"`). `LEAD_SECONDS`,
-`VIZRS_IN_SECONDS`, `VIZRS_OUT_SECONDS` i `VIZRS_MAX_FPS`, które nie są liczbą, dają ostrzeżenie i zostawiają
+`VIZRS_IN_SECONDS`, `VIZRS_OUT_SECONDS`, `VIZRS_MAX_FPS` i `VIZRS_CLOCK_OFFSET`, które nie są liczbą, dają ostrzeżenie i zostawiają
 poprzednią wartość.
 
 `max_fps` ogranicza, ile klatek na sekundę Chromium wysyła ze screencastu
@@ -865,6 +866,13 @@ używa screencastu (`/health`: `mode` przechwytywania). Błędna wartość trafi
 do logu, a przechwytywanie idzie trybem `frames`. Gdy host nie nadąża rysować
 każdej klatki, co minutę w logu pojawia się ostrzeżenie z liczbą
 nienarysowanych klatek – obniż wtedy `max_fps` albo `render_size`.
+
+`clock_offset_seconds` (`VIZRS_CLOCK_OFFSET`, domyślnie `0`) przesuwa `Date`
+strony grafiki w Chromium do przodu. ErsatzTV koduje obraz z wyprzedzeniem
+(na s2 ok. 30 s), a klatka pokazuje zegar z chwili, w której powstała, więc
+zegar i odliczanie na antenie spóźniają się. Wartość to zmierzona różnica
+między zegarem na wyjściu a czasem rzeczywistym (na s2: 17 s). Animacje nie
+używają `Date`, a stała wartość nie goni zmian wyprzedzenia ErsatzTV.
 
 `ad_match.path` i `ad_match.title` to wyrażenia regularne składni
 [`regex`](https://docs.rs/regex/latest/regex/#syntax), bez rozróżniania

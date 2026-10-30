@@ -212,6 +212,7 @@ impl Server {
             extra_args: self.config.browser_args.clone(),
             idle: IDLE,
             history: stream::history(self.config.lead_seconds),
+            clock_offset: self.config.clock_offset_seconds,
         });
         sessions.captures.push((key, Arc::clone(&capture)));
         Graphics::Capture(capture)

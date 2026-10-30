@@ -20,5 +20,6 @@
   "render_size": "",
   "area": "",
   "max_fps": 0,
-  "capture_mode": "frames"
+  "capture_mode": "frames",
+  "clock_offset_seconds": 0
 }

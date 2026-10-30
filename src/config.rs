@@ -61,6 +61,9 @@ pub struct Config {
     pub max_fps: f64,
     /// How Chromium's pictures are taken: "frames" (begin frames, the default) or "screencast".
     pub capture_mode: String,
+    /// Seconds added to the clock of the graphics page: the transcode runs
+    /// ahead of the air time, so clocks on air would run late by as much.
+    pub clock_offset_seconds: f64,
     pub browser: String,
     pub no_sandbox: bool,
     /// Extra Chromium flags, e.g. fewer raster threads on small ARM hosts.
@@ -87,6 +90,7 @@ impl Default for Config {
             area: String::new(),
             max_fps: 0.0,
             capture_mode: "frames".into(),
+            clock_offset_seconds: 0.0,
             browser: String::new(),
             no_sandbox: false,
             browser_args: Vec::new(),
@@ -185,6 +189,7 @@ impl Config {
                     "area" => config.area = string(value, key)?,
                     "max_fps" => config.max_fps = number(value, key)?,
                     "capture_mode" => config.capture_mode = string(value, key)?,
+                    "clock_offset_seconds" => config.clock_offset_seconds = number(value, key)?,
                     "browser" => config.browser = string(value, key)?,
                     "no_sandbox" => config.no_sandbox = boolean(value, key)?,
                     "browser_args" => {
@@ -248,6 +253,12 @@ impl Config {
             match v.trim().parse() {
                 Ok(fps) => config.max_fps = fps,
                 Err(_) => warnings.push(format!("VIZRS_MAX_FPS=\"{v}\" is not a number; using {}", config.max_fps)),
+            }
+        }
+        if let Some(v) = env("VIZRS_CLOCK_OFFSET").filter(|v| !v.is_empty()) {
+            match v.trim().parse() {
+                Ok(seconds) => config.clock_offset_seconds = seconds,
+                Err(_) => warnings.push(format!("VIZRS_CLOCK_OFFSET=\"{v}\" is not a number; using {}", config.clock_offset_seconds)),
             }
         }
         if let Some(v) = env("VIZRS_CAPTURE_MODE").filter(|v| !v.is_empty()) {
@@ -331,6 +342,19 @@ mod tests {
         let bad = json::parse(r#"{"no_sandbox":"yes"}"#).unwrap();
         assert!(Config::from_values(Some(&bad), &env(&[])).unwrap_err().contains("no_sandbox"));
         assert!(Config::from_values(Some(&Value::Array(vec![])), &env(&[])).is_err());
+    }
+
+    #[test]
+    fn clock_offset_from_the_file_and_the_environment() {
+        let file = json::parse(r#"{"clock_offset_seconds":12.5}"#).unwrap();
+        let (config, _) = Config::from_values(Some(&file), &env(&[])).unwrap();
+        assert_eq!(config.clock_offset_seconds, 12.5);
+        let (config, warnings) = Config::from_values(None, &env(&[("VIZRS_CLOCK_OFFSET", "28")])).unwrap();
+        assert_eq!(config.clock_offset_seconds, 28.0);
+        assert!(warnings.is_empty());
+        let (config, warnings) = Config::from_values(None, &env(&[("VIZRS_CLOCK_OFFSET", "x")])).unwrap();
+        assert_eq!(config.clock_offset_seconds, 0.0);
+        assert_eq!(warnings.len(), 1);
     }
 
     #[test]
