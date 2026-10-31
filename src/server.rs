@@ -33,6 +33,7 @@ use crate::config::Config;
 use crate::frames::{Empty, Source};
 use crate::http::{self, Request};
 use crate::json::{self, Value};
+use crate::native::{self, Renderer};
 use crate::scale::render_size;
 use crate::stream::{self, Control, Format, Options};
 use crate::sync;
@@ -193,6 +194,10 @@ impl Server {
             crate::warn!("{error}; using frames");
             CaptureMode::Frames
         });
+        let renderer = Renderer::parse(&self.config.renderer).unwrap_or_else(|error| {
+            crate::warn!("{error}; using chromium");
+            Renderer::Chromium
+        });
         let areas = Area::parse_list(area, width, height).unwrap_or_else(|error| {
             crate::warn!("{error}; using the whole channel");
             Vec::new()
@@ -219,6 +224,8 @@ impl Server {
             history: stream::history(self.config.lead_seconds),
             clock_offset: self.config.clock_offset_seconds,
             tape: self.config.tape,
+            renderer,
+            renderer_bin: native::find_renderer(&self.config.renderer_bin),
         });
         sessions.captures.push((key, Arc::clone(&capture)));
         Graphics::Capture(capture)
@@ -238,6 +245,8 @@ impl Server {
                     ("fps", c.fps().into()),
                     ("drawn_fps", c.capture_fps().into()),
                     ("mode", c.mode().name().into()),
+                    ("renderer", c.renderer().0.into()),
+                    ("drawn_by", c.renderer().1.into()),
                     ("status", c.status().into()),
                     ("seq", c.current().seq.into()),
                 ]);

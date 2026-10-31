@@ -29,6 +29,7 @@ use crate::area::{Area, cut_to, geometries, union};
 use crate::devtools::{DevTools, Incoming};
 use crate::frames::{Decode, Frame, History, Shot, Source};
 use crate::json::{self, Value};
+use crate::native::{self, Kind, Native, Renderer};
 use crate::packets::{Rect, crop};
 use crate::png::decode_png;
 use crate::rects::visible_rects;
@@ -230,6 +231,10 @@ pub struct CaptureOptions {
     pub clock_offset: f64,
     /// The sidecar draws a standing VizRS crawl (`tape`, frames mode only).
     pub tape: bool,
+    /// Who draws: Chromium, the VizRS native renderer, or the native one with Chromium ready (`renderer`).
+    pub renderer: Renderer,
+    /// The native renderer program (`renderer_bin`).
+    pub renderer_bin: String,
 }
 
 /// What the browser loop is told from other threads.
@@ -293,6 +298,8 @@ pub struct Capture {
     /// The crawl whose tape the sidecar draws (0: none) and the films taken.
     tape_crawl: AtomicU64,
     tape_films: AtomicU64,
+    /// The native renderer drew the last frame (`renderer` native or auto).
+    native_drawing: AtomicBool,
 }
 
 static PROFILES: AtomicU64 = AtomicU64::new(0);
@@ -325,6 +332,7 @@ impl Capture {
             halved: AtomicBool::new(false),
             tape_crawl: AtomicU64::new(0),
             tape_films: AtomicU64::new(0),
+            native_drawing: AtomicBool::new(false),
         });
         let browser = Arc::clone(&capture);
         let _ = thread::Builder::new().name("capture".into()).spawn(move || browser.supervise());
@@ -376,6 +384,13 @@ impl Capture {
     pub fn tape(&self) -> Option<(u64, u64)> {
         (self.options.tape && self.mode() == CaptureMode::Frames)
             .then(|| (self.tape_crawl.load(Ordering::Relaxed), self.tape_films.load(Ordering::Relaxed)))
+    }
+
+    /// `renderer` and who draws now: "chromium" or "native".
+    pub fn renderer(&self) -> (&'static str, &'static str) {
+        let native = self.options.renderer == Renderer::Native || self.native_drawing.load(Ordering::Relaxed);
+        let now = if native { "native" } else { "chromium" };
+        (self.options.renderer.name(), now)
     }
 
     /// Frames per second Chromium draws now.
@@ -487,7 +502,8 @@ impl Capture {
 
     fn supervise(self: Arc<Self>) {
         while !self.stopped.load(Ordering::Relaxed) {
-            if let Err(error) = self.run_browser() {
+            let run = if self.options.renderer == Renderer::Native { self.run_native() } else { self.run_browser() };
+            if let Err(error) = run {
                 if !self.stopped.load(Ordering::Relaxed) {
                     crate::error!("burn-in {}: {error}", self.key());
                 }
@@ -610,6 +626,95 @@ impl Capture {
             remove_profile(&profile);
         }
         result
+    }
+
+    /// The part of the channel the native renderer draws: the bounding box of the areas, else all of it.
+    fn native_part(&self) -> Area {
+        let o = &self.options;
+        if o.areas.is_empty() { Area { x: 0, y: 0, w: o.out_width, h: o.out_height } } else { union(&o.areas) }
+    }
+
+    fn start_native(&self) -> Result<Native, String> {
+        let o = &self.options;
+        let part = self.native_part();
+        let area = (!o.areas.is_empty()).then_some(part);
+        Native::start(&o.renderer_bin, &o.url, (o.out_width, o.out_height), area)
+    }
+
+    /// One native frame into the history; false when the renderer left it to Chromium.
+    fn native_slot(&self, native: &mut Native, start: f64, at: Instant, complete_only: bool, force: bool) -> Result<bool, String> {
+        let reply = native.frame(start, native::wall_ms(start, self.options.clock_offset), complete_only, force)?;
+        match reply.kind {
+            Kind::Skipped => return Ok(false),
+            Kind::Unchanged => {}
+            Kind::Empty => self.history.set(Vec::new(), at),
+            Kind::Picture(rgba) => {
+                let part = self.native_part();
+                if (reply.width, reply.height) != (part.w, part.h) {
+                    return Err(format!("native renderer: frame {}x{} for {}x{}", reply.width, reply.height, part.w, part.h));
+                }
+                self.history.set(native::picture_rects(&rgba, part, &self.options.areas), at);
+            }
+            Kind::Region(r, rgba) => {
+                let part = self.native_part();
+                if (reply.width, reply.height) != (part.w, part.h) {
+                    return Err(format!("native renderer: frame {}x{} for {}x{}", reply.width, reply.height, part.w, part.h));
+                }
+                let region = Area { x: part.x + r.x, y: part.y + r.y, w: r.w, h: r.h };
+                self.history.set(native::picture_rects(&rgba, region, &self.options.areas), at);
+            }
+        }
+        Ok(true)
+    }
+
+    /// `renderer: native`: the VizRS native renderer instead of Chromium, one frame per frame of the channel.
+    fn run_native(self: &Arc<Self>) -> Result<(), String> {
+        let (control, incoming) = mpsc::channel();
+        self.state().control = Some(control);
+        let result = self.native_loop(&incoming);
+        self.state().control = None;
+        self.native_drawing.store(false, Ordering::Relaxed);
+        result
+    }
+
+    fn native_loop(&self, incoming: &mpsc::Receiver<Control>) -> Result<(), String> {
+        let mut native = self.start_native()?;
+        let (origin_ms, origin) = (sys::monotonic_ms(), Instant::now());
+        let instant = |ms: f64| {
+            let offset = Duration::from_secs_f64((ms - origin_ms).abs() / 1000.0);
+            if ms >= origin_ms { origin.checked_add(offset) } else { origin.checked_sub(offset) }.unwrap_or(origin)
+        };
+        let mut active = {
+            let mut state = self.state();
+            state.status = if state.active { "capturing" } else { "paused" };
+            state.active
+        };
+        crate::info!("burn-in {}: drawing {} with the native renderer", self.key(), self.options.url);
+        let mut frame_ms = 1000.0 / self.capture_fps();
+        let mut slot = (sys::monotonic_ms() / frame_ms).ceil();
+        let mut force = true;
+        loop {
+            let wait = if active { instant(slot * frame_ms).saturating_duration_since(Instant::now()) } else { Duration::from_secs(3600) };
+            match incoming.recv_timeout(wait) {
+                Err(RecvTimeoutError::Disconnected) | Ok(Control::DevTools(Incoming::Closed)) => {
+                    return Err("native renderer stopped".into());
+                }
+                Ok(Control::DevTools(_)) => {}
+                Ok(Control::Active(on)) => {
+                    active = on;
+                    frame_ms = 1000.0 / self.capture_fps();
+                    slot = (sys::monotonic_ms() / frame_ms).ceil();
+                    force = true;
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    let start = slot * frame_ms;
+                    self.native_slot(&mut native, start, instant(start), false, force)?;
+                    self.native_drawing.store(true, Ordering::Relaxed);
+                    force = false;
+                    slot = (slot + 1.0).max((sys::monotonic_ms() / frame_ms).floor());
+                }
+            }
+        }
     }
 
     /// The startup tab once it shows the page (it starts as `about:blank`).
@@ -847,6 +952,12 @@ impl Capture {
         // Slots of the window drawn and missed (a host too slow for the rate).
         let (mut window, mut drawn, mut missed) = (Instant::now(), 0u64, 0u64);
         let mut guard = RateGuard::new(Instant::now());
+        // `renderer: auto`: the native renderer draws while all on air is native; Chromium waits without drawing.
+        let auto = self.options.renderer == Renderer::Auto;
+        let mut native: Option<Native> = None;
+        let mut native_retry = Instant::now();
+        let mut native_warned = false;
+        let mut from_native = false;
         loop {
             let wait = if active { instant(slot * frame_ms).saturating_duration_since(Instant::now()) } else { Duration::from_secs(3600) };
             match incoming.recv_timeout(wait) {
@@ -870,7 +981,39 @@ impl Capture {
                     let started = Instant::now();
                     let start = slot * frame_ms;
                     let mut changed = false;
-                    for (i, (&(clip, _), session)) in parts.iter().zip(sessions).enumerate() {
+                    if auto && native.is_none() && Instant::now() >= native_retry {
+                        match self.start_native() {
+                            Ok(n) => native = Some(n),
+                            Err(error) => {
+                                if !native_warned {
+                                    crate::warn!("burn-in {}: {error}; Chromium draws", self.key());
+                                    native_warned = true;
+                                }
+                                native_retry = Instant::now() + RESTART_DELAY * 10;
+                            }
+                        }
+                    }
+                    let drawn_natively = match native.as_mut() {
+                        Some(n) => match self.native_slot(n, start, instant(start), true, !from_native) {
+                            Ok(drawn) => drawn,
+                            Err(error) => {
+                                crate::warn!("burn-in {}: {error}; Chromium draws", self.key());
+                                native = None;
+                                native_retry = Instant::now() + RESTART_DELAY;
+                                false
+                            }
+                        },
+                        None => false,
+                    };
+                    if drawn_natively != from_native {
+                        crate::info!("burn-in {}: {} draws", self.key(), if drawn_natively { "the native renderer" } else { "Chromium" });
+                        from_native = drawn_natively;
+                        self.native_drawing.store(drawn_natively, Ordering::Relaxed);
+                        // Back to Chromium: a fresh picture of every area at the first slot.
+                        (moving, last_shot, last_png) = fresh();
+                        pngs = vec![None; parts.len()];
+                    }
+                    for (i, (&(clip, _), session)) in parts.iter().zip(sessions).enumerate().filter(|_| !drawn_natively) {
                         let time = start;
                         let check = time - last_shot[i] >= CHECK_MS;
                         let mut result = begin(session, time, frame_ms, moving[i] || check)?;
@@ -898,7 +1041,7 @@ impl Capture {
                         }
                     }
                     // A picture once every area has one: a PNG for each, the tape blended into its area.
-                    if let Some(all) = pngs.iter().cloned().collect::<Option<Vec<_>>>() {
+                    if let Some(all) = pngs.iter().cloned().collect::<Option<Vec<_>>>().filter(|_| !drawn_natively) {
                         let mut shots: Vec<Shot> = all.into_iter().map(Shot::Png).collect();
                         let blended = match tape.as_mut() {
                             Some(run) => {

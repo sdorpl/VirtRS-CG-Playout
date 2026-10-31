@@ -1,6 +1,8 @@
 # PLAN: natywny renderer grafiki VizRS (bez Chromium)
 
-> Status (2026-10-31): **analiza, nic nie wdrożone**. Decyzje z §8 należą do autora.
+> Status (2026-10-31): **etap N1 rozpoczęty** na gałęziach `render-native` obu repozytoriów: renderer `vizrs-render` 0.1
+> (VizRS `source/render/`, stan etapów: VizRS `docs/plany/PLAN-native.md`) i opcja `renderer: chromium|native|auto`
+> w sidecarze (DOKUMENTACJA §1, §5). Decyzje z §8 podjęte wg propozycji planu (niżej, „Decyzje – stan”).
 > Dotyczy dwóch repozytoriów: **VizRS CG System** (renderer, nowy kanał protokołu) i **VirtRS CG Playout** (odbiór klatek w sidecarze).
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) §1 (taśma crawla, obszar grafiki), §4 (Ampere A1), §8 (benchmark);
 > [PLAN-plynnosc.md](PLAN-plynnosc.md); w VizRS: `docs/plany/PLAN-lekkie-output.md`, `docs/DOKUMENTACJA.md` §4, §6, §7.
@@ -112,6 +114,13 @@ Szacunek trzeba potwierdzić prototypem na A1 (§7, etap N0).
 Sceny z wideo albo nieobsłużonym efektem zawsze wracają do Chromium, więc grafika nigdy nie znika.
 
 ## 8. Decyzje do podjęcia
+
+**Stan (2026-10-31, gałąź `render-native`):** 1 – drugi renderer dopuszczony dla kanału; zgodność pilnuje
+`tools/native-compare.js` (VizRS), INFO24 i R7 poniżej 1% różnych pikseli. 2 – osobny workspace `source/render/`
+(tiny-skia, rustybuzz, wuff, serde_json, png, jpeg-decoder). 3 – renderer sam czyta `/events`, `/fonts`, `/assets`
+jak `/output` (serwer VizRS bez zmian); klatki RGBA (prostokąt z grafiką) przez stdin/stdout procesu podrzędnego,
+obszar liczy sidecar. 4 – otwarte, po pomiarze na A1. Etap N0 zastąpiony pomiarem na x86: crawl 720p25 ok. 14% rdzenia
+(sidecar + renderer) wobec ok. 56% z Chromium; pomiar na A1 do zrobienia.
 
 1. Czy VizRS dopuszcza drugi renderer (zasada „Jeden renderer”) i na jakich warunkach zgodności.
 2. Wyjątek od „Zero zależności” dla osobnego workspace renderera i lista dozwolonych crate'ów.

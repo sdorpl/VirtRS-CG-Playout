@@ -88,6 +88,8 @@ fn capture_with(
         history: Duration::from_secs(5),
         clock_offset: 0.0,
         tape,
+        renderer: virtrs_cg::native::Renderer::Chromium,
+        renderer_bin: String::new(),
     }))
 }
 

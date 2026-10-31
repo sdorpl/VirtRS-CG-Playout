@@ -159,6 +159,43 @@ zmienia, tylko co sekundę pyta o crawle.
 Przy kilku obszarach crawl liczy się w karcie obszaru, w którym leży
 w całości; taśmę ukrywa i filmuje tylko ta karta.
 
+### Renderer natywny VizRS (`renderer`)
+
+Zamiast Chromium grafikę może rysować renderer natywny VizRS – program
+`vizrs-render` z repozytorium VizRS CG System (VizRS DOKUMENTACJA §10.1,
+plan [plany/native.md](plany/native.md)). Odtwarza sceny tą samą logiką co
+strona `/output`, ale bez przeglądarki: sam czyta zdarzenia anteny
+(`/events`), fonty i pliki z adresu `output_url` (token, `layers`, `bus`,
+`w`, `h`, `fx=step` działają jak na stronie) i rysuje na CPU w rozmiarze
+kanału, bez `render_size`, PNG i skalowania. Sidecar uruchamia go jako
+proces podrzędny (`vizrs-render stream --url <output_url> --size SZERxWYS
+[--area …]`) i w każdej klatce kanału prosi o obraz z czasem tej klatki;
+odpowiedź „bez zmian” nie kosztuje nic, a nowy obraz to tylko prostokąt
+z grafiką (pasek tickera, nie cały kanał).
+
+| `renderer` | Kto rysuje |
+|---|---|
+| `chromium` (domyślnie) | bezgłowy Chromium, jak dotąd |
+| `native` | tylko renderer natywny, Chromium się nie uruchamia; czego renderer nie umie, nie ma na obrazie (lista w logu) |
+| `auto` | renderer natywny, dopóki wszystko na antenie umie narysować; gdy na antenę wejdzie coś, czego nie umie (np. ticker `roll`, tekst `[[wyróżniony]]`, ruch BTB, font spoza wbudowanych), w tej samej klatce rysuje Chromium, a po zejściu tej grafiki znów renderer natywny |
+
+W trybie `auto` Chromium działa obok w trybie `frames`, ale nie rysuje, dopóki
+rysuje renderer natywny (prawie nie zużywa CPU). Przejście na Chromium daje
+od razu świeży obraz strony; animacje, które trwały w czasie rysowania
+natywnego (crawl, zegar), Chromium wznawia od miejsca, w którym sam je
+zostawił, więc przy przejściu przewijany pasek może przeskoczyć. Awaria albo
+brak renderera natywnego = Chromium (w `auto`) albo czyste klatki i restart
+po 3 s (w `native`); renderer, który nie odda klatki w 2 s, jest
+zatrzymywany. `/health`: `renderer` (ustawienie) i `drawn_by` (`native` albo
+`chromium` – kto narysował ostatnią klatkę). Zmiany listy rzeczy, których
+renderer nie umie, trafiają do logu (`vizrs-render: …`).
+
+Koszt (x86, kanał 1280×720 25 kl./s, crawl VizRS, sidecar razem z rysującym):
+Chromium ok. 56% rdzenia, renderer natywny ok. 14%. Pomiar na Ampere A1
+i stan obsługiwanych elementów: VizRS `docs/plany/PLAN-native.md`.
+Obraz Dockera sidecara nie zawiera jeszcze `vizrs-render` – program buduje
+się w VizRS (`source/render`) i wskazuje opcją `renderer_bin`.
+
 Pomiar: §8 (Taśma crawla).
 
 Sidecar to jeden plik binarny `virtrs-cg` (Rust) obok bezgłowego Chromium:
@@ -911,7 +948,9 @@ virtrs-cg config.json      # albo CONFIG=config.json virtrs-cg
   "max_fps": 0,
   "capture_mode": "frames",
   "clock_offset_seconds": 0,
-  "tape": false
+  "tape": false,
+  "renderer": "chromium",
+  "renderer_bin": ""
 }
 ```
 
@@ -931,6 +970,9 @@ puste = cały kanał; §1), `VIZRS_MAX_FPS`
 kanału), `VIZRS_CAPTURE_MODE` (`frames` albo `screencast`, niżej),
 `VIZRS_CLOCK_OFFSET` (sekundy dodane do zegara strony grafiki, niżej),
 `VIZRS_TAPE=1` (taśmę crawla przesuwa sidecar, §1; `0` wyłącza),
+`VIZRS_RENDERER` (`chromium`, `native` albo `auto` – kto rysuje grafikę, §1;
+błędna wartość = `chromium` z ostrzeżeniem), `VIZRS_RENDERER_BIN` (program
+`vizrs-render`; puste = obok sidecara albo w `PATH`),
 `VIZRS_BROWSER`, `VIZRS_BROWSER_NO_SANDBOX=1` (root / kontenery),
 `VIZRS_BROWSER_ARGS` (dodatkowe flagi Chromium, rozdzielone spacją),
 `DEBUG=1`.

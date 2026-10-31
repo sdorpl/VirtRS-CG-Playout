@@ -66,6 +66,10 @@ pub struct Config {
     pub clock_offset_seconds: f64,
     /// The sidecar draws a standing VizRS crawl itself (frames mode): Chromium films its tape only now and then.
     pub tape: bool,
+    /// Who draws the burn-in: "chromium" (the default), "native" (VizRS `vizrs-render`) or "auto".
+    pub renderer: String,
+    /// The native renderer program; "" = `vizrs-render` next to the sidecar or on `PATH`.
+    pub renderer_bin: String,
     pub browser: String,
     pub no_sandbox: bool,
     /// Extra Chromium flags, e.g. fewer raster threads on small ARM hosts.
@@ -94,6 +98,8 @@ impl Default for Config {
             capture_mode: "frames".into(),
             clock_offset_seconds: 0.0,
             tape: false,
+            renderer: "chromium".into(),
+            renderer_bin: String::new(),
             browser: String::new(),
             no_sandbox: false,
             browser_args: Vec::new(),
@@ -194,6 +200,8 @@ impl Config {
                     "capture_mode" => config.capture_mode = string(value, key)?,
                     "clock_offset_seconds" => config.clock_offset_seconds = number(value, key)?,
                     "tape" => config.tape = boolean(value, key)?,
+                    "renderer" => config.renderer = string(value, key)?,
+                    "renderer_bin" => config.renderer_bin = string(value, key)?,
                     "browser" => config.browser = string(value, key)?,
                     "no_sandbox" => config.no_sandbox = boolean(value, key)?,
                     "browser_args" => {
@@ -270,6 +278,12 @@ impl Config {
         }
         if let Some(v) = env("VIZRS_TAPE").filter(|v| !v.is_empty()) {
             config.tape = v == "1";
+        }
+        if let Some(v) = env("VIZRS_RENDERER").filter(|v| !v.is_empty()) {
+            config.renderer = v;
+        }
+        if let Some(v) = env("VIZRS_RENDERER_BIN").filter(|v| !v.is_empty()) {
+            config.renderer_bin = v;
         }
         if let Some(v) = env("VIZRS_BROWSER").filter(|v| !v.is_empty()) {
             config.browser = v;
@@ -389,6 +403,17 @@ mod tests {
         assert!(Config::from_values(Some(&file), &env(&[])).unwrap().0.tape);
         assert!(!Config::from_values(Some(&file), &env(&[("VIZRS_TAPE", "0")])).unwrap().0.tape);
         assert!(Config::from_values(None, &env(&[("VIZRS_TAPE", "1")])).unwrap().0.tape);
+    }
+
+    #[test]
+    fn renderer() {
+        assert_eq!(Config::default().renderer, "chromium");
+        let file = json::parse(r#"{"renderer":"auto","renderer_bin":"/opt/vizrs-render"}"#).unwrap();
+        let (config, warnings) = Config::from_values(Some(&file), &env(&[])).unwrap();
+        assert_eq!((config.renderer.as_str(), config.renderer_bin.as_str()), ("auto", "/opt/vizrs-render"));
+        assert!(warnings.is_empty());
+        let (config, _) = Config::from_values(Some(&file), &env(&[("VIZRS_RENDERER", "native"), ("VIZRS_RENDERER_BIN", "/x")])).unwrap();
+        assert_eq!((config.renderer.as_str(), config.renderer_bin.as_str()), ("native", "/x"));
     }
 
     #[test]

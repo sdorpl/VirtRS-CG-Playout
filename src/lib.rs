@@ -13,6 +13,7 @@ pub mod etv_client;
 pub mod frames;
 pub mod http;
 pub mod json;
+pub mod native;
 pub mod net;
 pub mod overlay;
 pub mod packets;
