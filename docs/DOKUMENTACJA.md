@@ -549,22 +549,54 @@ Służy do tego tablica `shows` w pliku konfiguracyjnym:
 Drugim sposobem – analogicznym do watermarków w ErsatzTV – jest dodanie
 poszczególnych grafik VizRS jako osobnych elementów graficznych **script**
 w ErsatzTV (pliki `.yml` w katalogu `etv/templates/graphics-elements/script/`).
-Każdy taki plik odpowiada zaimportowanej stronie z VizRS CG System:
+Każdy taki plik odpowiada stronie z VizRS CG System:
 - format nazwy elementu: `[Nazwa strony] (ID)`, np. `Ticker (3001)`
 - adres URL z parametrem strony: `http://cg:7700/etv?channel=1&page=3001` (lub opcjonalnie `take=...` z wartościami pól `fields=...`).
 
-Do automatycznej synchronizacji szablonów stron z VizRS CG System służy polecenie:
+Elementy stron powstają same. Każda sesja elementu VizRS (także samego
+**VizRS** z `vizrs.yml`) po cichu, w tle, wyrównuje katalog
+`/config/templates/graphics-elements/script/` (`ETV_CONFIG_FOLDER`, gdy ErsatzTV
+ma inny) ze stronami bieżącego show. Robi to `vizrs-etv-client`, bo tylko on
+działa w kontenerze ErsatzTV i zna kanał elementu: listę bierze z `GET
+/etv/pages` sidecara, a sidecar z `GET /api/show` VizRS (adres z `output_url`,
+token z `vizrs.token`; bez `output_url` synchronizacji nie ma). Błąd trafia
+tylko do logu i nie wpływa na grafikę. ErsatzTV odświeża listę elementów przy
+starcie każdej sesji i co godzinę, więc nowa strona pojawia się w **Schedules
+→ pozycja → Graphics Elements** najpóźniej po zmianie pozycji i kolejnym
+odświeżeniu; wymaga to, by na kanale grał jakikolwiek element VizRS. Na
+świeżym stosie elementy stron pojawiają się po pierwszej emisji kanału
+(obraz `seed` ich nie zawiera, bo wzorcowy show nie musi być tym działającym).
+
+| Zmiana w VizRS | Element w ErsatzTV |
+|---|---|
+| nowa strona | nowy plik `page-<ID>.yml`: URL sesji, która go utworzyła (kanał, `render`, `area`) plus `page=<ID>` |
+| zmieniona nazwa | zmienia się tylko `name:`, plik i przypisania zostają |
+| strona znika (usunięta, inny show) | zostaje z nazwą `[brak w VizRS] Ticker (3001)`; `TAKE` da `ERR` w logu; znacznik znika, gdy strona wróci |
+
+**Pliki nie są kasowane**, bo ErsatzTV usuwa element, którego plik brakuje przy
+odświeżeniu, a z nim – kaskadowo i bezpowrotnie – przypisania w harmonogramach,
+Deco i pozycjach playoutu. Z tego samego powodu pliki podmieniane są atomowo
+(`rename`), bez chwili, w której pliku nie ma. Nazwa pliku nie ma znaczenia:
+stroną elementu jest parametr `page=` (lub `take=`) w jego URL. Plik bez
+pierwszej linii `# Generated from VizRS CG System page …` jest ręczny:
+synchronizacja go nie zmienia, a jego strona nie dostaje drugiego elementu.
+
+Automat zostawia URL istniejącego pliku, więc element raz utworzony trzyma swój
+kanał. Elementy są wspólne dla całego ErsatzTV: przy kilku kanałach na jednym
+sidecarze `page-<ID>.yml` należy do kanału, który utworzył go pierwszy, a dla
+pozostałych skopiuj plik z innym `channel=` (bez pierwszej linii).
+
+Ręcznie, np. żeby przenieść elementy na inny kanał, służy polecenie:
 
 ```sh
-virtrs-cg sync [--url http://vizrs:8088] [--token <TOKEN>] [--channel 1] [--output-dir <DIR>]
+virtrs-cg sync [--url http://vizrs:8088] [--token <TOKEN>] [--channel 1] [--cg-url http://cg:7700] [--output-dir <DIR>] [--prune]
 # albo z pliku projektu show.json:
-virtrs-cg sync --file seed/vizrs-data/show.json --output-dir etv/templates/graphics-elements/script
+virtrs-cg sync --file seed/vizrs-data/show.json --output-dir <DIR>
 ```
 
-Skrypt odpytuje VizRS (`GET /api/show`), parsuje wszystkie strony i generuje
-gotowe pliki `.yml` (`page-<ID>.yml`). Każda strona pojawia się jako osobna
-pozycja w menu ErsatzTV (**Schedules → pozycja → Graphics Elements**),
-co pozwala zaznaczyć dowolną kombinację grafik dla każdej audycji z osobna.
+Działa tak samo, ale ustawia też URL plików generowanych (`--channel`,
+`--cg-url`). `--prune` usuwa pliki stron, których nie ma w VizRS, **razem z ich
+przypisaniami w ErsatzTV**; przy pustej liście stron nie usuwa niczego.
 
 Na jednej pozycji można zaznaczyć kilka elementów VizRS (np. **VizRS**
 i **Ticker wipe z kategoriami (3003)**). Klatki `/output` niesie wtedy tylko
@@ -625,7 +657,8 @@ w ErsatzTV jako `/vizrs`.
 W ErsatzTV dodaj element **VizRS** do pozycji harmonogramu
 (**Schedules → pozycja → Graphics Elements**) albo do **Deco** przypisanego
 do playoutu i zresetuj playout – bez tego ErsatzTV nie uruchamia skryptu.
-Przy kilku kanałach skopiuj element z `channel=2`, … w URL.
+Przy kilku kanałach skopiuj element z `channel=2`, … w URL. Elementy
+poszczególnych stron powstają same (§3).
 
 W `/vizrs` jest też nakładka ffmpeg `vizrs-ffmpeg` (§1), zbudowana w obrazie
 `seed` dla architektury stosu; compose ustawia ErsatzTV
@@ -960,6 +993,7 @@ Po awarii przeglądarki grafika jest czyszczona, a Chromium wraca po 3 s.
 Przeglądarka ma 30 s na start i otwarcie `/output` (pierwszy start na zimnej
 maszynie, np. małej VM ARM, potrafi trwać 15–20 s); potem jest restartowana.
 Gdy sidecar jest nieosiągalny, klient kończy pracę i pozycja leci bez grafiki.
+Nieudana synchronizacja elementów stron (§3) zostawia pliki bez zmian.
 
 Przeglądarka ginie razem z sidecarem, także przy `kill -9`
 (`PR_SET_PDEATHSIG`); `SIGTERM` (`docker stop`) zamyka przeglądarki i usuwa

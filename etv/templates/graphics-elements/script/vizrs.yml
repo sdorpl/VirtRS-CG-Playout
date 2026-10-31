@@ -8,6 +8,8 @@
 # graphics (here a ticker strip); Chromium draws and ffmpeg overlays only it,
 # everything outside is cut off. Several areas comma-separated, e.g. a ticker
 # and a logo: "&area=1920x140+0+930,160x160+1690+30". Default: the whole channel.
+# The elements of single VizRS pages (page-<ID>.yml) are written next to this
+# file by the client, with this URL plus "&page=<ID>" (DOKUMENTACJA §3).
 name: VizRS
 command: /vizrs/vizrs-etv-client
 args:

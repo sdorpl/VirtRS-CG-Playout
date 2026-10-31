@@ -1,7 +1,7 @@
 // HTTP client side of the ErsatzTV programs (vizrs-etv-client, vizrs-ffmpeg):
 // URLs, connections with timeouts and reply heads, on std alone.
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
@@ -78,6 +78,27 @@ pub fn read_head(stream: &mut TcpStream, what: &str) -> io::Result<String> {
     }
     let text = String::from_utf8_lossy(&head);
     Ok(text.lines().next().unwrap_or("").to_owned())
+}
+
+/// `GET` of a whole small reply; `headers` are complete header lines. An
+/// answer other than 200 is an error.
+pub fn get(url: &str, headers: &str) -> io::Result<String> {
+    let parts = Url::split(url).ok_or_else(|| error(format!("bad URL {url}")))?;
+    let mut stream = connect(&parts)?;
+    let request = format!(
+        "GET {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\nAccept: application/json\r\n{headers}\r\n",
+        parts.target(),
+        parts.netloc
+    );
+    stream.write_all(request.as_bytes())?;
+    let line = read_head(&mut stream, parts.netloc)?;
+    let mut body = Vec::new();
+    stream.read_to_end(&mut body)?;
+    let body = String::from_utf8_lossy(&body).into_owned();
+    match status_of(&line) {
+        "200" => Ok(body),
+        status => Err(error(format!("HTTP {status} from {}: {body}", parts.netloc))),
+    }
 }
 
 /// Status code of a status line.

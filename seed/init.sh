@@ -34,6 +34,7 @@ rm -rf /vizrs-client/*
 cp -R /seed/client/. /vizrs-client/
 chmod 755 /vizrs-client/*
 mkdir -p /ersatztv-config/templates/graphics-elements/script
-# Copy all templates (*.yml) to ErsatzTV script templates directory
+# The general element; the page elements come from the live VizRS show, written
+# by vizrs-etv-client (src/sync.rs).
 cp -R /seed/templates/. /ersatztv-config/templates/graphics-elements/script/
 echo "seed: ErsatzTV clients and VizRS graphics elements updated"

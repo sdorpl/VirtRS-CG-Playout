@@ -9,11 +9,15 @@
 //
 // If the sidecar is not reachable it exits without output: the item plays
 // without graphics. A static binary, so the ErsatzTV image needs no extra
-// packages.
+// packages. Every session also brings the page elements of the folder in line
+// with VizRS, in the background (src/sync.rs): this program runs where the
+// ErsatzTV configuration is, and knows the element's channel from its URL.
 
 use std::io::{self, Read, Write};
+use std::thread;
 
-use crate::net::{Url, connect, error, read_head, status_of};
+use crate::net::{self, Url, connect, error, read_head, status_of};
+use crate::sync::{self, SyncOptions, SyncReport};
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:7700/etv";
 const CHUNK: usize = 1 << 20;
@@ -45,6 +49,18 @@ fn open(url: &str, body: &[u8]) -> io::Result<std::net::TcpStream> {
     Ok(stream)
 }
 
+/// Page list from the sidecar -> elements in the ErsatzTV folder, if it is here.
+fn sync_pages(url: &str) -> io::Result<Option<SyncReport>> {
+    let dir = sync::templates_dir(std::env::var("ETV_CONFIG_FOLDER").ok().as_deref());
+    if !dir.is_dir() {
+        return Ok(None);
+    }
+    let pages_url = sync::pages_url(url).ok_or_else(|| error(format!("bad sidecar URL {url}")))?;
+    let pages = sync::parse_pages(&net::get(&pages_url, "")?).map_err(error)?;
+    let element_url = sync::channel_url(url);
+    sync::sync_templates(&pages, &dir, SyncOptions { element_url: &element_url, rewrite: false, prune: false }).map(Some)
+}
+
 /// The client: `vizrs-etv-client [url]`; always exits 0 (no graphics is no error).
 pub fn run(url: &str) {
     let mut body = Vec::new();
@@ -52,6 +68,12 @@ pub fn run(url: &str) {
         log(e);
         return;
     }
+    let sync_url = url.to_owned();
+    let _ = thread::Builder::new().name("sync".into()).spawn(move || match sync_pages(&sync_url) {
+        Ok(Some(report)) if report.changed() => log(format!("page elements: {report}")),
+        Ok(_) => {}
+        Err(e) => log(format!("page elements: {e}")),
+    });
     let mut stream = match open(url, &body) {
         Ok(stream) => stream,
         Err(e) => {

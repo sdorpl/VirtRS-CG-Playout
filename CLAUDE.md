@@ -53,14 +53,15 @@ Po testach na stosie Dockera zawsze sprzątaj to, co powstało na potrzeby testu
 |---|---|
 | `src/main.rs` | start: konfiguracja, serwer, `SIGTERM` (zamyka przeglądarki) |
 | `src/config.rs` | domyślne opcje, plik JSON, zmienne środowiskowe |
-| `src/server.rs` | HTTP: `POST /etv?channel=N` (strumień pakietów), `GET /ffmpeg`, `GET /ffmpeg/frames` (nakładka ffmpeg), `GET /health`; przechwytywanie na rozmiar, przejmowanie sesji |
+| `src/server.rs` | HTTP: `POST /etv?channel=N` (strumień pakietów), `GET /etv/pages` (strony VizRS), `GET /ffmpeg`, `GET /ffmpeg/frames` (nakładka ffmpeg), `GET /health`; przechwytywanie na rozmiar, przejmowanie sesji |
 | `src/http.rs`, `src/json.rs` | własny minimalny HTTP/1.1 (strumienie chunked jak w Node; HTTP/1.0 dla nakładki) i JSON |
 | `src/template.rs`, `src/time.rs` | kontekst klipu z danych szablonu ErsatzTV, symbole `{title}`, `{next_*}`…, wykrywanie reklam (`regex`), daty ISO |
 | `src/vizrs.rs` | klient TCP VizRS (`AUTH`, `STATE`, komendy), zdarzenia kanału w kolejności, zdejmowanie/przywracanie stron przy reklamach |
 | `src/capture.rs`, `src/devtools.rs`, `src/sys.rs` | bezgłowy Chromium (screencast DevTools albo klatki na żądanie `beginFrame`, `capture_mode`, przez `--remote-debugging-pipe`), restart po awarii, `PR_SET_PDEATHSIG`, sygnały (też dla nakładki), zegar monotoniczny |
 | `src/frames.rs`, `src/png.rs`, `src/rects.rs`, `src/scale.rs`, `src/area.rs` | historia klatek, dekodowanie PNG, widoczne prostokąty, skalowanie jak libvips, obszar grafiki (`area`) |
 | `src/packets.rs`, `src/stream.rs`, `src/yuva.rs` | pakiety ETV (`Rectangles`/`Repeat`), tempo strumienia i `lead_seconds`, klatki `yuva420p` dla nakładki ffmpeg |
-| `src/etv_client.rs`, `src/bin/vizrs-etv-client.rs` | klient elementu „script” w kontenerze ErsatzTV: stdin → sidecar → stdout |
+| `src/etv_client.rs`, `src/bin/vizrs-etv-client.rs` | klient elementu „script” w kontenerze ErsatzTV: stdin → sidecar → stdout, w tle synchronizacja elementów stron |
+| `src/sync.rs` | strony VizRS → elementy `page-<ID>.yml` ErsatzTV (także `virtrs-cg sync`); plików nie kasuje, bo ErsatzTV usunąłby przypisania (DOKUMENTACJA §3) |
 | `src/net.rs` | wspólny klient HTTP programów ErsatzTV (URL, połączenia z limitami czasu) |
 | `src/overlay.rs`, `src/bin/vizrs-ffmpeg.rs` | nakładka ffmpeg ErsatzTV (binarka `vizrs-ffmpeg`): płótno grafiki zastąpione klatkami `yuva420p` z sidecara (DOKUMENTACJA §1) |
 | `etv/templates/…/vizrs.yml` | definicja elementu grafiki „VizRS” dla ErsatzTV |

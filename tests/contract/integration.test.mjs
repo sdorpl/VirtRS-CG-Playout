@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -123,6 +123,57 @@ test("page elements: TAKE in_seconds after the item's start, OUT out_seconds bef
   assert.deepEqual([...vizrs.received].sort(), ["TAKE 1001 headline=Clip2", "TAKE 7303"]);
   await sleep(now + 2500 - Date.now());
   assert.deepEqual(vizrs.received.slice(2).sort(), ["OUT 1001", "OUT 7303"]);
+});
+
+test("page elements follow the VizRS show through the client, on the client's channel", async (t) => {
+  let pages = [{ number: 3001, name: "Ticker" }, { number: 4001, name: "Tytuł" }];
+  const tokens = [];
+  const vizrsHttp = http.createServer((request, response) => {
+    tokens.push(request.headers["x-token"]);
+    if (request.url !== "/api/show") return response.writeHead(404).end();
+    response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ name: "Show", pages }));
+  });
+  t.after(() => vizrsHttp.close());
+  const port = await listen(vizrsHttp);
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "secret" } }, { VIZRS_OUTPUT_URL: `http://127.0.0.1:${port}/output?token=out` });
+
+  const config = mkdtempSync(path.join(os.tmpdir(), "etv-config-"));
+  t.after(() => rmSync(config, { recursive: true, force: true }));
+  const dir = path.join(config, "templates/graphics-elements/script");
+  mkdirSync(dir, { recursive: true });
+  const session = async (start) => {
+    const url = `${cg.url}/etv?channel=4&render=720p`;
+    await runClient(url, item("/m/Clip.mp4", start), 300, { ETV_CONFIG_FOLDER: config });
+  };
+
+  await session("2026-10-25T12:00:00Z");
+  assert.deepEqual(readdirSync(dir).sort(), ["page-3001.yml", "page-4001.yml"]);
+  assert.match(readFileSync(path.join(dir, "page-3001.yml"), "utf8"), /name: "Ticker \(3001\)"[^]*channel=4&render=720p&page=3001/);
+  assert.equal(tokens[0], "secret", "the operator's token, not the one of /output");
+
+  pages = [{ number: 3001, name: "Pasek" }, { number: 5001, name: "Wynik" }];
+  await session("2026-10-25T13:00:00Z");
+  assert.deepEqual(readdirSync(dir).sort(), ["page-3001.yml", "page-4001.yml", "page-5001.yml"]);
+  assert.match(readFileSync(path.join(dir, "page-3001.yml"), "utf8"), /name: "Pasek \(3001\)"/);
+  assert.match(readFileSync(path.join(dir, "page-4001.yml"), "utf8"), /name: "\[brak w VizRS\] Tytuł \(4001\)"/);
+});
+
+test("page elements: no VizRS, no change to the folder and frames as usual", async (t) => {
+  const vizrs = await fakeVizrs();
+  t.after(vizrs.close);
+  const cg = await sidecar(t, { vizrs: { address: vizrs.address, token: "" } }, { VIZRS_OUTPUT_URL: "http://127.0.0.1:9/output" });
+  assert.equal((await fetch(`${cg.url}/etv/pages`)).status, 502);
+
+  const config = mkdtempSync(path.join(os.tmpdir(), "etv-config-"));
+  t.after(() => rmSync(config, { recursive: true, force: true }));
+  const dir = path.join(config, "templates/graphics-elements/script");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "page-3001.yml"), "# Generated from VizRS CG System page 3001\nname: \"Ticker (3001)\"\n");
+  const frames = await runClient(`${cg.url}/etv?channel=1`, item("/m/Clip.mp4", "2026-10-25T12:00:00Z"), 300, { ETV_CONFIG_FOLDER: config });
+  assert.ok(frames.length > 0);
+  assert.deepEqual(readdirSync(dir), ["page-3001.yml"]);
 });
 
 test("two VizRS elements on one piece: one session carries the graphics, the other is transparent", async (t) => {

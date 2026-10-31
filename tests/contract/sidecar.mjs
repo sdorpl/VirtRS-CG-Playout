@@ -39,9 +39,9 @@ export function findBrowser(env = process.env) {
 }
 
 /** Runs the ErsatzTV script client like ErsatzTV does, for `ms`, and returns its stdout. */
-export function runClient(url, data, ms) {
+export function runClient(url, data, ms, env = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(CLIENT, [url]);
+    const child = spawn(CLIENT, [url], { env: { ...process.env, ...env } });
     const out = [];
     child.stdout.on("data", (chunk) => out.push(chunk));
     child.on("error", reject);

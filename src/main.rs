@@ -17,7 +17,7 @@ fn main() -> ExitCode {
     let mut args = std::env::args_os().skip(1);
     let first = args.next();
 
-    // virtrs-cg sync [--output-dir <DIR>] [--channel <CH>] [--url <VIZRS_HTTP>] [--token <TOKEN>] [--cg-url <URL>]
+    // virtrs-cg sync [--output-dir <DIR>] [--channel <CH>] [--url <VIZRS_HTTP>] [--token <TOKEN>] [--cg-url <URL>] [--prune]
     if first.as_deref().and_then(|s| s.to_str()) == Some("sync") {
         let mut output_dir = PathBuf::from("etv/templates/graphics-elements/script");
         let mut channel = "1".to_string();
@@ -25,6 +25,7 @@ fn main() -> ExitCode {
         let mut token = std::env::var("VIZRS_TOKEN").unwrap_or_default();
         let mut cg_url = std::env::var("VIZRS_CG_URL").unwrap_or_else(|_| "http://cg:7700".into());
         let mut show_file: Option<PathBuf> = None;
+        let mut prune = false;
 
         while let Some(arg) = args.next() {
             let s = arg.to_string_lossy();
@@ -59,6 +60,7 @@ fn main() -> ExitCode {
                         show_file = Some(PathBuf::from(val));
                     }
                 }
+                "--prune" => prune = true,
                 _ => {}
             }
         }
@@ -80,9 +82,18 @@ fn main() -> ExitCode {
             },
         };
 
-        match virtrs_cg::sync::sync_templates(&show_json, &output_dir, &channel, &cg_url, true) {
-            Ok(count) => {
-                info!("synced {count} pages to {}", output_dir.display());
+        let pages = match virtrs_cg::sync::parse_pages(&show_json) {
+            Ok(pages) => pages,
+            Err(e) => {
+                error!("sync templates: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let element_url = format!("{}/etv?channel={channel}", cg_url.trim_end_matches('/'));
+        let options = virtrs_cg::sync::SyncOptions { element_url: &element_url, rewrite: true, prune };
+        match virtrs_cg::sync::sync_templates(&pages, &output_dir, options) {
+            Ok(report) => {
+                info!("synced {} pages to {}: {report}", pages.len(), output_dir.display());
                 return ExitCode::SUCCESS;
             }
             Err(e) => {

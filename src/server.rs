@@ -3,6 +3,8 @@
 //   POST /etv?channel=1[&render=720p][&area=1920x140+0+940]
 //                         body: ErsatzTV template data (JSON from the script
 //                         element's stdin); reply: endless ETV packet stream
+//   GET  /etv/pages       pages of the VizRS show, for the page elements of
+//                         ErsatzTV (`vizrs-etv-client`, src/sync.rs)
 //   GET  /ffmpeg?channel=1[&wait=2000][&area=1]
 //                         the ffmpeg overlay (vizrs-ffmpeg) takes over
 //                         a script session of the channel: its packets
@@ -33,6 +35,7 @@ use crate::http::{self, Request};
 use crate::json::{self, Value};
 use crate::scale::render_size;
 use crate::stream::{self, Control, Format, Options};
+use crate::sync;
 use crate::template::{AdMatcher, ClipContext, ShowMatcher, js_string};
 use crate::vizrs::ChannelEvents;
 
@@ -260,6 +263,7 @@ impl Server {
     pub fn handle(&self, request: Request, mut stream: TcpStream) {
         let result = match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/health") => http::respond(&mut stream, 200, Some("application/json"), self.health().to_string().as_bytes()),
+            ("GET", "/etv/pages") => self.pages_request(stream),
             ("GET", "/ffmpeg") => self.claim_request(&request, stream),
             ("GET", "/ffmpeg/frames") => {
                 self.frames_request(&request, stream);
@@ -273,6 +277,21 @@ impl Server {
         };
         if let Err(error) = result {
             crate::debug!("http {} {}: {error}", request.method, request.path);
+        }
+    }
+
+    /// The pages of VizRS; the address of its API comes from `output_url`.
+    fn pages_request(&self, mut stream: TcpStream) -> std::io::Result<()> {
+        let pages = sync::http_url_of(&self.config.output_url).ok_or_else(|| "no output_url".to_owned()).and_then(|url| {
+            let show = sync::fetch_show(&url, &self.config.vizrs.token).map_err(|e| e.to_string())?;
+            sync::parse_pages(&show)
+        });
+        match pages {
+            Ok(pages) => http::respond(&mut stream, 200, Some("application/json"), sync::pages_json(&pages).as_bytes()),
+            Err(error) => {
+                crate::warn!("VizRS pages: {error}");
+                http::respond(&mut stream, 502, None, b"")
+            }
         }
     }
 
