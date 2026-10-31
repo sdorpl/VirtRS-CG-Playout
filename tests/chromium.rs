@@ -121,14 +121,14 @@ fn chromium_capture_gives_the_visible_box_of_a_transparent_page() {
 fn chromium_capture_pauses_without_sessions_and_resumes_with_a_fresh_frame() {
     let _serial = serial();
     let Some(capture) = capture(serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
-    capture.acquire();
+    let reader = capture.acquire(25.0);
     until("a first frame", || !capture.current().picture().rects.is_empty());
-    capture.release();
+    capture.release(reader);
     until("paused", || capture.status() == "paused");
 
     // A static page still sends a frame when the screencast starts again.
     let seq = capture.current().seq;
-    capture.acquire();
+    capture.acquire(25.0);
     assert_eq!(capture.status(), "capturing");
     until("a fresh frame", || capture.current().seq > seq);
     assert_eq!(capture.current().picture().rects.len(), 1);
@@ -182,14 +182,14 @@ fn chromium_capture_follows_an_animation_at_the_channel_rate() {
 fn chromium_frames_capture_shows_the_page_pauses_and_resumes() {
     let _serial = serial();
     let Some(capture) = capture_in(CaptureMode::Frames, serve(PAGE), (640, 360), (640, 360), Duration::from_millis(200)) else { return };
-    capture.acquire();
+    let reader = capture.acquire(25.0);
     until("the red box", || boxes(&capture) == [(40, 300, 400, 60)]);
     eprintln!("capture mode: {}", capture.mode().name());
-    capture.release();
+    capture.release(reader);
     until("paused", || capture.status() == "paused");
 
     let seq = capture.current().seq;
-    capture.acquire();
+    capture.acquire(25.0);
     until("a fresh frame", || capture.current().seq > seq);
     assert_eq!(boxes(&capture), [(40, 300, 400, 60)]);
     capture.stop();

@@ -76,15 +76,18 @@ services:
       VIZRS_OUT_SECONDS: ${VIZRS_OUT_SECONDS:-5}
       # Player buffer vs. graphics delay: ErsatzTV may run this far ahead of the clock.
       LEAD_SECONDS: ${LEAD_SECONDS:-4}
-      # Graphics render size, scaled to the channel: "" = channel size, 720p, 1280x720, 1080p.
+      # Graphics render size, scaled to the channel: "" = channel size (default: no
+      # scaling, the smoothest and cheapest), 720p, 1280x720, 1080p.
       # Per channel: &render=1080p in the element URL (vizrs.yml).
-      VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-1080p}
+      VIZRS_RENDER_SIZE: ${VIZRS_RENDER_SIZE:-}
       # Graphics areas of the channel, e.g. 1920x140+0+930 for a ticker strip (several
       # comma-separated): Chromium draws and ffmpeg overlays only them; empty = the whole channel.
       # Per channel: &area=1920x140+0+930 in the element URL (vizrs.yml).
       VIZRS_AREA: ${VIZRS_AREA:-}
-      # Capture rate limit, e.g. 25 on a 50 fps channel: half the PNG work; empty = channel rate.
-      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-30}
+      # Capture rate limit; empty = the rate of ErsatzTV (Normalize Framerate included).
+      # A host too slow for it draws half the rate by itself. A limit that does not
+      # divide the channel's rate (30 on 50) makes the motion uneven.
+      VIZRS_MAX_FPS: ${VIZRS_MAX_FPS:-}
       # How Chromium's pictures are taken: frames (default: one per channel frame, even
       # motion; chromium-headless-shell) or screencast (60 Hz, every n-th frame).
       VIZRS_CAPTURE_MODE: ${VIZRS_CAPTURE_MODE:-}

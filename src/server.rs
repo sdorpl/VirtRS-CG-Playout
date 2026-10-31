@@ -97,6 +97,8 @@ struct Script {
     ctx: ClipContext,
     fps: f64,
     capture: Option<Arc<Capture>>,
+    /// The session as a reader of `capture`.
+    reader: u64,
     /// The packet stream to ErsatzTV: paused while taken over, closed when
     /// the overlay's frame stream ends.
     stream: Arc<Control>,
@@ -234,6 +236,7 @@ impl Server {
                     ("render", c.render().into()),
                     ("area", if c.areas().is_empty() { Value::Null } else { geometries(c.areas()).into() }),
                     ("fps", c.fps().into()),
+                    ("drawn_fps", c.capture_fps().into()),
                     ("mode", c.mode().name().into()),
                     ("status", c.status().into()),
                     ("seq", c.current().seq.into()),
@@ -405,8 +408,9 @@ impl Server {
             0.0 => script.fps,
             fps => fps,
         };
-        capture.raise_fps(fps);
-        capture.acquire();
+        // ErsatzTV's rate as the overlay reads it, not the session's own.
+        capture.set_rate(script.reader, fps);
+        let reader = capture.acquire(fps);
         let control = Control::new(false);
         watch_close(&stream, &control);
         if let Ok(mut out) = http::Stream::start(stream, request) {
@@ -419,7 +423,7 @@ impl Server {
                 &control,
             );
         }
-        capture.release();
+        capture.release(reader);
         // The transcode is over: the script ends with it, as without the overlay.
         script.stream.close();
     }
@@ -468,9 +472,7 @@ impl Server {
             Some(Graphics::Capture(capture)) => Some(capture),
             _ => None,
         };
-        if let Some(capture) = &capture {
-            capture.acquire();
-        }
+        let reader = capture.as_ref().map_or(0, |capture| capture.acquire(fps));
 
         let held = capture.is_some() && lock(&self.sessions).overlay.contains(&channel);
         let control = Control::new(held);
@@ -487,6 +489,7 @@ impl Server {
                     ctx: ctx.clone(),
                     fps,
                     capture: capture.clone(),
+                    reader,
                     stream: Arc::clone(&control),
                     claimed: AtomicBool::new(false),
                     frames: AtomicBool::new(false),
@@ -519,7 +522,7 @@ impl Server {
             cancel(&script.claim_timer);
         }
         if let Some(capture) = &capture {
-            capture.release();
+            capture.release(reader);
         }
         if carrier {
             lock(&self.sessions).carriers.remove(&piece);

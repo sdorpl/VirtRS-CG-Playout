@@ -30,7 +30,10 @@ innego. Przeglądarka działa więc w sidecarze, jedna na rozmiar kanału
 ### Rozdzielczość warstwy grafiki
 
 ErsatzTV zawsze nakłada grafikę na płótno w rozmiarze kanału. Domyślnie
-Chromium renderuje `/output` w tym samym rozmiarze. Opcja `render_size`
+Chromium renderuje `/output` w tym samym rozmiarze (`Resolution` z danych
+ErsatzTV), także w compose. To najpłynniejszy i najtańszy wariant: kanał
+1600×900 z renderem 1080p dał 78% równego ruchu i 72% CPU sidecara, a w
+rozmiarze kanału 99% i 29% (§8). Opcja `render_size`
 (`VIZRS_RENDER_SIZE`) albo parametr `render` w adresie elementu
 (`http://cg:7700/etv?channel=1&render=720p`, ma pierwszeństwo) każe
 renderować w innym rozmiarze, a sidecar skaluje widoczne prostokąty do
@@ -775,14 +778,11 @@ QEMU idzie tylko instalacja pakietów obrazu.
 Obraz VizRS ma wariant arm64.
 
 Nakładka ogranicza sidecar do 2 CPU i 2 GB (`CG_CPUS`, `CG_MEMORY`), uruchamia
-Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), renderuje grafikę
-w rozmiarze kanału – na kanale 1080p w pełnym 1080p, bez skalowania
-(`VIZRS_RENDER_SIZE` puste, §1; do wersji 2.1.7 domyślnie 720p; przy braku
-mocy `VIZRS_RENDER_SIZE=720p` oszczędza ok. 30% CPU na klatkę kosztem
-ostrości), ogranicza animacje do 25 kl./s
-(`VIZRS_MAX_FPS=25`, §5), daje ErsatzTV
+Chromium z dwoma wątkami rastra (`VIZRS_BROWSER_ARGS`), daje ErsatzTV
 wyższy priorytet CPU, trzyma `/transcode`
-w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Brak
+w tmpfs 4 GB (`TRANSCODE_TMPFS`) i podnosi `LEAD_SECONDS` do 5. Rozdzielczość i klatkaż
+grafiki dziedziczy po ErsatzTV jak każdy stos (§1, §5; przy braku mocy
+najpierw obszar grafiki, a kanał 50 kl./s sam zejdzie do 25). Brak
 sprzętowego kodera: w profilu FFmpeg ErsatzTV ustaw **Hardware Acceleration:
 None**, libx264. Preset ustawia nakładka (`VIZRS_FFMPEG_PRESET`, w compose
 A1 domyślnie `veryfast`; §1), bo silnik next pomija preset z profilu.
@@ -946,6 +946,22 @@ poprzednią wartość.
 animacje w 25 kl./s (każda klatka grafiki dwa razy), a Chromium koduje
 i sidecar dekoduje o połowę mniej PNG. Kanały 24–30 kl./s i tak dostają
 co drugą klatkę, więc `25` ich nie zmienia. W trybie `frames` (niżej)
+Domyślnie klatkaż grafiki to klatkaż ErsatzTV: `FrameRate` z danych elementu,
+a przy nakładce ffmpeg jej `x-etv-frame-rate` albo `VIZRS_FFMPEG_FPS`. Przy
+**Normalize Framerate** to klatkaż wspólny kanału, bez niego klatkaż bieżącego
+materiału, więc przechwytywanie idzie za nim w górę i w dół (przy kilku
+sesjach najwyższy; `/health`: `fps`).
+
+**Bezpiecznik płynności** (tryb `frames`): gdy w oknie 5 s Chromium nie zdąży
+narysować ponad 10% klatek, rysuje połowę klatkażu, nie mniej niż 24 kl./s
+(50 → 25, 60 → 30; kanału 25 nie obniża). Połowa dzieli się całkowicie, więc
+ruch zostaje równy: każdy obraz trwa dwie klatki. Gdy przez 60 s rysowanie
+zajmuje mniej niż 40% czasu, klatkaż wraca; nieudany powrót podwaja ten czas
+(do 1 h). `/health`: `drawn_fps`, w logu `too slow for the channel's rate`.
+Stały `max_fps` nie jest więc potrzebny, a taki, który nie dzieli klatkażu
+kanału, psuje ruch: 30 na kanale 50 dało 80% równo wobec 99,7% bez limitu.
+Bezpiecznik jest ochroną, a nie celem: lepiej ustawić obszar grafiki (§1).
+
 `max_fps` to tempo, w jakim Chromium rysuje: przy `25` kanał 50 kl./s
 dostaje każdą klatkę grafiki równo dwa razy.
 
@@ -1141,6 +1157,7 @@ Zmienne środowiskowe (wszystkie opcjonalne):
 | `BENCH_FFMPEG_FPS` | `50` | klatkaż nakładki ffmpeg |
 | `BENCH_CAPTURE` | `frames` | `capture_mode` sidecara (`screencast`, §5) |
 | `BENCH_MAX_FPS` | `0` | `max_fps` sidecara |
+| `BENCH_SCENE_FPS` | `0` | tempo sceny i oceny równości (przy bezpieczniku), `0` = klatkaż wyjścia |
 | `BENCH_RENDER` | – | `render_size` sidecara, np. `720p` |
 | `BENCH_AREA` | – | `area` sidecara, np. `1920x140+0+930` (pasek z tickerem sceny) albo z logo `1920x140+0+930,160x160+1690+30`; znacznik kroku trafia w lewy górny róg pierwszego obszaru |
 | `BENCH_TAPE` | – | `1` = `tape` sidecara (§1; z `BENCH_URL` i crawlem VizRS na antenie) |
@@ -1201,6 +1218,23 @@ docker compose -f bench/docker-compose.yml -p virtrs-bench down --rmi local
   | 1080p25 | `etv` | 10% / 47% / 43%, 152% | 41% / 30% / 29%, 118% (17,5 obrazu/s) |
   | 1080p25, render 720p | `etv` | 64% / 14% / 22%, 145% | 93% / 3% / 3%, 97% |
   | 1080p25, render 720p | `ffmpeg` | 30% / 32% / 38%, 131% | 87% / 4% / 9%, 95% |
+
+- **Dziedziczenie po ErsatzTV** (Xeon E3-1270 v3, 8 wątków, obok działającego
+  stosu, `frames`, tryb `ffmpeg`, scena `animated`; równo / stoi / przeskok,
+  CPU sidecara / przeglądarki):
+
+  | Kanał | Wariant | Wynik |
+  |---|---|---|
+  | 900p25 | render 1080p | 78 / 11 / 11, 72% / 114% |
+  | 900p25 | rozmiar kanału | 99 / 0,3 / 0,3, 29% / 96% |
+  | 1080p50, cała klatka | `max_fps` 30 | 54 / 20 / 26, 47% / 122% |
+  | 1080p50, cała klatka | bez limitu, bez bezpiecznika | 8,5 / 53 / 39, 49% / 121% |
+  | 1080p50, cała klatka | bezpiecznik (25) | 84 / 10 / 6, 45% / 114% |
+  | 1080p50, obszar | `max_fps` 30 | 80 / 0,2 / 20, 10% / 38% |
+  | 1080p50, obszar | klatkaż kanału | 99,7 / 0,2 / 0,2, 16% / 61% |
+
+  `BENCH_SCENE_FPS` ustawia tempo sceny na klatkaż, do którego zejdzie
+  bezpiecznik; bez tego pomiar liczy kroki dla pełnego klatkażu.
 
 - **Obszar grafiki** (`BENCH_AREA=1920x140+0+930`, ten sam host, kanał
   1080p, render 1080p; równo / stoi / przeskok, CPU sidecara / przeglądarki,

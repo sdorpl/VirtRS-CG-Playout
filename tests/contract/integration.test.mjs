@@ -241,6 +241,25 @@ test("render size: config default, per-channel override, one capture per size pa
   ]);
 });
 
+test("capture rate: follows ErsatzTV's frame rate up and down, with the media", async (t) => {
+  const cg = await sidecar(t, { vizrs: { address: "127.0.0.1:9", token: "" }, output_url: "http://127.0.0.1:9/output", lead_seconds: 0 });
+  const rate = async () => (await cg.health()).captures[0].fps;
+  const clip = (fps, hour) => ({ ...item(`/m/${fps}.mp4`, `2026-10-24T${hour}:00:00+02:00`), FrameRate: fps });
+  await runClient(`${cg.url}/etv?channel=1`, clip(25, "20"), 200);
+  assert.equal(await rate(), 25);
+
+  // Overlapping items: the higher rate while both run, then the rate of the one left.
+  const slow = runClient(`${cg.url}/etv?channel=1`, clip(25, "21"), 900);
+  await sleep(200);
+  const fast = runClient(`${cg.url}/etv?channel=1`, clip(60, "22"), 300);
+  await sleep(150);
+  assert.equal(await rate(), 60);
+  await fast;
+  await sleep(100);
+  assert.equal(await rate(), 25);
+  await slow;
+});
+
 test("capture mode: frames by default, file, environment on top, a bad value falls back to frames", async (t) => {
   const hd = { ...item("/m/News.mp4", "2026-10-24T20:00:00+02:00"), Resolution: { Width: 1920, Height: 1080 } };
   const modes = [];

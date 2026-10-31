@@ -34,6 +34,9 @@ const MODES = (env.BENCH_MODES || "etv,ffmpeg").split(",").filter(Boolean);
 const RENDER = env.BENCH_RENDER || "";
 const CAPTURE = env.BENCH_CAPTURE || "frames";
 const MAX_FPS = Number(env.BENCH_MAX_FPS || 0);
+// The rate of the scene and of the evenness check, for a capture that lowers its
+// rate by itself (the rate guard, DOKUMENTACJA §5): the rate it should end up at.
+const SCENE_FPS = Number(env.BENCH_SCENE_FPS || 0);
 // The sidecar draws a standing VizRS crawl itself (tape; BENCH_URL with a crawl on air).
 const TAPE = env.BENCH_TAPE === "1";
 // Graphics areas (WxH+X+Y, comma-separated): the marker goes to the top-left
@@ -221,7 +224,7 @@ const data = { Resolution: { Width: WIDTH, Height: HEIGHT }, FrameRate: FPS, Med
 async function run(mode) {
   const fps = mode === "ffmpeg" ? FFMPEG_FPS : FPS;
   // The scene moves at most as often as the sidecar captures (max_fps), like VizRS ?fps=.
-  const sceneFps = MAX_FPS > 0 ? Math.min(fps, MAX_FPS) : fps;
+  const sceneFps = SCENE_FPS || (MAX_FPS > 0 ? Math.min(fps, MAX_FPS) : fps);
   const cg = await startSidecar(
     {
       vizrs: { address: "127.0.0.1:9", token: "" },

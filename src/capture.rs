@@ -53,6 +53,15 @@ const SETTLE: Duration = Duration::from_millis(150);
 const CHECK_MS: f64 = 1000.0;
 // Frames mode: missed slots are counted over this long; above a tenth, a warning.
 const MISSED_WINDOW: Duration = Duration::from_secs(60);
+// The rate guard: a window with over a tenth of the slots missed halves the
+// drawing rate (an even cadence, unlike any other limit), not below MIN_HALVED_FPS.
+const GUARD_WINDOW: Duration = Duration::from_secs(5);
+const MIN_HALVED_FPS: f64 = 24.0;
+// Back to the full rate after this long of drawing taking under CALM_SHARE of the
+// time (at half the rate: fits the full one). Longer after a return that failed.
+const CALM_SHARE: f64 = 0.4;
+const RESTORE_AFTER: Duration = Duration::from_secs(60);
+const MAX_RESTORE_AFTER: Duration = Duration::from_secs(3600);
 const BROWSERS: [&str; 7] =
     ["chromium-headless-shell", "chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome", "headless_shell"];
 
@@ -98,6 +107,71 @@ impl CaptureMode {
             CaptureMode::Screencast => "screencast",
             CaptureMode::Frames => "frames",
         }
+    }
+}
+
+/// When the frames mode draws at half the rate. Inheriting the channel's rate
+/// is the default; this is for the host that cannot keep up with it.
+struct RateGuard {
+    window: Instant,
+    drawn: u64,
+    missed: u64,
+    busy: Duration,
+    calm_since: Option<Instant>,
+    restored_at: Option<Instant>,
+    restore_after: Duration,
+}
+
+impl RateGuard {
+    fn new(now: Instant) -> RateGuard {
+        RateGuard {
+            window: now,
+            drawn: 0,
+            missed: 0,
+            busy: Duration::ZERO,
+            calm_since: None,
+            restored_at: None,
+            restore_after: RESTORE_AFTER,
+        }
+    }
+
+    /// A new frame grid: its first slots say nothing yet.
+    fn restart(&mut self, now: Instant) {
+        (self.window, self.drawn, self.missed, self.busy) = (now, 0, 0, Duration::ZERO);
+    }
+
+    fn slot(&mut self, missed: u64, busy: Duration) {
+        self.drawn += 1;
+        self.missed += missed;
+        self.busy += busy;
+    }
+
+    /// The rate to change to at the end of a window: `Some(halved)`.
+    fn verdict(&mut self, now: Instant, halved: bool, can_halve: bool) -> Option<bool> {
+        let elapsed = now.saturating_duration_since(self.window);
+        if elapsed < GUARD_WINDOW {
+            return None;
+        }
+        let (drawn, missed, busy) = (self.drawn, self.missed, self.busy);
+        self.restart(now);
+        if !halved {
+            if !can_halve || missed * 10 <= drawn + missed || drawn == 0 {
+                return None;
+            }
+            let failed = self.restored_at.is_some_and(|at| now.saturating_duration_since(at) < RESTORE_AFTER);
+            self.restore_after = if failed { (self.restore_after * 2).min(MAX_RESTORE_AFTER) } else { RESTORE_AFTER };
+            return Some(true);
+        }
+        if busy.as_secs_f64() >= CALM_SHARE * elapsed.as_secs_f64() {
+            self.calm_since = None;
+            return None;
+        }
+        if now.saturating_duration_since(*self.calm_since.get_or_insert(now)) < self.restore_after {
+            return None;
+        }
+        self.calm_since = None;
+        self.restored_at = Some(now);
+        Some(false)
     }
 }
 
@@ -191,7 +265,9 @@ struct TapeRun {
 
 struct State {
     status: &'static str,
-    users: usize,
+    /// Sessions reading frames, with their rates: the capture follows the highest.
+    readers: Vec<(u64, f64)>,
+    next_reader: u64,
     active: bool,
     fps: f64,
     /// Bumped by every acquire and release: an older idle timer does nothing.
@@ -212,6 +288,8 @@ pub struct Capture {
     stopped: AtomicBool,
     /// The browser has no begin frames (not chromium-headless-shell): screencast instead.
     no_frames: AtomicBool,
+    /// The frames mode draws at half the rate: the host does not keep up (`RateGuard`).
+    halved: AtomicBool,
     /// The crawl whose tape the sidecar draws (0: none) and the films taken.
     tape_crawl: AtomicU64,
     tape_films: AtomicU64,
@@ -233,7 +311,8 @@ impl Capture {
             decode_areas,
             state: Mutex::new(State {
                 status: "starting",
-                users: 0,
+                readers: Vec::new(),
+                next_reader: 0,
                 active: true,
                 fps,
                 idle_generation: 0,
@@ -243,6 +322,7 @@ impl Capture {
             }),
             stopped: AtomicBool::new(false),
             no_frames: AtomicBool::new(false),
+            halved: AtomicBool::new(false),
             tape_crawl: AtomicU64::new(0),
             tape_films: AtomicU64::new(0),
         });
@@ -298,30 +378,41 @@ impl Capture {
             .then(|| (self.tape_crawl.load(Ordering::Relaxed), self.tape_films.load(Ordering::Relaxed)))
     }
 
-    fn capture_fps(&self) -> f64 {
-        capped_fps(self.fps(), self.options.max_fps).max(1.0)
+    /// Frames per second Chromium draws now.
+    pub fn capture_fps(&self) -> f64 {
+        let fps = capped_fps(self.fps(), self.options.max_fps).max(1.0);
+        if self.halved.load(Ordering::Relaxed) && fps / 2.0 >= MIN_HALVED_FPS { fps / 2.0 } else { fps }
+    }
+
+    fn can_halve(&self) -> bool {
+        capped_fps(self.fps(), self.options.max_fps) / 2.0 >= MIN_HALVED_FPS
     }
 
     pub fn current(&self) -> Arc<Frame> {
         self.history.current()
     }
 
-    /// A session starts reading frames.
-    pub fn acquire(&self) {
+    /// A session starts reading frames at `fps`; `release` takes what this returns.
+    pub fn acquire(&self, fps: f64) -> u64 {
         let mut state = self.state();
-        state.users += 1;
+        state.next_reader += 1;
+        let reader = state.next_reader;
+        state.readers.push((reader, fps));
         state.idle_generation += 1;
         if !state.active {
             self.set_active(&mut state, true);
         }
+        self.follow_rate(&mut state);
+        reader
     }
 
     /// The last session left: pause the capture once idle for `idle`.
-    pub fn release(self: &Arc<Self>) {
+    pub fn release(self: &Arc<Self>, reader: u64) {
         let generation = {
             let mut state = self.state();
-            state.users = state.users.saturating_sub(1);
-            if state.users > 0 {
+            state.readers.retain(|(id, _)| *id != reader);
+            if !state.readers.is_empty() {
+                self.follow_rate(&mut state);
                 return;
             }
             state.idle_generation += 1;
@@ -331,10 +422,19 @@ impl Capture {
         let _ = thread::Builder::new().name("capture-idle".into()).spawn(move || {
             thread::sleep(capture.options.idle);
             let mut state = capture.state();
-            if state.idle_generation == generation && state.users == 0 && state.active {
+            if state.idle_generation == generation && state.readers.is_empty() && state.active {
                 capture.set_active(&mut state, false);
             }
         });
+    }
+
+    /// The session reads at another rate (the ffmpeg overlay's, not the template data's).
+    pub fn set_rate(&self, reader: u64, fps: f64) {
+        let mut state = self.state();
+        if let Some(entry) = state.readers.iter_mut().find(|(id, _)| *id == reader) {
+            entry.1 = fps;
+        }
+        self.follow_rate(&mut state);
     }
 
     fn set_active(&self, state: &mut State, active: bool) {
@@ -346,18 +446,17 @@ impl Capture {
         }
     }
 
-    /// A session needs more frames (the ffmpeg overlay at 50 fps): capture every n-th frame
-    /// for it, or draw at its rate in the frames mode.
-    pub fn raise_fps(&self, fps: f64) {
-        let mode = self.mode();
-        let mut state = self.state();
-        if fps <= state.fps {
+    /// The rate of the sessions reading now, up and down: ErsatzTV's frame rate
+    /// changes with the media without Normalize Framerate. Between sessions it stays.
+    fn follow_rate(&self, state: &mut State) {
+        let fps = state.readers.iter().fold(0.0, |max: f64, (_, fps)| max.max(*fps));
+        if fps <= 0.0 || fps == state.fps {
             return;
         }
         let max = self.options.max_fps;
         let (before, after) = (capped_fps(state.fps, max), capped_fps(fps, max));
         state.fps = fps;
-        let same = match mode {
+        let same = match self.mode() {
             CaptureMode::Screencast => every_nth_frame(before) == every_nth_frame(after),
             CaptureMode::Frames => before == after,
         };
@@ -747,6 +846,7 @@ impl Capture {
         let mut tape = self.options.tape.then(TapeRun::default);
         // Slots of the window drawn and missed (a host too slow for the rate).
         let (mut window, mut drawn, mut missed) = (Instant::now(), 0u64, 0u64);
+        let mut guard = RateGuard::new(Instant::now());
         loop {
             let wait = if active { instant(slot * frame_ms).saturating_duration_since(Instant::now()) } else { Duration::from_secs(3600) };
             match incoming.recv_timeout(wait) {
@@ -754,6 +854,7 @@ impl Capture {
                 Ok(Control::Active(on)) => {
                     active = on;
                     (window, drawn, missed) = (Instant::now(), 0, 0);
+                    guard.restart(Instant::now());
                     // A new grid at the current rate; the first slot sends a fresh picture.
                     frame_ms = 1000.0 / self.capture_fps();
                     slot = (sys::monotonic_ms() / frame_ms).ceil();
@@ -766,6 +867,7 @@ impl Capture {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
+                    let started = Instant::now();
                     let start = slot * frame_ms;
                     let mut changed = false;
                     for (i, (&(clip, _), session)) in parts.iter().zip(sessions).enumerate() {
@@ -814,7 +916,23 @@ impl Capture {
                     // Behind the grid: on with the slot of now; the missed ones repeat the picture.
                     let next = (slot + 1.0).max((sys::monotonic_ms() / frame_ms).floor());
                     (drawn, missed) = (drawn + 1, missed + (next - slot - 1.0) as u64);
+                    guard.slot((next - slot - 1.0) as u64, started.elapsed());
                     slot = next;
+                    if let Some(halved) = guard.verdict(Instant::now(), self.halved.load(Ordering::Relaxed), self.can_halve()) {
+                        self.halved.store(halved, Ordering::Relaxed);
+                        let fps = self.capture_fps();
+                        if halved {
+                            crate::warn!(
+                                "burn-in {}: too slow for the channel's rate, drawing {fps} fps; a graphics area helps",
+                                self.key()
+                            );
+                        } else {
+                            crate::info!("burn-in {}: back to {fps} fps", self.key());
+                        }
+                        frame_ms = 1000.0 / fps;
+                        slot = (sys::monotonic_ms() / frame_ms).ceil();
+                        (moving, last_shot, last_png) = fresh();
+                    }
                     if window.elapsed() >= MISSED_WINDOW {
                         if missed * 10 > drawn + missed {
                             crate::warn!(
@@ -1093,6 +1211,38 @@ mod tests {
         for (fps, n) in [(0.0, 60), (1.0, 60), (24.0, 2), (25.0, 2), (29.97, 2), (30.0, 2), (50.0, 1), (60.0, 1), (100.0, 1)] {
             assert_eq!(every_nth_frame(fps), n, "{fps}");
         }
+    }
+
+    #[test]
+    fn the_rate_guard_halves_a_host_too_slow_and_returns() {
+        let start = Instant::now();
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        let mut guard = RateGuard::new(start);
+        // Keeping up, or nothing to halve to (a 25 fps channel): no change.
+        guard.slot(1, Duration::ZERO);
+        (0..20).for_each(|_| guard.slot(0, Duration::ZERO));
+        assert_eq!(guard.verdict(at(1), false, true), None, "a window takes 5 s");
+        assert_eq!(guard.verdict(at(5), false, true), None);
+        guard.slot(5, Duration::ZERO);
+        assert_eq!(guard.verdict(at(10), false, false), None);
+        guard.slot(5, Duration::ZERO);
+        assert_eq!(guard.verdict(at(15), false, true), Some(true));
+
+        // Half the rate still takes most of the time: it stays.
+        guard.slot(0, Duration::from_secs(4));
+        assert_eq!(guard.verdict(at(20), true, true), None);
+        // Calm for a minute: back.
+        guard.slot(0, Duration::from_millis(100));
+        assert_eq!(guard.verdict(at(25), true, true), None);
+        guard.slot(0, Duration::from_millis(100));
+        assert_eq!(guard.verdict(at(85), true, true), Some(false));
+
+        // That failed at once: the next return waits twice as long.
+        guard.slot(9, Duration::ZERO);
+        assert_eq!(guard.verdict(at(90), false, true), Some(true));
+        assert_eq!(guard.verdict(at(95), true, true), None);
+        assert_eq!(guard.verdict(at(155), true, true), None);
+        assert_eq!(guard.verdict(at(215), true, true), Some(false));
     }
 
     #[test]
