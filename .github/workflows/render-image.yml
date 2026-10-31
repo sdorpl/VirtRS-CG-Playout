@@ -1,0 +1,44 @@
+# Obraz sidecara z rendererem natywnym: ghcr.io/<właściciel>/virtrs-cg:render-native-arm64.
+# Buduje natywnie na runnerze arm64 (bez QEMU), vizrs-render z tej samej gałęzi VizRS CG System.
+name: Obraz render-native (arm64)
+
+on:
+  push:
+    branches: [render-native]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/VizRS-CG-System
+          ref: render-native
+          path: .vizrs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Nazwa obrazu
+        id: img
+        run: echo "name=ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/virtrs-cg" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.render
+          build-contexts: vizrs-render=.vizrs/source/render
+          platforms: linux/arm64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ steps.img.outputs.name }}:render-native-arm64

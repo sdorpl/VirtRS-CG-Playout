@@ -98,8 +98,8 @@ services:
       # tape now and then instead of drawing and encoding a PNG every frame.
       VIZRS_TAPE: ${VIZRS_TAPE:-0}
       # Who draws the burn-in: chromium (default), native (VizRS vizrs-render, no browser) or
-      # auto (native while everything on air is native, Chromium otherwise). The image has
-      # no vizrs-render yet: mount it and point VIZRS_RENDERER_BIN at it.
+      # auto (native while everything on air is native, Chromium otherwise). This image has
+      # no vizrs-render: use Dockerfile.render or point VIZRS_RENDERER_BIN at the program.
       VIZRS_RENDERER: ${VIZRS_RENDERER:-chromium}
       VIZRS_RENDERER_BIN: ${VIZRS_RENDERER_BIN:-}
     # Chromium renders through /dev/shm; the Docker default of 64 MB is too small.
