@@ -653,6 +653,14 @@ trzymaj w pliku `.env` obok compose (poza gitem), np.
 odtwarza ten sam stos.
 Chromium wymaga `shm_size: 512mb`. Obraz buduje się na amd64 i arm64.
 
+Strefa czasowa jest wymuszona: każda usługa stosu (`seed`, `vizrs`, `cg`,
+`ersatztv`) dostaje `TZ=Europe/Warsaw` z kotwicy `x-timezone` w compose, bez
+nadpisywania z `.env` ani zmiennych hosta. Dotyczy to zegarów w grafice
+(JavaScript w Chromium), VizRS, harmonogramu i EPG ErsatzTV oraz logów.
+Obraz sidecara ma `tzdata` i sam ustawia `TZ=Europe/Warsaw`, więc ta sama
+strefa obowiązuje też poza tym compose (np. `docker run`). Inną strefę daje
+tylko zmiana kotwicy w compose.
+
 ### Dane startowe (`seed/`)
 
 Pierwszy start stosu dostaje gotową konfigurację instancji wzorcowej. Usługa

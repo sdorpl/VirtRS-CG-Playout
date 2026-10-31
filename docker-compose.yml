@@ -11,6 +11,11 @@
 # Other channels: Channel → Deco → Graphics Elements → add "VizRS".
 # Change the tokens before opening the ports.
 
+# One time zone for the whole stack, fixed: clocks in the graphics (Chromium),
+# VizRS, the ErsatzTV schedule and EPG, and the logs.
+x-timezone: &timezone
+  TZ: Europe/Warsaw
+
 x-tokens: &tokens
   VIZRS_TOKEN: ${VIZRS_TOKEN:-vizrs-operator-change-me}
   VIZRS_OUTPUT_TOKEN: ${VIZRS_OUTPUT_TOKEN:-vizrs-output-change-me}
@@ -25,6 +30,8 @@ services:
       dockerfile: seed/Dockerfile
     restart: "no"
     user: "0:0"
+    environment:
+      <<: *timezone
     volumes:
       - vizrs-data:/vizrs-data
       - ersatztv-config:/ersatztv-config
@@ -38,7 +45,7 @@ services:
       seed:
         condition: service_completed_successfully
     environment:
-      <<: *tokens
+      <<: [*timezone, *tokens]
       VIZRS_TCP: "6100"
     volumes:
       - vizrs-data:/data
@@ -53,6 +60,7 @@ services:
     depends_on:
       - vizrs
     environment:
+      <<: *timezone
       VIZRS_ADDRESS: vizrs:6100
       VIZRS_TOKEN: ${VIZRS_TOKEN:-vizrs-operator-change-me}
       VIZRS_OUTPUT_URL: http://vizrs:8088/output?token=${VIZRS_OUTPUT_TOKEN:-vizrs-output-change-me}
@@ -100,7 +108,7 @@ services:
       cg:
         condition: service_started
     environment:
-      TZ: ${TZ:-Europe/Warsaw}
+      <<: *timezone
       # ffmpeg overlay (FFmpeg path /vizrs/vizrs-ffmpeg in ErsatzTV): ffmpeg takes
       # the graphics straight from the sidecar. Empty = plain ffmpeg.
       VIZRS_CG_URL: ${VIZRS_CG_URL-http://cg:7700}
