@@ -1,6 +1,7 @@
-# Obraz sidecara z rendererem natywnym: ghcr.io/<właściciel>/virtrs-cg:render-native-arm64.
-# Buduje natywnie na runnerze arm64 (bez QEMU), vizrs-render z tej samej gałęzi VizRS CG System.
-name: Obraz render-native (arm64)
+# Obraz sidecara z rendererem natywnym: ghcr.io/<właściciel>/virtrs-cg:render-native (amd64 + arm64)
+# oraz render-native-amd64 i render-native-arm64. Każda architektura buduje natywnie na swoim
+# runnerze (bez QEMU), vizrs-render z tej samej gałęzi VizRS CG System.
+name: Obraz render-native
 
 on:
   push:
@@ -12,8 +13,15 @@ permissions:
   packages: write
 
 jobs:
-  arm64:
-    runs-on: ubuntu-24.04-arm
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     env:
       DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
@@ -37,8 +45,23 @@ jobs:
           context: .
           file: Dockerfile.render
           build-contexts: vizrs-render=.vizrs/source/render
-          platforms: linux/arm64
+          platforms: linux/${{ matrix.arch }}
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: ${{ steps.img.outputs.name }}:render-native-arm64
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          tags: ${{ steps.img.outputs.name }}:render-native-${{ matrix.arch }}
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Wspólny tag obu architektur
+        run: |
+          name="ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/virtrs-cg"
+          docker buildx imagetools create -t "$name:render-native" "$name:render-native-amd64" "$name:render-native-arm64"
