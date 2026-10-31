@@ -6,7 +6,7 @@
 // its reference vectors (tests/vectors/frames.json) byte for byte.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::packets::Rect;
 
@@ -19,11 +19,69 @@ pub fn yuva_size(width: u32, height: u32) -> usize {
     w * h * 2 + w.div_ceil(2) * h.div_ceil(2) * 2
 }
 
+/// A yuva420p frame. One built from rectangles gives its memory back to a
+/// small pool when the last session lets go of it: a ticker makes a new
+/// frame at every frame, and fresh megabytes cost page faults every time.
+pub struct Yuva {
+    data: Vec<u8>,
+    pooled: bool,
+}
+
+impl std::fmt::Debug for Yuva {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Yuva({} bytes)", self.data.len())
+    }
+}
+
+impl std::ops::Deref for Yuva {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl Drop for Yuva {
+    fn drop(&mut self) {
+        if self.pooled {
+            let mut pool = pool();
+            if pool.len() == POOL {
+                pool.remove(0);
+            }
+            pool.push(std::mem::take(&mut self.data));
+        }
+    }
+}
+
+/// Frames kept for reuse: the sessions hold one each, the next is built meanwhile.
+const POOL: usize = 4;
+
+fn pool() -> MutexGuard<'static, Vec<Vec<u8>>> {
+    static POOL: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+    POOL.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A frame to draw on: `blank`'s copy, in reused memory when there is some.
+fn fresh(blank: &[u8]) -> Yuva {
+    let reused = {
+        let mut pool = pool();
+        pool.iter().position(|data| data.len() == blank.len()).map(|i| pool.swap_remove(i))
+    };
+    let data = match reused {
+        Some(mut data) => {
+            data.copy_from_slice(blank);
+            data
+        }
+        None => blank.to_vec(),
+    };
+    Yuva { data, pooled: true }
+}
+
 /// Fully transparent frames by size.
-type Blanks = Mutex<HashMap<(u32, u32), Arc<[u8]>>>;
+type Blanks = Mutex<HashMap<(u32, u32), Arc<Yuva>>>;
 
 /// Fully transparent frame; shared, never written to.
-fn blank(width: u32, height: u32) -> Arc<[u8]> {
+fn blank(width: u32, height: u32) -> Arc<Yuva> {
     static BLANKS: OnceLock<Blanks> = OnceLock::new();
     let mut blanks = BLANKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
     Arc::clone(blanks.entry((width, height)).or_insert_with(|| {
@@ -32,7 +90,7 @@ fn blank(width: u32, height: u32) -> Arc<[u8]> {
         let alpha = frame.len() - luma;
         frame[..luma].fill(16);
         frame[luma..alpha].fill(128);
-        frame.into()
+        Arc::new(Yuva { data: frame, pooled: false })
     }))
 }
 
@@ -41,21 +99,52 @@ fn trunc(x: f64) -> u8 {
     x as i32 as u8
 }
 
+/// Each term of a matrix row for every byte value, so a pixel costs three
+/// lookups and two additions. The sums keep the order of the former Node.js
+/// arithmetic (`16.5 + k0 * r + k1 * g + k2 * b`, left to right), so the
+/// results are the same to the last bit.
+struct Tables {
+    y: [[f64; 256]; 3],
+    u: [[f64; 256]; 3],
+    v: [[f64; 256]; 3],
+}
+
+impl Tables {
+    fn new([ky, ku, kv]: Matrix) -> Tables {
+        let row = |k: [f64; 3], offset: f64| {
+            let term = |i: usize, offset: f64| std::array::from_fn(|value| offset + k[i] * f64::from(value as u8));
+            [term(0, offset), term(1, 0.0), term(2, 0.0)]
+        };
+        Tables { y: row(ky, 16.5), u: row(ku, 0.0), v: row(kv, 0.0) }
+    }
+
+    fn get(hd: bool) -> &'static Tables {
+        static HD: OnceLock<Tables> = OnceLock::new();
+        static SD: OnceLock<Tables> = OnceLock::new();
+        if hd { HD.get_or_init(|| Tables::new(BT709)) } else { SD.get_or_init(|| Tables::new(BT601)) }
+    }
+}
+
+fn sum(t: &[[f64; 256]; 3], p: &[u8]) -> f64 {
+    t[0][usize::from(p[0])] + t[1][usize::from(p[1])] + t[2][usize::from(p[2])]
+}
+
 /// One yuva420p frame of `width`x`height` from visible rectangles of RGBA.
-pub fn yuva_frame(rects: &[Rect], width: u32, height: u32) -> Arc<[u8]> {
+pub fn yuva_frame(rects: &[Rect], width: u32, height: u32) -> Arc<Yuva> {
     yuva_area(rects, (0, 0, width, height), height >= 720)
 }
 
 /// One yuva420p frame of the part `(x, y, width, height)` of a picture
 /// (its graphics area): rectangles in picture coordinates, cut to the part.
 /// `hd` = BT.709 (a channel of 720 lines or more), else BT.601.
-pub fn yuva_area(rects: &[Rect], (ox, oy, width, height): (u32, u32, u32, u32), hd: bool) -> Arc<[u8]> {
+pub fn yuva_area(rects: &[Rect], (ox, oy, width, height): (u32, u32, u32, u32), hd: bool) -> Arc<Yuva> {
     if rects.is_empty() {
         return blank(width, height);
     }
 
-    let mut out = blank(width, height).to_vec();
-    let [ky, ku, kv] = if hd { BT709 } else { BT601 };
+    let mut frame = fresh(&blank(width, height));
+    let out = &mut frame.data;
+    let t = Tables::get(hd);
     let w = width as usize;
     let cw = w.div_ceil(2);
     let ch = (height as usize).div_ceil(2);
@@ -74,40 +163,40 @@ pub fn yuva_area(rects: &[Rect], (ox, oy, width, height): (u32, u32, u32, u32), 
         let (x, y, rw, rh) = (x0 as usize, y0 as usize, (x1 - x0) as usize, (y1 - y0) as usize);
         // Offsets of the cut part inside the rectangle's pixels.
         let (sx, sy, stride) = ((x0 - rx) as usize, (y0 - ry) as usize, rect.w as usize);
-        let pixel = |row: usize, col: usize| ((row + sy) * stride + col + sx) * 4;
-        let pixels = &rect.pixels;
+        // Row `row` of the cut part: its `rw` RGBA pixels.
+        let source = |row: usize| {
+            let start = ((row + sy) * stride + sx) * 4;
+            &rect.pixels[start..start + rw * 4]
+        };
 
         for row in 0..rh {
             let line = (y + row) * w + x;
-            for col in 0..rw {
-                let i = pixel(row, col);
-                let a = pixels[i + 3];
-                if a == 0 {
-                    continue;
+            let (luma, rest) = out.split_at_mut(a_off);
+            let pixels = source(row).chunks_exact(4);
+            for ((p, y), a) in pixels.zip(&mut luma[line..line + rw]).zip(&mut rest[line..line + rw]) {
+                if p[3] != 0 {
+                    *y = trunc(sum(&t.y, p));
+                    *a = p[3];
                 }
-                let (r, g, b) = (f64::from(pixels[i]), f64::from(pixels[i + 1]), f64::from(pixels[i + 2]));
-                out[line + col] = trunc(16.5 + ky[0] * r + ky[1] * g + ky[2] * b);
-                out[a_off + line + col] = a;
             }
         }
 
         // Chroma of each 2x2 block, weighted by alpha: no dark or coloured fringes.
         for by in y >> 1..=(y + rh - 1) >> 1 {
+            let rows = [by * 2, by * 2 + 1].map(|r| r.checked_sub(y).filter(|&r| r < rh).map(source));
             for bx in x >> 1..=(x + rw - 1) >> 1 {
                 let (mut sa, mut su, mut sv) = (0.0, 0.0, 0.0);
-                for dy in 0..2 {
-                    let Some(row) = (by * 2 + dy).checked_sub(y).filter(|&r| r < rh) else { continue };
-                    for dx in 0..2 {
-                        let Some(col) = (bx * 2 + dx).checked_sub(x).filter(|&c| c < rw) else { continue };
-                        let i = pixel(row, col);
-                        let a = f64::from(pixels[i + 3]);
-                        if a == 0.0 {
+                for pixels in rows.iter().flatten() {
+                    for c in [bx * 2, bx * 2 + 1] {
+                        let Some(col) = c.checked_sub(x).filter(|&c| c < rw) else { continue };
+                        let p = &pixels[col * 4..col * 4 + 4];
+                        if p[3] == 0 {
                             continue;
                         }
-                        let (r, g, b) = (f64::from(pixels[i]), f64::from(pixels[i + 1]), f64::from(pixels[i + 2]));
+                        let a = f64::from(p[3]);
                         sa += a;
-                        su += a * (ku[0] * r + ku[1] * g + ku[2] * b);
-                        sv += a * (kv[0] * r + kv[1] * g + kv[2] * b);
+                        su += a * sum(&t.u, p);
+                        sv += a * sum(&t.v, p);
                     }
                 }
                 if sa == 0.0 {
@@ -119,5 +208,5 @@ pub fn yuva_area(rects: &[Rect], (ox, oy, width, height): (u32, u32, u32, u32), 
         }
     }
 
-    out.into()
+    Arc::new(frame)
 }

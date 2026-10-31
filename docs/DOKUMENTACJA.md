@@ -329,7 +329,9 @@ Warunki i różnice:
 - Tempo transkodowania zależy od tempa grafiki: ffmpeg czeka na klatki
   z sidecara. Sidecar dławiony limitem CPU (przy ciągłej animacji) spowalnia
   więc cały kanał poniżej czasu rzeczywistego – odtwarzacz się buforuje.
-  Daj sidecarowi zapas CPU (`CG_CPUS` na A1, §4).
+  Daj sidecarowi zapas CPU (`CG_CPUS` na A1, §4). Pamięć klatek `yuva420p`
+  sidecar używa ponownie (mała pula), proces zajmuje przez to o kilkanaście MB
+  więcej.
 - Pozycja z innymi elementami grafiki, ale bez elementu VizRS, startuje
   o 2 s później (nakładka czeka na sesję) i leci ścieżką ErsatzTV.
 - Na wejściu surowe klatki kosztują pasmo, ale nie CPU: 1080p to ok. 5 MB

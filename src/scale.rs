@@ -134,67 +134,54 @@ fn quantized(p: Pixel) -> Pixel {
     p.map(|v| f32::from(to_byte(v)))
 }
 
-/// Horizontal pass over `count` rows of `src` premultiplied RGBA pixels to `dst`.
-fn horizontal(input: &[Pixel], src: usize, dst: usize, count: usize, quantize: bool) -> Vec<Pixel> {
+/// Horizontal pass over the rows of `src` premultiplied RGBA pixels: each
+/// to `dst` pixels, handed to `row` (its number and pixels) one at a time.
+fn horizontal(input: &[Pixel], src: usize, dst: usize, quantize: bool, mut row: impl FnMut(usize, &[Pixel])) {
     let taps = Taps::new(src, dst);
-    let mut out = vec![[0.0; 4]; dst * count];
-    for (row, out_row) in input.chunks_exact(src).zip(out.chunks_exact_mut(dst)) {
-        for (i, pixel) in out_row.iter_mut().enumerate() {
+    let mut out = vec![[0.0; 4]; dst];
+    for (y, line) in input.chunks_exact(src).enumerate() {
+        for (i, pixel) in out.iter_mut().enumerate() {
             let (start, w) = taps.of(i);
             let mut sum = [0.0f32; 4];
-            for (w, p) in w.iter().zip(&row[start..]) {
+            for (w, p) in w.iter().zip(&line[start..]) {
                 for c in 0..4 {
                     sum[c] += w * p[c];
                 }
             }
             *pixel = if quantize { quantized(sum) } else { sum };
         }
+        row(y, &out);
     }
-    out
 }
 
-/// Vertical pass: `src` rows of `width` premultiplied RGBA pixels to `dst` rows.
-/// All taps of a pixel at once: each output pixel is written once.
-fn vertical(input: &[Pixel], src: usize, dst: usize, width: usize, quantize: bool) -> Vec<Pixel> {
+/// Vertical pass: `src` rows of `width` premultiplied RGBA pixels to `dst`
+/// rows, handed to `row` one at a time. All taps of a pixel at once: each
+/// output pixel is written once.
+fn vertical(input: &[Pixel], src: usize, dst: usize, width: usize, quantize: bool, mut row: impl FnMut(usize, &[Pixel])) {
     let taps = Taps::new(src, dst);
-    let mut out = vec![[0.0; 4]; dst * width];
-    for (i, out_row) in out.chunks_exact_mut(width).enumerate() {
-        let (start, w) = taps.of(i);
-        let rows = &input[start * width..(start + w.len()) * width];
-        for (x, pixel) in out_row.iter_mut().enumerate() {
+    let mut out = vec![[0.0; 4]; width];
+    let mut lines: Vec<&[Pixel]> = Vec::new();
+    for y in 0..dst {
+        let (start, w) = taps.of(y);
+        lines.clear();
+        lines.extend(input[start * width..(start + w.len()) * width].chunks_exact(width));
+        for (x, pixel) in out.iter_mut().enumerate() {
             let mut sum = [0.0f32; 4];
-            for (k, w) in w.iter().enumerate() {
-                let p = rows[k * width + x];
+            for (w, line) in w.iter().zip(&lines) {
+                let p = line[x];
                 for c in 0..4 {
                     sum[c] += w * p[c];
                 }
             }
             *pixel = if quantize { quantized(sum) } else { sum };
         }
+        row(y, &out);
     }
-    out
 }
 
-/// RGBA `sw`x`sh` resized to `dw`x`dh`, alpha premultiplied while resampling.
-/// Shrinking goes as `vips_reduce` (vertical, then horizontal, each pass in 8 bits),
-/// enlarging as one bicubic step without rounding in between.
-pub fn resize(rgba: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
-    let premultiplied: Vec<Pixel> = rgba
-        .chunks_exact(4)
-        .map(|p| {
-            let a = f32::from(p[3]) / 255.0;
-            [f32::from(p[0]) * a, f32::from(p[1]) * a, f32::from(p[2]) * a, f32::from(p[3])]
-        })
-        .collect();
-
-    let result = if dw < sw || dh < sh {
-        horizontal(&vertical(&premultiplied, sh, dh, sw, true), sw, dw, dh, true)
-    } else {
-        vertical(&horizontal(&premultiplied, sw, dw, sh, false), sh, dh, dw, false)
-    };
-
-    let mut out = vec![0u8; dw * dh * 4];
-    for (pixel, p) in out.chunks_exact_mut(4).zip(&result) {
+/// Premultiplied pixels back to straight RGBA bytes.
+fn unpremultiply(pixels: &[Pixel], out: &mut [u8]) {
+    for (pixel, p) in out.chunks_exact_mut(4).zip(pixels) {
         let a = p[3].clamp(0.0, 255.0);
         let alpha = to_byte(a);
         // A pixel that ends up transparent carries no colour, as from libvips.
@@ -205,6 +192,32 @@ pub fn resize(rgba: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8
             }
         }
         pixel[3] = alpha;
+    }
+}
+
+/// RGBA `sw`x`sh` resized to `dw`x`dh`, alpha premultiplied while resampling.
+/// Shrinking goes as `vips_reduce` (vertical, then horizontal, each pass in 8 bits),
+/// enlarging as one bicubic step without rounding in between. The second
+/// pass goes straight to the output row by row: no picture of floats.
+pub fn resize(rgba: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
+    let premultiplied: Vec<Pixel> = rgba
+        .chunks_exact(4)
+        .map(|p| {
+            let a = f32::from(p[3]) / 255.0;
+            [f32::from(p[0]) * a, f32::from(p[1]) * a, f32::from(p[2]) * a, f32::from(p[3])]
+        })
+        .collect();
+
+    let mut out = vec![0u8; dw * dh * 4];
+    let mut put = |y: usize, row: &[Pixel]| unpremultiply(row, &mut out[y * dw * 4..(y + 1) * dw * 4]);
+    if dw < sw || dh < sh {
+        let mut first = Vec::with_capacity(sw * dh);
+        vertical(&premultiplied, sh, dh, sw, true, |_, row| first.extend_from_slice(row));
+        horizontal(&first, sw, dw, true, put);
+    } else {
+        let mut first = Vec::with_capacity(dw * sh);
+        horizontal(&premultiplied, sw, dw, false, |_, row| first.extend_from_slice(row));
+        vertical(&first, sh, dh, dw, false, &mut put);
     }
     out
 }
