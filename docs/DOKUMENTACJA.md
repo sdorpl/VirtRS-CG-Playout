@@ -1,4 +1,6 @@
-# VirtRS CG Playout – dokumentacja
+# VizRS CG Playout – dokumentacja
+
+> Do 2026-10-31 projekt nazywał się **VirtRS CG Playout**. Nazwy techniczne zostają bez zmian: binarka `virtrs-cg`, obraz `ghcr.io/sdorpl/virtrs-cg`, repozytorium `sdorpl/VirtRS-CG-Playout`, zmienne `VIRTRS_*`.
 
 1. [Jak to działa](#1-jak-to-działa)
 2. [Odpowiedniki w VizRS ffPlayout System](#2-odpowiedniki-w-vizrs-ffplayout-system)
@@ -501,9 +503,9 @@ harmonogramu jest dużo krótsza, więc w trakcie emisji pauza nie występuje.
 
 VizRS ffPlayout System jest od 2026-10-24 archiwum: nie jest rozwijany i
 zostaje jako wzorzec. Tabela pokazuje, skąd pochodzą opcje i jak przenieść
-szablony komend; nowe funkcje VirtRS CG nie mają już odpowiednika tam.
+szablony komend; nowe funkcje VizRS CG Playout nie mają już odpowiednika tam.
 
-| ffPlayout | ErsatzTV / VirtRS CG |
+| ffPlayout | ErsatzTV / VizRS CG Playout |
 |---|---|
 | Ustawienia → grafika VizRS: adres, token | `vizrs.address`, `vizrs.token` |
 | komendy klipu / reklamy | `on_clip` / `on_ad` |
@@ -913,7 +915,7 @@ wstawia `fps` przed filtrem nakładania. Sidecar nie potrzebuje GPU.
 
 ## 5. Uruchamianie bez Dockera, konfiguracja
 
-Binarka z archiwum wydania (`VirtRS-CG-<wersja>-linux-x86_64.tar.gz` albo
+Binarka z archiwum wydania (`VizRS-CG-Playout-<wersja>-linux-x86_64.tar.gz` albo
 `…-linux-arm64`, §7) albo zbudowana ze źródeł (`cargo build --release`,
 wynik w `target/release/virtrs-cg`, programy ErsatzTV w
 `target/release/vizrs-etv-client` i `vizrs-ffmpeg`; statycznie: `--bin
@@ -1139,7 +1141,7 @@ Wydanie (`.github/workflows/release.yml`) rusza po znaczniku `v*`
 (`git tag v2.0.6 && git push origin v2.0.6`) albo ręcznie (Actions → Release
 → Run workflow, z wersją; powstaje wtedy szkic wydania). Buduje:
 
-- archiwa `VirtRS-CG-<wersja>-linux-x86_64.tar.gz` i `…-linux-arm64.tar.gz`
+- archiwa `VizRS-CG-Playout-<wersja>-linux-x86_64.tar.gz` i `…-linux-arm64.tar.gz`
   (binarka `virtrs-cg`, `client/` z `vizrs-etv-client` i `vizrs-ffmpeg` –
   statycznymi, musl –, `etv/`, `config.example.json`), arm64 natywnie na runnerze arm,
 - obraz `ghcr.io/<właściciel>/virtrs-cg:<wersja>` i `:latest` (amd64 i arm64),

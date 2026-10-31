@@ -3,7 +3,7 @@
 > Status (2026-10-31): **etap N1 rozpoczęty** na gałęziach `render-native` obu repozytoriów: renderer `vizrs-render` 0.1
 > (VizRS `source/render/`, stan etapów: VizRS `docs/plany/PLAN-native.md`) i opcja `renderer: chromium|native|auto`
 > w sidecarze (DOKUMENTACJA §1, §5). Decyzje z §8 podjęte wg propozycji planu (niżej, „Decyzje – stan”).
-> Dotyczy dwóch repozytoriów: **VizRS CG System** (renderer, nowy kanał protokołu) i **VirtRS CG Playout** (odbiór klatek w sidecarze).
+> Dotyczy dwóch repozytoriów: **VizRS CG System** (renderer, nowy kanał protokołu) i **VizRS CG Playout** (odbiór klatek w sidecarze).
 > Powiązane: [DOKUMENTACJA.md](../DOKUMENTACJA.md) §1 (taśma crawla, obszar grafiki), §4 (Ampere A1), §8 (benchmark);
 > [PLAN-plynnosc.md](PLAN-plynnosc.md); w VizRS: `docs/plany/PLAN-lekkie-output.md`, `docs/DOKUMENTACJA.md` §4, §6, §7.
 
@@ -90,7 +90,7 @@ Szacunek trzeba potwierdzić prototypem na A1 (§7, etap N0).
 4. **Zgłaszanie braku obsługi:** renderer natywny mówi, których scen (węzłów, efektów) nie umie narysować,
    żeby sidecar mógł użyć Chromium.
 
-### 6.2 VirtRS CG Playout
+### 6.2 VizRS CG Playout
 
 1. Odbiór klatek z nowego kanału zamiast przechwytywania Chromium, gdy wszystkie strony na antenie obsługuje
    renderer natywny. Nowa opcja (np. `renderer: chromium|native|auto`) = `src/config.rs`, `config.example.json`,

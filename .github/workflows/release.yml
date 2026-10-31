@@ -40,7 +40,7 @@ jobs:
       - run: cargo build --release --locked --bin vizrs-etv-client --bin vizrs-ffmpeg --target ${{ matrix.musl }}
       - name: Paczka
         run: |
-          v=${VERSION#v}; d=VirtRS-CG-$v-${{ matrix.name }}; mkdir -p dist/$d
+          v=${VERSION#v}; d=VizRS-CG-Playout-$v-${{ matrix.name }}; mkdir -p dist/$d
           cp target/release/virtrs-cg dist/$d/
           cp -r etv README.md config.example.json dist/$d/
           mkdir dist/$d/client

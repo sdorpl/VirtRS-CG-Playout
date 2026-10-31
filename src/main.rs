@@ -1,4 +1,4 @@
-// VirtRS CG Playout sidecar: `virtrs-cg [config.json]` (or CONFIG=config.json).
+// VizRS CG Playout sidecar: `virtrs-cg [config.json]` (or CONFIG=config.json).
 
 use std::net::TcpListener;
 use std::path::PathBuf;

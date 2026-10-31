@@ -1,4 +1,4 @@
-// VirtRS CG Playout sidecar: VizRS graphics for ErsatzTV channels.
+// VizRS CG Playout sidecar: VizRS graphics for ErsatzTV channels.
 // Successor of the Node.js sidecar with the same contract (DOKUMENTACJA.md);
 // the migration: docs/plany/PLAN-rust.md.
 

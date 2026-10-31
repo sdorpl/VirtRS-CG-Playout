@@ -1,4 +1,6 @@
-# VirtRS CG Playout — grafika VizRS na kanałach ErsatzTV
+# VizRS CG Playout — grafika VizRS na kanałach ErsatzTV
+
+> Do 2026-10-31 projekt nazywał się **VirtRS CG Playout**. Nazwy techniczne zostają bez zmian: binarka `virtrs-cg`, obraz `ghcr.io/sdorpl/virtrs-cg`, repozytorium `sdorpl/VirtRS-CG-Playout`, zmienne `VIRTRS_*`.
 
 Część rodziny **VizRS**: grafika z [VizRS CG System](../VizRS%20CG%20System)
 na kanałach [ErsatzTV](https://ersatztv.org). Mały serwis pomocniczy (sidecar)
@@ -23,7 +25,7 @@ x86_64 i arm64 (DOKUMENTACJA §4, §7).
 |---|---|
 | [VizRS CG System](../VizRS%20CG%20System) | silnik grafiki: Artist (sceny), Trio (playout stron), `/output`, API TCP 6100 / HTTP / SSE |
 | [VizRS ffPlayout System](../VizRS%20ffPlayout%20System) | **archiwum** (od 2026-10-24): porzucony playout 24/7 (fork ffplayout, GPL-3.0), wzorzec integracji |
-| **VirtRS CG Playout** (to repo) | ta sama integracja VizRS dla kanałów ErsatzTV, bez zmian w ErsatzTV |
+| **VizRS CG Playout** (to repo) | ta sama integracja VizRS dla kanałów ErsatzTV, bez zmian w ErsatzTV |
 
 Aplikacje łączy tylko protokół VizRS (TCP 6100, `/output`), opisany w
 [API.md](../VizRS%20CG%20System/docs/API.md) systemu VizRS. Konfiguracja

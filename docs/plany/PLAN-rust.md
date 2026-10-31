@@ -1,4 +1,4 @@
-# PLAN: migracja sidecara VirtRS CG z Node.js do Rusta
+# PLAN: migracja sidecara VizRS CG Playout z Node.js do Rusta
 
 > Status (2026-10-25): **etapy 0–9 zrobione na `rust-edit`** – sidecar jest w Ruście w korzeniu repozytorium, kod Node.js usunięty, Node.js zostaje tylko do testów kontraktu i benchmarku. Otwarte: pomiar na Ampere A1 (`bench/`, DOKUMENTACJA §8), scalenie do `main` i wydanie.
 > Gałąź robocza: **`rust-edit`**. `main` do etapu 8 zostaje wydawalny na Node.js.

@@ -1,4 +1,4 @@
-// ErsatzTV script graphics element -> VirtRS CG sidecar (binary
+// ErsatzTV script graphics element -> VizRS CG Playout sidecar (binary
 // vizrs-etv-client, etv/templates/graphics-elements/script/vizrs.yml).
 //
 // ErsatzTV starts this for every playout item: the template data (JSON) comes

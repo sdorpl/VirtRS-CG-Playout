@@ -1,4 +1,4 @@
-# VirtRS CG sidecar: Rust binary + headless Chromium (no GPU), amd64 and arm64.
+# VizRS CG Playout sidecar: Rust binary + headless Chromium (no GPU), amd64 and arm64.
 # The binary is built on the build host's platform and cross-compiled for the
 # target (pure Rust, no C libraries): no emulation, minutes instead of an hour
 # under QEMU. chromium-headless-shell renders /output with about half the CPU
