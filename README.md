@@ -1,6 +1,6 @@
 # VizRS CG Playout — grafika VizRS na kanałach ErsatzTV
 
-> Do 2026-10-31 projekt nazywał się **VirtRS CG Playout**. Nazwy techniczne zostają bez zmian: binarka `virtrs-cg`, obraz `ghcr.io/sdorpl/virtrs-cg`, repozytorium `sdorpl/VirtRS-CG-Playout`, zmienne `VIRTRS_*`.
+> Do 2026-10-31 projekt nazywał się **VirtRS CG Playout** (repozytorium `sdorpl/VirtRS-CG-Playout`, GitHub przekierowuje stary adres). Nazwy techniczne zostają bez zmian: binarka `virtrs-cg`, obraz `ghcr.io/sdorpl/virtrs-cg`, zmienne `VIRTRS_*`.
 
 Część rodziny **VizRS**: grafika z [VizRS CG System](../VizRS%20CG%20System)
 na kanałach [ErsatzTV](https://ersatztv.org). Mały serwis pomocniczy (sidecar)

@@ -1,6 +1,6 @@
 # VizRS CG Playout – dokumentacja
 
-> Do 2026-10-31 projekt nazywał się **VirtRS CG Playout**. Nazwy techniczne zostają bez zmian: binarka `virtrs-cg`, obraz `ghcr.io/sdorpl/virtrs-cg`, repozytorium `sdorpl/VirtRS-CG-Playout`, zmienne `VIRTRS_*`.
+> Do 2026-10-31 projekt nazywał się **VirtRS CG Playout** (repozytorium `sdorpl/VirtRS-CG-Playout`, GitHub przekierowuje stary adres). Nazwy techniczne zostają bez zmian: binarka `virtrs-cg`, obraz `ghcr.io/sdorpl/virtrs-cg`, zmienne `VIRTRS_*`.
 
 1. [Jak to działa](#1-jak-to-działa)
 2. [Odpowiedniki w VizRS ffPlayout System](#2-odpowiedniki-w-vizrs-ffplayout-system)
@@ -1225,7 +1225,7 @@ np. Ampere A1); pierwszy build trwa kilka minut.
 
 1. **Stacks → Add stack**, nazwa np. `virtrs-bench`.
 2. **Build method: Repository**:
-   - Repository URL: `https://github.com/sdorpl/VirtRS-CG-Playout`
+   - Repository URL: `https://github.com/sdorpl/VizRS-CG-Playout`
    - Repository reference: `refs/heads/main`
    - Compose path: `bench/docker-compose.yml`
    - (repozytorium jest publiczne – bez uwierzytelniania)

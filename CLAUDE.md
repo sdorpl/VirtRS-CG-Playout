@@ -6,7 +6,7 @@ reklamy bez grafiki i wtapianie `/output` – przez nakładkę ffmpeg (grafika w
 Rodzina VizRS (repozytoria obok, `../`):
 - **VizRS CG System** (`../VizRS CG System`) – silnik grafiki (Rust): Artist, Trio, `/output`, API TCP 6100 / HTTP / SSE. Plan kanału: `docs/plany/PLAN-kanal.md`.
 - **VizRS ffPlayout System** (`../VizRS ffPlayout System`) – **archiwum od 2026-10-24**: porzucony własny playout 24/7 (fork ffplayout, GPL-3.0). Zostaje jako wzorzec integracji VizRS, nie jest rozwijany.
-- **VizRS CG Playout** (to repo, do 2026-10-31 „VirtRS CG Playout”) – ta integracja dla ErsatzTV. Zmieniona tylko nazwa w tekstach; binarki (`virtrs-cg`, `vizrs-etv-client`, `vizrs-ffmpeg`), crate, obrazy, usługi compose, zmienne `VIRTRS_*` i adres repozytorium bez zmian.
+- **VizRS CG Playout** (to repo, do 2026-10-31 „VirtRS CG Playout”) – ta integracja dla ErsatzTV. Zmieniona tylko nazwa w tekstach; binarki (`virtrs-cg`, `vizrs-etv-client`, `vizrs-ffmpeg`), crate, obrazy, usługi compose, zmienne `VIRTRS_*` bez zmian; repozytorium GitHub: `sdorpl/VizRS-CG-Playout`.
 
 Język pracy z użytkownikiem i dokumentacji: **polski**. Kod, komentarze i komunikaty logu są po angielsku — pisz zgodnie z otoczeniem.
 
